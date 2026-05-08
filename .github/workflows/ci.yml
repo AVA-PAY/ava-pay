@@ -17,6 +17,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Build agent SDK (required before typecheck/tests)
+        run: npm run build -w @ava-pay/agent
       - run: npm run typecheck
       - run: npm run check:type-sync
       - run: npm test
