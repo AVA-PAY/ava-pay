@@ -1,0 +1,27 @@
+{% comment %}
+  AVA Pay theme app extension — App Embed Block.
+
+  Once a merchant installs the AVA Pay app, this block appears in the
+  Shopify theme editor under "App embeds". They click the toggle and AVA Pay
+  is live on every page of their storefront — no code changes, no copy/paste.
+
+  The single line below loads our app proxy embed script. The script:
+    1. Detects AVA agent fingerprints on storefront page loads.
+    2. Calls /apps/ava-pay/verify (HMAC-signed by Shopify on the way to us).
+    3. Applies a one-time discount code if the agent is trusted.
+{% endcomment %}
+
+<script async src="{{ shop.url }}/apps/ava-pay/embed.js"></script>
+
+{% schema %}
+{
+  "name": "AVA Pay",
+  "target": "head",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "AVA Pay verifies AI shopping agents and applies a one-time discount to verified orders. Configure the discount percentage in the AVA Pay app's Settings page."
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,132 @@
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyStatic from '@fastify/static';
+import { verifyRoute } from './routes/verify.js';
+import type { AgentVerifier } from './verifier/interface.js';
+import { VisaAgentVerifier } from './verifier/visa.js';
+import { Ap2AgentVerifier } from './verifier/ap2.js';
+import { MultiProtocolVerifier } from './verifier/multi.js';
+import {
+  CachingAgentDirectory,
+  FIVE_MINUTES_MS,
+  RemoteAgentDirectory,
+  StaticAgentDirectory,
+  type AgentDirectory,
+} from './verifier/agent-directory.js';
+import { directoryRoutes } from './directory/routes.js';
+import {
+  FileDirectoryStorage,
+  InMemoryDirectoryStorage,
+  type DirectoryStorage,
+} from './directory/storage.js';
+import { StorageBackedAgentDirectory } from './directory/storage-directory.js';
+
+export interface BuildServerOptions {
+  /** Override the verifier (e.g. swap in MockAgentVerifier for non-crypto tests). */
+  verifier?: AgentVerifier;
+  /** Override the directory used by the default multi-protocol verifier. */
+  directory?: AgentDirectory;
+  /**
+   * Mount the hosted Agent Directory routes (`/directory/...` and `/.well-known/...`).
+   * Defaults to true when no `verifier` override is supplied. Tests pass false to
+   * keep route surface minimal.
+   */
+  mountDirectory?: boolean;
+  /** Storage backend for the hosted directory. Default: file-backed at $AVA_DIRECTORY_DATA or /tmp. */
+  directoryStorage?: DirectoryStorage;
+  /** Bearer token gating directory writes. Defaults to $DIRECTORY_REGISTRATION_TOKEN. */
+  registrationToken?: string;
+  /** Serve the public/ landing page. Defaults to true if the dir exists. */
+  servePublic?: boolean;
+  /** Pass false in tests to silence Fastify's default logger. */
+  logger?: boolean;
+}
+
+/**
+ * Compose the Fastify app.
+ *
+ * Default wiring:
+ *   - MultiProtocolVerifier { visa: VisaAgentVerifier, ap2: Ap2AgentVerifier }
+ *   - directory = CachingAgentDirectory(inner, 5min TTL)
+ *   - inner = RemoteAgentDirectory if VISA_AGENT_DIRECTORY_URL is set,
+ *             else StorageBackedAgentDirectory if hosting the directory,
+ *             else an empty StaticAgentDirectory.
+ *   - hosted directory routes mounted by default (turn off with mountDirectory:false)
+ */
+export async function buildServer(opts: BuildServerOptions = {}): Promise<FastifyInstance> {
+  const loggerOpt = opts.logger ?? { level: process.env.LOG_LEVEL ?? 'info' };
+  const app = Fastify({ logger: loggerOpt });
+
+  const mountDirectory = opts.mountDirectory ?? !opts.verifier;
+  const directoryStorage = opts.directoryStorage ?? buildDefaultDirectoryStorage();
+
+  // Verifier selection.
+  let verifier = opts.verifier;
+  if (!verifier) {
+    const directory = opts.directory ?? buildDefaultDirectory(directoryStorage);
+    const visa = new VisaAgentVerifier({ directory });
+    const ap2 = new Ap2AgentVerifier({ directory });
+    verifier = new MultiProtocolVerifier({ visa, ap2 });
+  }
+
+  await app.register(verifyRoute, { verifier });
+
+  // Hosted Agent Directory.
+  if (mountDirectory) {
+    const registrationToken = opts.registrationToken ?? process.env.DIRECTORY_REGISTRATION_TOKEN;
+    await app.register(directoryRoutes, {
+      storage: directoryStorage,
+      ...(registrationToken ? { registrationToken } : {}),
+    });
+  }
+
+  app.get('/healthz', async () => ({ ok: true }));
+
+  // Serve the public landing page if a `public/` directory exists. Resolves
+  // both from compiled-output location (`dist/src/server.js` → ../../public)
+  // and from tsx run (`src/server.ts` → ../public).
+  const publicDir = resolvePublicDir();
+  if (publicDir && (opts.servePublic ?? true)) {
+    await app.register(fastifyStatic, { root: publicDir, prefix: '/', decorateReply: false });
+  }
+
+  return app;
+}
+
+function resolvePublicDir(): string | null {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(here, '../public'),     // tsx: src/server.ts → ../public
+    resolve(here, '../../public'),  // compiled: dist/src/server.js → ../../public
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  return null;
+}
+
+function buildDefaultDirectoryStorage(): DirectoryStorage {
+  const path = process.env.AVA_DIRECTORY_DATA;
+  if (path) return new FileDirectoryStorage(path);
+  return new InMemoryDirectoryStorage();
+}
+
+function buildDefaultDirectory(hostedStorage: DirectoryStorage): AgentDirectory {
+  const remoteUrl = process.env.VISA_AGENT_DIRECTORY_URL;
+  if (remoteUrl) {
+    const apiKey = process.env.VISA_API_KEY;
+    const remote = new RemoteAgentDirectory({
+      baseUrl: remoteUrl,
+      ...(apiKey ? { apiKey } : {}),
+    });
+    return new CachingAgentDirectory(remote, { ttlMs: FIVE_MINUTES_MS });
+  }
+  // No remote directory configured — use our own hosted storage as the source
+  // of truth. Registrations made via /directory/agents become resolvable
+  // immediately by the verifier.
+  return new CachingAgentDirectory(new StorageBackedAgentDirectory(hostedStorage), {
+    ttlMs: FIVE_MINUTES_MS,
+  });
+}

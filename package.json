@@ -1,0 +1,38 @@
+{
+  "name": "ava-pay",
+  "version": "0.1.0",
+  "description": "AVA Pay — verification & payment layer for AI shopping agents.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "build:sdk": "npm run build -w @ava-pay/agent",
+    "start": "node dist/src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:all": "npm run typecheck && npm run typecheck -w @ava-pay/agent",
+    "demo": "tsx examples/agent-demo.ts",
+    "demo:ap2": "tsx examples/agent-demo.ts --ap2",
+    "demo:http": "tsx examples/agent-demo.ts --http",
+    "check:type-sync": "tsx scripts/check-type-sync.ts"
+  },
+  "dependencies": {
+    "@ava-pay/agent": "*",
+    "@fastify/static": "^7.0.4",
+    "fastify": "^4.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,129 @@
+import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from '@remix-run/node';
+import { authenticate } from '../shopify.server.js';
+import { getAvaPayClient } from '../lib/ava.server.js';
+import { applyMerchantPolicy, getShopSettings } from '../lib/settings.server.js';
+import { createOneTimeDiscount } from '../lib/discount.server.js';
+import prisma from '../db.server.js';
+import type { IncomingRequest } from '../lib/ava-types.js';
+
+/**
+ * App Proxy endpoint:  https://{shop}.myshopify.com/apps/ava-pay/verify
+ *
+ * V0.2 — Real Visa TAP / RFC 9421:
+ *   The agent (or the storefront embed.js on the agent's behalf) sends a
+ *   request whose actual HTTP headers carry the signed payload —
+ *   `Signature`, `Signature-Input`, `Content-Digest`, `Host`,
+ *   `x-ava-mandate`, and anything else the agent attaches.
+ *
+ *   We pass that request through to AVA Pay /verify EXACTLY as we received
+ *   it: no header allowlist, no JSON wrapper. The only construction we do is
+ *   reconstructing the URL the agent originally signed, since by the time
+ *   Shopify forwards the request to our app the Host header reflects our
+ *   internal app domain rather than the storefront myshopify host.
+ *
+ * Failure mode unchanged: if AVA Pay is unreachable or the agent fails
+ * verification, we fail closed (`allow: false`). Storefront JS treats that as
+ * "no discount, proceed normally" — never blocks the customer.
+ */
+
+interface ProxyResponseBody {
+  allow: boolean;
+  discount?: {
+    code: string;
+    percentage: number;
+  };
+  reason: string;
+}
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  await authenticate.public.appProxy(request);
+  return json({ ok: true, service: 'ava-pay-proxy' });
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const { session, admin } = await authenticate.public.appProxy(request);
+
+  if (!session || !admin) {
+    return json<ProxyResponseBody>({ allow: false, reason: 'no_session' }, { status: 401 });
+  }
+
+  const shop = session.shop;
+
+  // Pass-through: collect every incoming header verbatim, lower-cased so the
+  // verifier on the AVA Pay side can index consistently. No allowlist.
+  const headers: Record<string, string> = {};
+  for (const [k, v] of request.headers.entries()) {
+    headers[k.toLowerCase()] = v;
+  }
+
+  // Reconstruct the URL + Host the agent signed against. Shopify's app proxy
+  // strips the storefront host as it forwards to our internal domain — but
+  // the agent signed against `https://{shop}.myshopify.com/apps/ava-pay/verify`
+  // and Host: {shop}.myshopify.com. We restore both so the signature base
+  // recomputes correctly on the AVA Pay side.
+  const signedUrl = `https://${shop}/apps/ava-pay/verify`;
+  headers['host'] = shop;
+
+  const body = await request.text();
+
+  const incoming: IncomingRequest = {
+    method: request.method,
+    url: signedUrl,
+    headers,
+    ...(body ? { body } : {}),
+  };
+
+  const settings = await getShopSettings(shop);
+
+  const ava = getAvaPayClient();
+  const verifyCall = await ava.verify(incoming);
+
+  if (!verifyCall.ok) {
+    await prisma.verificationLog.create({
+      data: {
+        shop,
+        agentId: extractAgentIdHint(headers),
+        trusted: false,
+        reason: `ava_${verifyCall.error}`,
+      },
+    });
+    return json<ProxyResponseBody>({ allow: false, reason: `ava_${verifyCall.error}` });
+  }
+
+  const decision = applyMerchantPolicy(settings, verifyCall.result);
+
+  await prisma.verificationLog.create({
+    data: {
+      shop,
+      agentId: extractAgentIdHint(headers),
+      trusted: verifyCall.result.trusted,
+      reason: decision.allow ? 'verified' : decision.reason,
+      discountPct: decision.allow ? decision.discountPct : null,
+    },
+  });
+
+  if (!decision.allow) {
+    return json<ProxyResponseBody>({ allow: false, reason: decision.reason });
+  }
+
+  const discount = await createOneTimeDiscount(admin, decision.discountPct);
+
+  return json<ProxyResponseBody>({
+    allow: true,
+    reason: 'verified',
+    ...(discount ? { discount: { code: discount.code, percentage: discount.percentage } } : {}),
+  });
+}
+
+/**
+ * Best-effort agent ID for the verification log. Real TAP requests put the
+ * agent ID in the `keyid` parameter of Signature-Input, not in a header. We
+ * extract it for telemetry purposes only — the signature verifier on the API
+ * side is the authority.
+ */
+function extractAgentIdHint(headers: Record<string, string>): string | null {
+  const sigInput = headers['signature-input'];
+  if (!sigInput) return null;
+  const match = sigInput.match(/keyid="([^"]+)"/);
+  return match?.[1] ?? null;
+}

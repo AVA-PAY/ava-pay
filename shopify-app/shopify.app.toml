@@ -1,0 +1,47 @@
+# Shopify app config. Replace placeholder values with the ones from your Partners
+# dashboard the first time you run `shopify app config link`.
+name = "ava-pay"
+client_id = "REPLACE_WITH_YOUR_CLIENT_ID"
+application_url = "https://example.com"
+embedded = true
+
+[build]
+include_config_on_deploy = true
+
+[access_scopes]
+# What we need:
+#   read_orders, write_discounts: create one-time discount codes for verified agents
+#   write_checkouts: read checkout data via webhook for telemetry
+scopes = "read_orders,write_discounts,write_checkouts,read_customers"
+
+[auth]
+redirect_urls = [
+  "https://example.com/auth/callback",
+  "https://example.com/auth/shopify/callback",
+  "https://example.com/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2024-07"
+
+[[webhooks.subscriptions]]
+topics = [ "app/uninstalled" ]
+uri = "/webhooks/app/uninstalled"
+
+[[webhooks.subscriptions]]
+topics = [ "checkouts/create" ]
+uri = "/webhooks/checkouts/create"
+
+[[webhooks.subscriptions]]
+topics = [ "orders/create" ]
+uri = "/webhooks/orders/create"
+
+[pos]
+embedded = false
+
+# App proxy: storefront JS calls https://{shop}.myshopify.com/apps/ava-pay/...
+# and Shopify forwards to our /proxy/... routes (HMAC-signed by Shopify).
+[app_proxy]
+url = "https://example.com/proxy"
+subpath = "ava-pay"
+prefix = "apps"

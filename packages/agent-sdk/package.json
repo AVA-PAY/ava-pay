@@ -1,0 +1,64 @@
+{
+  "name": "@ava-pay/agent",
+  "version": "0.1.0",
+  "description": "Agent SDK for AVA Pay — sign Visa Trusted Agent Protocol (RFC 9421) and Google Agent Payments Protocol (AP2) requests. Plus the parsing primitives for building your own verifier.",
+  "type": "module",
+  "license": "MIT",
+  "author": "AVA (https://ava.example)",
+  "homepage": "https://github.com/ava-pay/ava-pay",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ava-pay/ava-pay.git",
+    "directory": "packages/agent-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/ava-pay/ava-pay/issues"
+  },
+  "keywords": [
+    "ai-agent",
+    "agent-payments",
+    "visa-trusted-agent-protocol",
+    "ap2",
+    "google-agent-payments-protocol",
+    "rfc-9421",
+    "http-message-signatures",
+    "ed25519",
+    "jws"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./protocol/visa": {
+      "types": "./dist/protocol/visa/http-signatures.d.ts",
+      "import": "./dist/protocol/visa/http-signatures.js"
+    },
+    "./protocol/ap2": {
+      "types": "./dist/protocol/ap2/index.d.ts",
+      "import": "./dist/protocol/ap2/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

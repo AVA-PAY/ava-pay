@@ -1,0 +1,56 @@
+// Prisma schema for AVA Pay's Shopify app.
+//
+// Two stores:
+//   Session — required by @shopify/shopify-app-session-storage-prisma. Holds
+//             OAuth access tokens for each installed shop.
+//   ShopSettings — our merchant-controlled config (toggle + max discount).
+//   VerificationLog — telemetry, used by the dashboard later.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+model ShopSettings {
+  shop                  String   @id
+  acceptVerifiedAgents  Boolean  @default(true)
+  /// Default discount percentage applied to verified agent orders, in whole percent (0-100).
+  defaultDiscountPct    Int      @default(10)
+  /// Hard cap on discount the merchant will allow even if the verifier returns higher.
+  maxDiscountPct        Int      @default(20)
+  updatedAt             DateTime @updatedAt
+}
+
+model VerificationLog {
+  id          String   @id @default(cuid())
+  shop        String
+  agentId     String?
+  trusted     Boolean
+  reason      String?
+  discountPct Int?
+  createdAt   DateTime @default(now())
+
+  @@index([shop, createdAt])
+}

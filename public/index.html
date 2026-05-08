@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AVA Pay — verified agent commerce</title>
+  <meta name="description" content="The neutral verification + payment layer for AI shopping agents. One install on the merchant side; one registration on the agent side; both Visa Trusted Agent Protocol and Google AP2." />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <nav class="nav">
+      <span class="logo">AVA Pay</span>
+      <span class="nav-links">
+        <a href="#demo">Live demo</a>
+        <a href="#agents">For agent issuers</a>
+        <a href="#merchants">For merchants</a>
+        <a href="https://github.com/ava-pay/ava-pay" target="_blank" rel="noreferrer">GitHub</a>
+      </span>
+    </nav>
+    <h1>The trust handshake for AI commerce.</h1>
+    <p class="lede">
+      Merchants block AI agents because they look like bots. AVA Pay adds the cryptographic handshake — Visa Trusted Agent Protocol or Google AP2 — so verified agents complete checkout instead of getting blocked. <strong>One install. Both protocols. Every merchant.</strong>
+    </p>
+    <div class="cta-row">
+      <a class="cta primary" href="#demo">Watch a verification happen →</a>
+      <a class="cta secondary" href="#agents">Register an agent</a>
+    </div>
+  </header>
+
+  <section id="demo" class="demo">
+    <h2>Live demo</h2>
+    <p class="section-lede">
+      Click the button. Your browser generates a fresh Ed25519 keypair, registers it with the directory, signs a real request, and sends it to <code>/verify</code>. No simulation — actual cryptography end to end. Pick the protocol.
+    </p>
+
+    <div class="demo-card">
+      <div class="protocol-toggle">
+        <label><input type="radio" name="protocol" value="visa" checked /> Visa Trusted Agent Protocol</label>
+        <label><input type="radio" name="protocol" value="ap2" /> Google AP2</label>
+      </div>
+
+      <div class="demo-form">
+        <label>
+          Buyer name
+          <input id="buyerName" type="text" value="Alex" />
+        </label>
+        <label>
+          Spend cap (USD)
+          <input id="spendCap" type="number" min="1" max="10000" value="500" />
+        </label>
+        <label>
+          Cart total (USD)
+          <input id="cartTotal" type="number" min="1" max="10000" value="49.99" step="0.01" />
+        </label>
+      </div>
+
+      <button id="runDemo" class="cta primary">Sign + verify</button>
+
+      <div id="demoOutput" class="demo-output" hidden>
+        <div class="step">
+          <h3>1. Signed request</h3>
+          <pre id="signedOut"></pre>
+        </div>
+        <div class="step">
+          <h3>2. Verifier verdict</h3>
+          <pre id="verdictOut"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="directory" class="directory">
+    <h2>The Agent Directory</h2>
+    <p class="section-lede">
+      Every agent that wants to be trusted by every AVA Pay merchant registers their public key once. Lookup is a plain HTTPS GET; resolution is cached merchant-side for 5 minutes. Below is the live state of this instance's directory.
+    </p>
+    <div id="directoryList" class="directory-list">Loading…</div>
+  </section>
+
+  <section id="agents" class="for-agents">
+    <h2>For agent issuers</h2>
+    <p class="section-lede">
+      <code>npm install @ava-pay/agent</code> and you can sign requests for either protocol. Three lines of code, plus one curl to register your key.
+    </p>
+    <pre class="code-block"><code>import { generateAgentKeyPair, signWithVisa } from '@ava-pay/agent';
+
+const { privateKey } = generateAgentKeyPair();
+const signed = signWithVisa({
+  method: 'POST',
+  url: 'https://shop.example.com/cart',
+  body: JSON.stringify({ items: [...] }),
+  agentId: 'agent_acme',
+  privateKey,
+  mandate: { /* user authorization */ },
+});
+
+await fetch(signed.url, { method: signed.method, headers: signed.headers, body: signed.body });</code></pre>
+    <p>Full onboarding flow: <a href="https://github.com/ava-pay/ava-pay/blob/main/AGENT_ISSUERS.md" target="_blank" rel="noreferrer">AGENT_ISSUERS.md</a></p>
+  </section>
+
+  <section id="merchants" class="for-merchants">
+    <h2>For merchants</h2>
+    <p class="section-lede">
+      Install the AVA Pay app on Shopify. Toggle on a discount tier for verified agents. Every protocol-compatible AI agent now completes checkout instead of getting blocked, and you see them in your dashboard with traffic, conversion, and discount spend.
+    </p>
+    <p>Coming to WooCommerce, BigCommerce, and a generic JS middleware next.</p>
+  </section>
+
+  <footer>
+    <p>AVA Pay · <a href="https://github.com/ava-pay/ava-pay" target="_blank" rel="noreferrer">github.com/ava-pay/ava-pay</a> · MIT</p>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

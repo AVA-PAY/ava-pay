@@ -1,0 +1,7 @@
+name = "ava-pay-web"
+roles = ["frontend", "backend"]
+webhooks_path = "/webhooks"
+
+[commands]
+predev = "npm run setup"
+dev = "npm exec remix vite:dev"

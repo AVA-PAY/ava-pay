@@ -1,0 +1,41 @@
+# Local stack for the AVA Pay API.
+#
+# Redis is included even though VisaAgentVerifier currently uses an in-memory
+# cache — the next iteration of CachingAgentDirectory will be Redis-backed,
+# and shipping the service alongside means switching is a one-line change.
+#
+# Usage:
+#   docker compose up --build         # builds the API image and starts both services
+#   docker compose run --rm api node dist/src/index.js   # run alternative entrypoint
+
+services:
+  api:
+    build: .
+    image: ava-pay-api:dev
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      LOG_LEVEL: "info"
+      # Set these once Visa Partners credentials are provisioned. Without them
+      # the API runs against an empty StaticAgentDirectory — fine for smoke
+      # tests, but every agent lookup returns unknown_agent.
+      # VISA_AGENT_DIRECTORY_URL: "https://agent-directory.visa.com"
+      # VISA_API_KEY: ""
+      REDIS_URL: "redis://redis:6379"
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5

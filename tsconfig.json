@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "tests/**/*", "examples/**/*", "scripts/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "packages",
+    "src/store/keystore.ts",
+    "src/sdk",
+    "src/protocol",
+    "src/verifier/http-signatures.ts",
+    "src/types.ts"
+  ]
+}

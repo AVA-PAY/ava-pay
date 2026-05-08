@@ -1,0 +1,9 @@
+{% comment %}
+  Optional fallback snippet for merchants who prefer manual install.
+
+  Paste this single line anywhere in your theme.liquid <head>:
+    {% raw %}{% render 'ava-pay' %}{% endraw %}
+
+  (or paste the script tag below directly).
+{% endcomment %}
+<script async src="{{ shop.url }}/apps/ava-pay/embed.js"></script>

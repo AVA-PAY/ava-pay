@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test / tooling
+coverage/
+*.timestamp-*.mjs
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# Local Claude Code settings
+.claude/
+
+# Shopify plugin local DB
+shopify-app/dev.sqlite*
+shopify-app/.shopify/
+
+# npm pack / publish artifacts
+*.tgz
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
