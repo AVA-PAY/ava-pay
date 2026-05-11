@@ -63,7 +63,7 @@ AVA Pay/
 | Agent Directory + caching | ✅ 5-min TTL, caches misses, `Remote`/`Static`/`StorageBacked` impls |
 | **Hosted Agent Directory** | ✅ `/.well-known/ava-agent-directory`, register/lookup/revoke, file-backed storage |
 | Public agent SDK | ✅ `packages/agent-sdk/` — `@ava-pay/agent`, ready-to-publish (17.4 kB tarball) |
-| Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, registers + signs + verifies |
+| Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
 | Runnable demos | ✅ `npm run demo`, `npm run demo:ap2` |
 | API tests | ✅ 37 with real cryptography (TAP + AP2 + directory + caching) |
@@ -157,10 +157,6 @@ To wire that in:
 3. **No code changes needed.** Verification, mandate scoping, content-digest enforcement, and revocation handling all flow through the same `AgentVerifier` interface.
 
 While you wait for partner access, dev mode pre-loads an empty `StaticAgentDirectory`. The test suite uses the same primitive, generating fresh Ed25519 keypairs at test boot — that's how every assertion in `tests/verify.test.ts` exercises real cryptography end-to-end.
-
-### Heads-up: Shopify plugin needs a follow-up
-
-The plugin's storefront `embed.js` currently forwards only `x-ava-agent-id`, `x-ava-signature`, and `x-ava-mandate`. With real signatures, it needs to instead forward `Signature`, `Signature-Input`, `Content-Digest`, `Host`, and `x-ava-mandate`. The fix is small (whitelist the right headers in `proxy.embed[.js].tsx` and `proxy.verify.tsx`), but we deliberately haven't touched the plugin in this pass.
 
 ## Performance
 

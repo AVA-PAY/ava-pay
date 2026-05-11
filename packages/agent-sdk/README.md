@@ -1,6 +1,18 @@
 # @ava-pay/agent
 
-Sign Visa Trusted Agent Protocol (RFC 9421 + Ed25519) and Google Agent Payments Protocol (AP2 mandate-chain JWS) requests, from Node.js. The agent-side SDK for [AVA Pay](https://github.com/ava-pay/ava-pay) — the merchant-installable verification + payment layer for AI shopping agents.
+> **Status: developer preview (0.1.x).** The API surface and signing
+> behaviour are usable for early integration and testing, but they may
+> change before 1.0. The Visa mandate path in this version is
+> **agent-signed**: the mandate JWS is signed with the agent's key,
+> treating the agent as the authority over its own spending limits.
+> A **buyer-signed / wallet-signed** authorization path (production
+> grade payment authorization, where the human or the human's wallet
+> signs the mandate, and the agent only relays it) is on the roadmap.
+> If you're integrating against this preview, treat the verdict as
+> "this signed request really came from this registered agent," not
+> "this transaction is authorized by an end user."
+
+Sign Visa Trusted Agent Protocol (RFC 9421 + Ed25519) and Google Agent Payments Protocol (AP2 mandate chain JWS) requests, from Node.js. The agent side SDK for [AVA Pay](https://github.com/AVA-PAY/ava-pay), the merchant installable verification and payment layer for AI shopping agents.
 
 Use it from any AI agent (Claude, ChatGPT, custom) that needs to make purchases on behalf of a verified user.
 

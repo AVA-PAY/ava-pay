@@ -17,6 +17,9 @@ coverage/
 # Local Claude Code settings
 .claude/
 
+# Session hand-off notes (Claude-to-Claude context across sessions, not for public consumption)
+RESUME.md
+
 # Shopify plugin local DB
 shopify-app/dev.sqlite*
 shopify-app/.shopify/

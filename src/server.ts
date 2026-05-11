@@ -22,6 +22,7 @@ import {
   type DirectoryStorage,
 } from './directory/storage.js';
 import { StorageBackedAgentDirectory } from './directory/storage-directory.js';
+import { seedDemoAgent } from './directory/seed-demo.js';
 
 export interface BuildServerOptions {
   /** Override the verifier (e.g. swap in MockAgentVerifier for non-crypto tests). */
@@ -88,8 +89,17 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
   // both from compiled-output location (`dist/src/server.js` → ../../public)
   // and from tsx run (`src/server.ts` → ../public).
   const publicDir = resolvePublicDir();
-  if (publicDir && (opts.servePublic ?? true)) {
-    await app.register(fastifyStatic, { root: publicDir, prefix: '/', decorateReply: false });
+  const servingPublic = publicDir !== null && (opts.servePublic ?? true);
+  if (servingPublic) {
+    await app.register(fastifyStatic, { root: publicDir!, prefix: '/', decorateReply: false });
+  }
+
+  // If we're serving the public landing page AND mounting the directory,
+  // pre-seed the public demo agent so visitors can sign + verify without
+  // self-registering (which is gated by DIRECTORY_REGISTRATION_TOKEN in prod).
+  // Idempotent: existing record is updated, not duplicated.
+  if (servingPublic && mountDirectory) {
+    await seedDemoAgent(directoryStorage);
   }
 
   return app;

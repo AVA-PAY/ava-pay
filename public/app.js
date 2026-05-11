@@ -1,21 +1,51 @@
 /**
  * AVA Pay landing-page demo.
  *
- * Browser-side: generates a real Ed25519 keypair via Web Crypto, exports the
- * public JWK, registers it with the directory, then either signs a Visa TAP
- * request (RFC 9421) or builds an AP2 mandate chain (compact JWS), POSTs to
- * /verify, and renders the verdict.
+ * Browser-side: imports the bundled public demo agent's private key, then
+ * signs a real Visa TAP (RFC 9421) request or an AP2 mandate chain (compact
+ * JWS), POSTs to /verify, and renders the verdict.
  *
- * No simulation; every byte is real cryptography. Web Crypto Ed25519 has been
- * widely supported across Chrome, Firefox, and Safari since 2024-2025.
+ * The demo agent is pre-seeded into the hosted directory at server boot
+ * (see src/directory/seed-demo.ts). Both halves of the keypair are public:
+ * the agent has no real authority and only exists so the demo can show
+ * end-to-end signature verification without exposing /directory/agents POST
+ * to anonymous writers in production.
+ *
+ * If you fork this and stand up your own instance, regenerate the keypair
+ * and update the JWKs here AND in src/directory/seed-demo.ts.
+ *
+ * Every byte signed and verified is real cryptography. Web Crypto Ed25519
+ * has been widely supported across Chrome, Firefox, and Safari since 2024.
  */
 
+// Bundled demo keypair. The corresponding public key is written to the
+// hosted directory at server boot. The agent_id below must match
+// DEMO_AGENT_ID in src/directory/seed-demo.ts.
+const DEMO_AGENT_ID = 'agent_demo_public';
+const DEMO_PRIVATE_JWK = {
+  crv: 'Ed25519',
+  d: 'RfgxZQvu3WXbskCO0QZlhSOjguLIuTz8ANz0x3uCvRo',
+  x: 'yKCkvxtkVtmYT1xK0FFuvQPFAQqQ_z6Zg9q6VKsJTU4',
+  kty: 'OKP',
+};
+
 const $ = (sel) => document.querySelector(sel);
-// Unique per page load so concurrent visitors don't collide and the verifier's
-// directory cache always has a fresh-key entry to find.
-const DEMO_AGENT_ID = `agent_demo_browser_${Math.random().toString(36).slice(2, 10)}`;
 const MERCHANT_HOST = window.location.host;
 const MERCHANT_URL = `${window.location.protocol}//${MERCHANT_HOST}/cart`;
+
+// Lazy-imported private key handle; first click pays the import cost.
+let _demoPrivateKey = null;
+async function getDemoPrivateKey() {
+  if (_demoPrivateKey) return _demoPrivateKey;
+  _demoPrivateKey = await crypto.subtle.importKey(
+    'jwk',
+    DEMO_PRIVATE_JWK,
+    { name: 'Ed25519' },
+    false,
+    ['sign'],
+  );
+  return _demoPrivateKey;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   $('#runDemo').addEventListener('click', runDemo);
@@ -29,7 +59,7 @@ async function loadDirectory() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json();
     if (!body.agents || body.agents.length === 0) {
-      list.innerHTML = `<p class="section-lede">No agents registered yet — register the demo agent below to see it appear here.</p>`;
+      list.innerHTML = `<p class="lede" style="grid-column:1/-1;padding:24px">No agents registered yet. Register the demo agent below to see it appear here.</p>`;
       return;
     }
     list.innerHTML = body.agents
@@ -42,7 +72,7 @@ async function loadDirectory() {
       `)
       .join('');
   } catch (err) {
-    list.innerHTML = `<p class="section-lede">Couldn't load directory: ${escapeHtml(err.message)}</p>`;
+    list.innerHTML = `<p class="lede" style="grid-column:1/-1;padding:24px">Couldn't load directory: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -56,44 +86,24 @@ async function runDemo() {
   const signedOut = $('#signedOut');
   const verdictOut = $('#verdictOut');
   out.hidden = false;
-  signedOut.textContent = 'Generating keypair…';
+  signedOut.textContent = 'Loading demo agent key…';
   verdictOut.textContent = '';
 
   try {
-    // 1. Fresh keypair via Web Crypto.
-    const keys = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-    const publicJwk = await crypto.subtle.exportKey('jwk', keys.publicKey);
+    // 1. Import the bundled demo agent's private key.
+    const privateKey = await getDemoPrivateKey();
 
-    // 2. Register with the hosted directory (open POST in dev; bearer-token-protected in prod).
-    signedOut.textContent = 'Registering with the AVA Agent Directory…';
-    const reg = await fetch('/directory/agents', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        agentId: DEMO_AGENT_ID,
-        issuer: 'Browser Demo',
-        url: window.location.origin,
-        keys: [{ alg: 'ed25519', jwk: publicJwk, protocols: ['visa', 'ap2'] }],
-      }),
-    });
-    if (!reg.ok && reg.status !== 401) {
-      throw new Error(`Directory registration returned ${reg.status}`);
-    }
-    if (reg.status === 401) {
-      signedOut.textContent =
-        'Directory registration is gated on this instance (DIRECTORY_REGISTRATION_TOKEN is set).\n' +
-        'The verification step below will return unknown_agent unless this agent\'s key is preloaded.';
-    }
-
-    // 3. Sign + verify in the chosen protocol.
+    // 2. Sign a real request in the chosen protocol.
+    signedOut.textContent = 'Signing request…';
     let signed;
     if (protocol === 'visa') {
-      signed = await signVisa({ keys, buyerName, spendCap, cartTotal });
+      signed = await signVisa({ privateKey, buyerName, spendCap, cartTotal });
     } else {
-      signed = await signAp2({ keys, buyerName, spendCap, cartTotal });
+      signed = await signAp2({ privateKey, buyerName, spendCap, cartTotal });
     }
     signedOut.textContent = formatSigned(signed);
 
+    // 3. POST it to /verify and render the verdict.
     verdictOut.textContent = 'Calling /verify…';
     const verifyRes = await fetch('/verify', {
       method: 'POST',
@@ -103,7 +113,7 @@ async function runDemo() {
     const verdict = await verifyRes.json();
     verdictOut.innerHTML = formatVerdict(verifyRes.status, verdict);
 
-    // Refresh the directory view.
+    // Refresh the directory view to confirm the demo agent is registered.
     loadDirectory();
   } catch (err) {
     verdictOut.textContent = `error: ${err.message}`;
@@ -112,7 +122,7 @@ async function runDemo() {
 
 // ─── Visa TAP (RFC 9421) ────────────────────────────────────────────────────
 
-async function signVisa({ keys, buyerName, spendCap, cartTotal }) {
+async function signVisa({ privateKey, buyerName, spendCap, cartTotal }) {
   const totalMinor = Math.round(cartTotal * 100);
   const body = JSON.stringify({
     cart: [{ sku: 'TOOL-1234', qty: 1, price_minor: totalMinor }],
@@ -157,7 +167,7 @@ async function signVisa({ keys, buyerName, spendCap, cartTotal }) {
 
   const sigBytes = await crypto.subtle.sign(
     { name: 'Ed25519' },
-    keys.privateKey,
+    privateKey,
     new TextEncoder().encode(signatureBase),
   );
   const sigB64 = arrayBufferToBase64(sigBytes);
@@ -181,7 +191,7 @@ async function sha256ContentDigest(body) {
 
 // ─── AP2 (compact JWS) ──────────────────────────────────────────────────────
 
-async function signAp2({ keys, buyerName, spendCap, cartTotal }) {
+async function signAp2({ privateKey, buyerName, spendCap, cartTotal }) {
   const now = Math.floor(Date.now() / 1000);
   const totalMinor = Math.round(cartTotal * 100);
   const intentJti = `intent_${Date.now()}`;
@@ -212,8 +222,8 @@ async function signAp2({ keys, buyerName, spendCap, cartTotal }) {
     },
   };
 
-  const intentJws = await signCompactJws(intentClaims, keys.privateKey);
-  const cartJws = await signCompactJws(cartClaims, keys.privateKey);
+  const intentJws = await signCompactJws(intentClaims, privateKey);
+  const cartJws = await signCompactJws(cartClaims, privateKey);
 
   return {
     method: 'POST',

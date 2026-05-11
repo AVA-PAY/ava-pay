@@ -36,6 +36,22 @@ uri = "/webhooks/checkouts/create"
 topics = [ "orders/create" ]
 uri = "/webhooks/orders/create"
 
+# Mandatory Shopify privacy / compliance webhooks (GDPR/CCPA).
+# Required for App Store approval. Per the 2025-07 app-config format these
+# subscribe via `compliance_topics`, not `topics`. See:
+# https://shopify.dev/docs/api/webhooks/2025-07
+[[webhooks.subscriptions]]
+compliance_topics = [ "customers/data_request" ]
+uri = "/webhooks/customers/data_request"
+
+[[webhooks.subscriptions]]
+compliance_topics = [ "customers/redact" ]
+uri = "/webhooks/customers/redact"
+
+[[webhooks.subscriptions]]
+compliance_topics = [ "shop/redact" ]
+uri = "/webhooks/shop/redact"
+
 [pos]
 embedded = false
 
