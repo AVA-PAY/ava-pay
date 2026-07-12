@@ -43,5 +43,14 @@
     "vite": "^6.4.3",
     "vite-tsconfig-paths": "^4.3.2",
     "vitest": "^3.2.6"
+  },
+  "overrides": {
+    "@babel/core": "^7.29.6",
+    "js-yaml": "^4.2.0",
+    "morgan": "^1.11.0",
+    "qs": "^6.15.2",
+    "tar": "^7.5.16",
+    "undici": "^6.27.0",
+    "ws": "^7.5.11"
   }
 }
