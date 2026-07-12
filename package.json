@@ -26,14 +26,14 @@
   },
   "dependencies": {
     "@ava-pay/agent": "*",
-    "@fastify/rate-limit": "^9.1.0",
-    "@fastify/static": "^7.0.4",
-    "fastify": "^4.28.1"
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/static": "^10.1.0",
+    "fastify": "^5.10.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3",
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.10"
   }
 }
