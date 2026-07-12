@@ -87,8 +87,31 @@ export type VerificationFailureReason =
   | 'cart_intent_mismatch'
   | 'cart_exceeds_intent_limit'
   | 'mandate_chain_mismatch'
+  // Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol)
+  | 'unknown_signature_agent'
+  | 'key_directory_unavailable'
+  | 'unknown_key'
   // Multi-protocol
   | 'ambiguous_protocol';
+
+/** Protocol that authenticated a trusted request. */
+export type VerifiedProtocol = 'visa-tap' | 'ap2' | 'web-bot-auth';
+
+/**
+ * The agent identity a signature actually proved.
+ *
+ * For Web Bot Auth this is the Signature-Agent origin (e.g.
+ * "https://chatgpt.com") whose published key directory verified the request.
+ * Identity is NOT payment authority: a Web Bot Auth result carries no mandate
+ * and authorizes nothing beyond "this request really came from this agent."
+ */
+export interface VerifiedAgentIdentity {
+  /** Canonical agent identifier — for Web Bot Auth, the https origin. */
+  id: string;
+  protocol: VerifiedProtocol;
+  /** RFC 7638 JWK thumbprint of the key that verified, when applicable. */
+  keyThumbprint?: string;
+}
 
 /**
  * Result returned to the merchant.
@@ -100,8 +123,18 @@ export type VerificationFailureReason =
 export type VerificationResult =
   | {
       trusted: true;
-      buyerInfo: BuyerInfo;
-      mandate: Mandate;
+      /** Which protocol verified the request. Set by newer verifiers; absent on older results. */
+      protocol?: VerifiedProtocol;
+      /** The agent identity the signature proved (always set for web-bot-auth). */
+      agent?: VerifiedAgentIdentity;
+      /**
+       * Buyer + mandate are present only for payment protocols (Visa TAP, AP2).
+       * Identity-only protocols (Web Bot Auth) verify who the agent is, not
+       * what it may buy — merchants MUST NOT treat their absence as spend
+       * authorization.
+       */
+      buyerInfo?: BuyerInfo;
+      mandate?: Mandate;
       /** Optional merchant-funded discount, expressed as a fraction 0..1 (e.g. 0.1 = 10%). */
       discount?: number;
       /** How long this decision is valid, in seconds. Merchant can cache. */

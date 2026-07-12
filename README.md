@@ -2,7 +2,9 @@
 
 The neutral verification + payment layer for AI shopping agents.
 
-One install on the merchant side. One registration on the agent-issuer side. **Two protocols** supported out of the box — Visa Trusted Agent Protocol (RFC 9421 + Ed25519) and Google Agent Payments Protocol (AP2 mandate-chain JWS). One protocol-agnostic `VerificationResult` shape downstream.
+One install on the merchant side. One registration on the agent-issuer side. **Three protocols** supported out of the box — Visa Trusted Agent Protocol (RFC 9421 + Ed25519), Google Agent Payments Protocol (AP2 mandate-chain JWS), and IETF Web Bot Auth (the signature scheme real ChatGPT agent traffic carries today). One protocol-agnostic `VerificationResult` shape downstream.
+
+Web Bot Auth results are **agent identity only** — they prove which agent operator sent the request (e.g. `https://chatgpt.com`), not that a buyer authorized a purchase. Payment authority comes from the mandate-carrying protocols (Visa TAP, AP2).
 
 If you're an AI agent issuer, the on-ramp is [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) — register your public key once, every AVA Pay merchant trusts you on either protocol.
 
@@ -12,6 +14,7 @@ If you're an AI agent issuer, the on-ramp is [`AGENT_ISSUERS.md`](./AGENT_ISSUER
 npm install
 npm run demo            # Visa Trusted Agent Protocol (RFC 9421 + Ed25519)
 npm run demo:ap2        # Google Agent Payments Protocol (JWS mandate chain)
+npm run demo:wba        # IETF Web Bot Auth (identity-only, key-directory discovery)
 ```
 
 You'll see a signed request and a `✓ trusted` response in well under a millisecond, on either protocol. The same primitives the demo uses (`src/sdk/index.ts` — soon `@ava-pay/agent` on npm) are what production agents would import.
@@ -34,6 +37,7 @@ AVA Pay/
 │   │   ├── multi.ts                # MultiProtocolVerifier — header-sniffs and dispatches
 │   │   ├── visa.ts                 # Visa TAP verifier
 │   │   ├── ap2.ts                  # AP2 verifier
+│   │   ├── web-bot-auth.ts         # Web Bot Auth verifier + key-directory resolvers
 │   │   ├── agent-directory.ts      # Static/Remote + 5-min CachingAgentDirectory
 │   │   ├── mandate.ts              # shared mandate scope check
 │   │   └── mock.ts                 # non-crypto mock for plumbing tests
@@ -44,8 +48,8 @@ AVA Pay/
 │   │   └── storage-directory.ts    # adapter — verifier resolves through hosted storage
 │   └── server.ts                   # buildServer — composes verifier, directory, static landing
 ├── public/                         # static landing page (live in-browser demo using Web Crypto)
-├── examples/agent-demo.ts          # runnable Node demo (TAP + AP2)
-├── tests/                          # 37 Vitest cases — real cryptography, no fakes
+├── examples/agent-demo.ts          # runnable Node demo (TAP + AP2 + Web Bot Auth)
+├── tests/                          # 87 Vitest cases — real cryptography, no fakes
 ├── scripts/check-type-sync.ts      # CI guardrail against API↔plugin type drift
 ├── shopify-app/                    # Shopify Remix plugin (settings + traffic dashboard + theme extension)
 ├── AGENT_ISSUERS.md                # how AI agent issuers register with the directory
@@ -60,6 +64,7 @@ AVA Pay/
 | **Multi-protocol verifier** | ✅ `MultiProtocolVerifier` sniffs the request and dispatches |
 | Visa Trusted Agent Protocol | ✅ RFC 9421 + Ed25519, content-digest, mandatory alg/created/nonce, server-side max signature age |
 | Google AP2 | ✅ Intent + cart mandate JWS chain, spend-limit enforcement, merchant scoping, single-use cart jti |
+| **IETF Web Bot Auth** | ✅ draft-meunier-webbotauth-httpsig-protocol/-directory: `tag="web-bot-auth"`, Signature-Agent (both wire forms), RFC 7638 thumbprint keyids, allowlisted `/.well-known/http-message-signatures-directory` resolution, identity-only result (no mandate) |
 | **Replay protection** | ✅ nonce + cart-jti dedup via `ReplayGuard` (in-memory now, Redis-ready interface) |
 | Rate limiting | ✅ `@fastify/rate-limit`, `RATE_LIMIT_MAX`/min (default 300) |
 | Fail-closed directory writes | ✅ no `DIRECTORY_REGISTRATION_TOKEN` → writes disabled (opt-in dev flag `AVA_ALLOW_OPEN_DIRECTORY_WRITES=1`); constant-time token compare |
@@ -68,8 +73,8 @@ AVA Pay/
 | Public agent SDK | ✅ `packages/agent-sdk/` — `@ava-pay/agent`, ready-to-publish (17.4 kB tarball) |
 | Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
-| Runnable demos | ✅ `npm run demo`, `npm run demo:ap2` |
-| API tests | ✅ 51 with real cryptography (TAP + AP2 + directory + caching + replay/hardening) |
+| Runnable demos | ✅ `npm run demo`, `npm run demo:ap2`, `npm run demo:wba` |
+| API tests | ✅ 87 with real cryptography (TAP + AP2 + Web Bot Auth + directory + caching + replay/hardening) |
 | Shopify plugin | ✅ OAuth, Polaris settings, traffic dashboard, App Proxy pass-through |
 | Plugin tests | ✅ 10 |
 | Dockerfile + compose with Redis | ✅ |
@@ -96,12 +101,19 @@ docker compose up --build    # API on :3000, Redis on :6379 (ready for the cache
 ## Test it
 
 ```bash
-npm test                  # 37 real-cryptography tests across both protocols + directory
+npm test                  # 87 real-cryptography tests across all three protocols + directory
 npm run typecheck         # full TS strict check
 npm run check:type-sync   # API ↔ plugin VerificationFailureReason drift guard
 npm run demo              # in-process Visa TAP demo
 npm run demo:ap2          # in-process AP2 demo
+npm run demo:wba          # in-process Web Bot Auth demo
 ```
+
+Web Bot Auth key discovery is allowlist-gated: the verifier only fetches
+`/.well-known/http-message-signatures-directory` from origins in
+`WBA_ALLOWED_SIGNATURE_AGENTS` (comma-separated https origins; defaults to
+`https://chatgpt.com`, the only major agent operator publishing a live
+directory as of July 2026).
 
 ## Hosted Agent Directory
 

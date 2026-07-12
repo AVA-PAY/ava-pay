@@ -4,6 +4,7 @@ import { buildServer } from '../src/server.js';
 import { Ap2AgentVerifier } from '../src/verifier/ap2.js';
 import { VisaAgentVerifier } from '../src/verifier/visa.js';
 import { MultiProtocolVerifier } from '../src/verifier/multi.js';
+import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../src/verifier/web-bot-auth.js';
 import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
 import {
   buildAp2Headers,
@@ -42,7 +43,11 @@ describe('Ap2AgentVerifier — real JWS chains', () => {
 
     const visa = new VisaAgentVerifier({ directory, now: () => FIXED_NOW });
     const ap2 = new Ap2AgentVerifier({ directory, now: () => FIXED_NOW });
-    const verifier = new MultiProtocolVerifier({ visa, ap2 });
+    const webBotAuth = new WebBotAuthVerifier({
+      resolver: new StaticSignatureAgentKeys(),
+      now: () => FIXED_NOW,
+    });
+    const verifier = new MultiProtocolVerifier({ visa, ap2, webBotAuth });
 
     app = await buildServer({ verifier, logger: false });
     await app.ready();
@@ -80,7 +85,7 @@ describe('Ap2AgentVerifier — real JWS chains', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as VerificationResult;
     if (!body.trusted) throw new Error(`expected trusted, got ${JSON.stringify(body)}`);
-    expect(body.buyerInfo.buyerId).toBe('buyer_alex');
+    expect(body.buyerInfo?.buyerId).toBe('buyer_alex');
   });
 
   it('rejects when the cart is signed by a different agent than the intent → mandate_chain_mismatch', async () => {

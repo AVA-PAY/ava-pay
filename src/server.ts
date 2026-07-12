@@ -8,6 +8,11 @@ import { verifyRoute } from './routes/verify.js';
 import type { AgentVerifier } from './verifier/interface.js';
 import { VisaAgentVerifier } from './verifier/visa.js';
 import { Ap2AgentVerifier } from './verifier/ap2.js';
+import {
+  DEFAULT_SIGNATURE_AGENTS,
+  FetchingKeyDirectoryResolver,
+  WebBotAuthVerifier,
+} from './verifier/web-bot-auth.js';
 import { MultiProtocolVerifier } from './verifier/multi.js';
 import {
   CachingAgentDirectory,
@@ -90,7 +95,11 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
     const replayGuard = new InMemoryReplayGuard();
     const visa = new VisaAgentVerifier({ directory, replayGuard });
     const ap2 = new Ap2AgentVerifier({ directory, replayGuard });
-    verifier = new MultiProtocolVerifier({ visa, ap2 });
+    const webBotAuth = new WebBotAuthVerifier({
+      resolver: new FetchingKeyDirectoryResolver({ allowedOrigins: wbaAllowedOrigins() }),
+      replayGuard,
+    });
+    verifier = new MultiProtocolVerifier({ visa, ap2, webBotAuth });
   }
 
   await app.register(verifyRoute, { verifier });
@@ -140,6 +149,20 @@ function resolvePublicDir(): string | null {
     if (existsSync(c)) return c;
   }
   return null;
+}
+
+/**
+ * Signature-Agent origins the Web Bot Auth verifier will resolve keys for.
+ * WBA_ALLOWED_SIGNATURE_AGENTS (comma-separated https origins) replaces the
+ * built-in default set; it does not extend it.
+ */
+function wbaAllowedOrigins(): string[] {
+  const env = process.env.WBA_ALLOWED_SIGNATURE_AGENTS;
+  if (!env) return DEFAULT_SIGNATURE_AGENTS;
+  return env
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
 }
 
 function buildDefaultDirectoryStorage(): DirectoryStorage {

@@ -40,6 +40,9 @@ model ShopSettings {
   defaultDiscountPct    Int      @default(10)
   /// Hard cap on discount the merchant will allow even if the verifier returns higher.
   maxDiscountPct        Int      @default(20)
+  /// Discount for identity-only verified agents (no buyer mandate, e.g. Web Bot Auth).
+  /// 0 = admit without a discount; merchants opt in explicitly.
+  identityOnlyDiscountPct Int    @default(0)
   updatedAt             DateTime @updatedAt
 }
 

@@ -50,14 +50,34 @@ export type VerificationFailureReason =
   | 'cart_intent_mismatch'
   | 'cart_exceeds_intent_limit'
   | 'mandate_chain_mismatch'
+  // Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol)
+  | 'unknown_signature_agent'
+  | 'key_directory_unavailable'
+  | 'unknown_key'
   // Multi-protocol
   | 'ambiguous_protocol';
+
+export type VerifiedProtocol = 'visa-tap' | 'ap2' | 'web-bot-auth';
+
+export interface VerifiedAgentIdentity {
+  /** Canonical agent identifier — for Web Bot Auth, the https origin (e.g. "https://chatgpt.com"). */
+  id: string;
+  protocol: VerifiedProtocol;
+  keyThumbprint?: string;
+}
 
 export type VerificationResult =
   | {
       trusted: true;
-      buyerInfo: BuyerInfo;
-      mandate: Mandate;
+      protocol?: VerifiedProtocol;
+      /** The agent identity the signature proved (always set for web-bot-auth). */
+      agent?: VerifiedAgentIdentity;
+      /**
+       * Present only for payment protocols (Visa TAP, AP2). Identity-only
+       * protocols (Web Bot Auth) prove who the agent is, not what it may buy.
+       */
+      buyerInfo?: BuyerInfo;
+      mandate?: Mandate;
       discount?: number;
       ttlSeconds: number;
     }

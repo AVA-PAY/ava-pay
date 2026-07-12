@@ -9,6 +9,12 @@ export interface MerchantPolicyInput {
   acceptVerifiedAgents: boolean;
   defaultDiscountPct: number;
   maxDiscountPct: number;
+  /**
+   * Discount tier for identity-only verified agents (trusted but carrying no
+   * buyer mandate, e.g. Web Bot Auth). 0 — the default — admits them with no
+   * discount; merchants opt in explicitly by raising it.
+   */
+  identityOnlyDiscountPct: number;
 }
 
 export type AppliedDecision =
@@ -24,6 +30,15 @@ export function applyMerchantPolicy(
   }
   if (!result.trusted) {
     return { allow: false, reason: 'agent_blocked' };
+  }
+
+  // Identity-only trust proves who the agent is, not that a buyer authorized
+  // spending. Admit it — that's the point of verification — but discounts
+  // come from the merchant's explicit identity-only tier, and a verifier
+  // discount hint is not honored without a mandate behind it.
+  if (!result.mandate) {
+    const pct = Math.max(0, Math.min(settings.identityOnlyDiscountPct, settings.maxDiscountPct));
+    return { allow: true, discountPct: pct, reason: 'verified' };
   }
 
   const verifierPct =
