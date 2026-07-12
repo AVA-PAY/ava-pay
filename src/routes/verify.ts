@@ -90,6 +90,19 @@ export const verifyRoute: FastifyPluginAsync<VerifyRouteOptions> = async (
 function extractAgentIdHint(headers: Record<string, string>): string | null {
   const fromHeader = headers['x-ava-agent-id'];
   if (fromHeader) return fromHeader;
+  // Web Bot Auth: the Signature-Agent origin identifies the operator; the
+  // keyid is a rotating key thumbprint, useless for correlation.
+  const sigAgent = headers['signature-agent'];
+  if (sigAgent) {
+    const m = sigAgent.match(/"(https:\/\/[^"]+)"/);
+    if (m?.[1]) {
+      try {
+        return new URL(m[1]).origin.toLowerCase();
+      } catch {
+        // fall through to keyid
+      }
+    }
+  }
   const sigInput = headers['signature-input'];
   if (!sigInput) return null;
   const m = sigInput.match(/keyid="([^"]+)"/);

@@ -51,8 +51,13 @@ export async function action({ request }: ActionFunctionArgs) {
   const acceptVerifiedAgents = form.get('acceptVerifiedAgents') === 'on';
   const defaultDiscountPct = Number(form.get('defaultDiscountPct') ?? 0);
   const maxDiscountPct = Number(form.get('maxDiscountPct') ?? 0);
+  const identityOnlyDiscountPct = Number(form.get('identityOnlyDiscountPct') ?? 0);
 
-  if (!Number.isFinite(defaultDiscountPct) || !Number.isFinite(maxDiscountPct)) {
+  if (
+    !Number.isFinite(defaultDiscountPct) ||
+    !Number.isFinite(maxDiscountPct) ||
+    !Number.isFinite(identityOnlyDiscountPct)
+  ) {
     return json<ActionData>({ ok: false, error: 'Discount values must be numbers.' }, { status: 400 });
   }
   if (defaultDiscountPct < 0 || defaultDiscountPct > 100) {
@@ -61,9 +66,21 @@ export async function action({ request }: ActionFunctionArgs) {
   if (maxDiscountPct < 0 || maxDiscountPct > 100) {
     return json<ActionData>({ ok: false, error: 'Max discount must be 0–100%.' }, { status: 400 });
   }
+  if (identityOnlyDiscountPct < 0 || identityOnlyDiscountPct > 100) {
+    return json<ActionData>(
+      { ok: false, error: 'Identity-only discount must be 0–100%.' },
+      { status: 400 },
+    );
+  }
   if (defaultDiscountPct > maxDiscountPct) {
     return json<ActionData>(
       { ok: false, error: 'Default discount cannot exceed the max cap.' },
+      { status: 400 },
+    );
+  }
+  if (identityOnlyDiscountPct > maxDiscountPct) {
+    return json<ActionData>(
+      { ok: false, error: 'Identity-only discount cannot exceed the max cap.' },
       { status: 400 },
     );
   }
@@ -72,6 +89,7 @@ export async function action({ request }: ActionFunctionArgs) {
     acceptVerifiedAgents,
     defaultDiscountPct,
     maxDiscountPct,
+    identityOnlyDiscountPct,
   });
   return json<ActionData>({ ok: true, saved });
 }
@@ -90,12 +108,16 @@ export default function SettingsPage() {
     String(current.defaultDiscountPct),
   );
   const [maxDiscountPct, setMaxDiscountPct] = useState(String(current.maxDiscountPct));
+  const [identityOnlyDiscountPct, setIdentityOnlyDiscountPct] = useState(
+    String(current.identityOnlyDiscountPct),
+  );
 
   const onSave = () => {
     const fd = new FormData();
     if (acceptVerifiedAgents) fd.set('acceptVerifiedAgents', 'on');
     fd.set('defaultDiscountPct', defaultDiscountPct);
     fd.set('maxDiscountPct', maxDiscountPct);
+    fd.set('identityOnlyDiscountPct', identityOnlyDiscountPct);
     submit(fd, { method: 'post' });
   };
 
@@ -154,6 +176,16 @@ export default function SettingsPage() {
                   />
                 </div>
               </InlineStack>
+              <TextField
+                label="Identity-only agent discount %"
+                type="number"
+                min={0}
+                max={100}
+                value={identityOnlyDiscountPct}
+                onChange={(v) => setIdentityOnlyDiscountPct(v)}
+                helpText="For agents verified by identity alone, without a buyer mandate (e.g. ChatGPT via Web Bot Auth). They are admitted either way; 0 means no discount. Raise to opt this traffic into a discount."
+                autoComplete="off"
+              />
               <InlineStack align="end">
                 <Button variant="primary" onClick={onSave}>Save</Button>
               </InlineStack>

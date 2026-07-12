@@ -6,12 +6,15 @@ export interface ShopSettings {
   acceptVerifiedAgents: boolean;
   defaultDiscountPct: number;
   maxDiscountPct: number;
+  /** Discount for identity-only verified agents (no mandate). 0 = admit, no discount. */
+  identityOnlyDiscountPct: number;
 }
 
 const DEFAULTS = {
   acceptVerifiedAgents: true,
   defaultDiscountPct: 10,
   maxDiscountPct: 20,
+  identityOnlyDiscountPct: 0,
 } as const;
 
 export async function getShopSettings(shop: string): Promise<ShopSettings> {
@@ -24,6 +27,7 @@ export async function getShopSettings(shop: string): Promise<ShopSettings> {
     acceptVerifiedAgents: row.acceptVerifiedAgents,
     defaultDiscountPct: row.defaultDiscountPct,
     maxDiscountPct: row.maxDiscountPct,
+    identityOnlyDiscountPct: row.identityOnlyDiscountPct,
   };
 }
 
@@ -35,6 +39,9 @@ export async function saveShopSettings(
     acceptVerifiedAgents: patch.acceptVerifiedAgents ?? DEFAULTS.acceptVerifiedAgents,
     defaultDiscountPct: clampPct(patch.defaultDiscountPct ?? DEFAULTS.defaultDiscountPct),
     maxDiscountPct: clampPct(patch.maxDiscountPct ?? DEFAULTS.maxDiscountPct),
+    identityOnlyDiscountPct: clampPct(
+      patch.identityOnlyDiscountPct ?? DEFAULTS.identityOnlyDiscountPct,
+    ),
   };
   const saved = await prisma.shopSettings.upsert({
     where: { shop },
@@ -46,6 +53,7 @@ export async function saveShopSettings(
     acceptVerifiedAgents: saved.acceptVerifiedAgents,
     defaultDiscountPct: saved.defaultDiscountPct,
     maxDiscountPct: saved.maxDiscountPct,
+    identityOnlyDiscountPct: saved.identityOnlyDiscountPct,
   };
 }
 
