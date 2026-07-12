@@ -22,6 +22,7 @@
     "demo": "tsx examples/agent-demo.ts",
     "demo:ap2": "tsx examples/agent-demo.ts --ap2",
     "demo:wba": "tsx examples/agent-demo.ts --wba",
+    "demo:tap": "tsx examples/agent-demo.ts --tap",
     "demo:http": "tsx examples/agent-demo.ts --http",
     "check:type-sync": "tsx scripts/check-type-sync.ts"
   },

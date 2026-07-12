@@ -51,6 +51,10 @@
     "./protocol/web-bot-auth": {
       "types": "./dist/protocol/web-bot-auth/index.d.ts",
       "import": "./dist/protocol/web-bot-auth/index.js"
+    },
+    "./protocol/visa-tap": {
+      "types": "./dist/protocol/visa-tap/index.d.ts",
+      "import": "./dist/protocol/visa-tap/index.js"
     }
   },
   "files": [

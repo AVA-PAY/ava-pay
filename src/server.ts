@@ -7,6 +7,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import { verifyRoute } from './routes/verify.js';
 import type { AgentVerifier } from './verifier/interface.js';
 import { VisaAgentVerifier } from './verifier/visa.js';
+import { FetchingVisaJwksResolver, VisaTapVerifier } from './verifier/visa-tap.js';
 import { Ap2AgentVerifier } from './verifier/ap2.js';
 import {
   DEFAULT_SIGNATURE_AGENTS,
@@ -94,12 +95,21 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
     const directory = opts.directory ?? buildDefaultDirectory(directoryStorage);
     const replayGuard = new InMemoryReplayGuard();
     const visa = new VisaAgentVerifier({ directory, replayGuard });
+    const visaTap = new VisaTapVerifier({
+      directory,
+      replayGuard,
+      // Visa's public verification JWKS (IdToken signing keys). Override with
+      // VISA_JWKS_URL, e.g. to pin a sandbox or mirror endpoint.
+      visaJwks: new FetchingVisaJwksResolver(
+        process.env.VISA_JWKS_URL ? { url: process.env.VISA_JWKS_URL } : {},
+      ),
+    });
     const ap2 = new Ap2AgentVerifier({ directory, replayGuard });
     const webBotAuth = new WebBotAuthVerifier({
       resolver: new FetchingKeyDirectoryResolver({ allowedOrigins: wbaAllowedOrigins() }),
       replayGuard,
     });
-    verifier = new MultiProtocolVerifier({ visa, ap2, webBotAuth });
+    verifier = new MultiProtocolVerifier({ visa, visaTap, ap2, webBotAuth });
   }
 
   await app.register(verifyRoute, { verifier });

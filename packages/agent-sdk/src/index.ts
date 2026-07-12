@@ -70,6 +70,13 @@ export {
   type WebBotAuthSignInput,
 } from './agent/web-bot-auth.js';
 
+// Visa Trusted Agent Protocol — real wire format
+export {
+  signWithVisaTap,
+  signTapObject,
+  type VisaTapSignInput,
+} from './agent/visa-tap.js';
+
 // Shared protocol-agnostic types
 export type {
   IncomingRequest,
@@ -79,6 +86,7 @@ export type {
   VerificationFailureReason,
   VerifiedProtocol,
   VerifiedAgentIdentity,
+  TapVerificationDetail,
 } from './types.js';
 
 // AP2 protocol type re-exports for users implementing custom AP2 logic

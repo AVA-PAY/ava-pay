@@ -54,10 +54,30 @@ export type VerificationFailureReason =
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
   | 'unknown_key'
+  // Visa Trusted Agent Protocol (real wire format) — signed body objects
+  | 'malformed_recognition_object'
+  | 'recognition_nonce_mismatch'
+  | 'recognition_signature_invalid'
+  | 'id_token_invalid'
+  | 'malformed_payment_container'
+  | 'payment_container_signature_invalid'
   // Multi-protocol
   | 'ambiguous_protocol';
 
-export type VerifiedProtocol = 'visa-tap' | 'ap2' | 'web-bot-auth';
+export type VerifiedProtocol = 'visa-tap' | 'ava-tap' | 'ap2' | 'web-bot-auth';
+
+export interface TapVerificationDetail {
+  intent: 'browse' | 'payer';
+  consumer?: {
+    sub?: string;
+    emailMask?: string;
+    phoneNumberMask?: string;
+  };
+  payment?: {
+    hasCredentialsHash: boolean;
+    hasEncryptedPayload: boolean;
+  };
+}
 
 export interface VerifiedAgentIdentity {
   /** Canonical agent identifier — for Web Bot Auth, the https origin (e.g. "https://chatgpt.com"). */
@@ -78,6 +98,8 @@ export type VerificationResult =
        */
       buyerInfo?: BuyerInfo;
       mandate?: Mandate;
+      /** Real Visa TAP only: intent + validated consumer/payment context. */
+      tap?: TapVerificationDetail;
       discount?: number;
       ttlSeconds: number;
     }

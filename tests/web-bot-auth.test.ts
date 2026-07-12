@@ -7,6 +7,7 @@ import {
 } from '../src/verifier/web-bot-auth.js';
 import { MultiProtocolVerifier } from '../src/verifier/multi.js';
 import { VisaAgentVerifier } from '../src/verifier/visa.js';
+import { VisaTapVerifier } from '../src/verifier/visa-tap.js';
 import { Ap2AgentVerifier } from '../src/verifier/ap2.js';
 import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
 import { InMemoryReplayGuard } from '../src/verifier/replay.js';
@@ -458,6 +459,7 @@ describe('MultiProtocolVerifier dispatch with Web Bot Auth', () => {
 
     multi = new MultiProtocolVerifier({
       visa: new VisaAgentVerifier({ directory, now: () => FIXED }),
+      visaTap: new VisaTapVerifier({ directory, now: () => FIXED }),
       ap2: new Ap2AgentVerifier({ directory, now: () => FIXED }),
       webBotAuth: new WebBotAuthVerifier({ resolver: wbaResolver, now: () => FIXED }),
     });
