@@ -48,7 +48,10 @@ export class MultiProtocolVerifier implements AgentVerifier {
     const hasVisaTap =
       hasHttpSig && !hasWba && /[;\s]tag="(agent-browser-auth|agent-payer-auth)"/.test(sigInput);
     const hasVisa = hasHttpSig && !hasWba && !hasVisaTap;
-    const hasAp2 = 'ap2-attestation' in request.headers;
+    // v0.2 chains (ap2-checkout-mandate) and legacy v0.1 (ap2-attestation,
+    // which the AP2 verifier answers with unsupported_protocol_version).
+    const hasAp2 =
+      'ap2-checkout-mandate' in request.headers || 'ap2-attestation' in request.headers;
 
     if (hasHttpSig && hasAp2) {
       return {
@@ -67,7 +70,7 @@ export class MultiProtocolVerifier implements AgentVerifier {
       trusted: false,
       reason: 'missing_agent_credentials',
       message:
-        'No supported protocol detected. Send Visa TAP (Signature + Signature-Input), Web Bot Auth (Signature + Signature-Input + Signature-Agent, tag="web-bot-auth"), or AP2 (Ap2-Attestation + Ap2-Cart-Mandate).',
+        'No supported protocol detected. Send Visa TAP (Signature + Signature-Input), Web Bot Auth (Signature + Signature-Input + Signature-Agent, tag="web-bot-auth"), or AP2 v0.2 (Ap2-Checkout-Mandate dSD-JWT chain).',
     };
   }
 }

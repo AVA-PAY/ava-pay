@@ -53,14 +53,17 @@ export {
   type SignedRequest,
 } from './agent/visa.js';
 
-// AP2 (Google Agent Payments Protocol)
+// AP2 (Google Agent Payments Protocol) — v0.2 dSD-JWT mandate chains
 export {
-  signIntentMandate,
-  signCartMandate,
-  buildAp2Headers,
-  type BuildIntentInput,
-  type BuildCartInput,
-  type Ap2Attestations,
+  createRootMandate,
+  presentMandate,
+  buildCheckoutMandateChain,
+  buildPaymentMandateChain,
+  makeCheckoutJwt,
+  type Ap2KeyRef,
+  type CheckoutChainInput,
+  type PaymentChainInput,
+  type PresentMandateInput,
 } from './agent/ap2.js';
 
 // Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol)
@@ -89,10 +92,15 @@ export type {
   TapVerificationDetail,
 } from './types.js';
 
-// AP2 protocol type re-exports for users implementing custom AP2 logic
+// AP2 protocol re-exports for users implementing custom AP2 logic
+export { computeCheckoutHash } from './protocol/ap2/mandates.js';
+export type { JwsHeader, Ap2FailureReason } from './protocol/ap2/types.js';
 export type {
-  IntentMandateClaims,
-  CartMandateClaims,
-  JwsHeader,
-  Ap2FailureReason,
-} from './protocol/ap2/types.js';
+  CheckoutMandate,
+  OpenCheckoutMandate,
+  OpenPaymentMandate,
+  PaymentMandate,
+  Checkout,
+  CheckoutConstraintEvaluator,
+  PaymentConstraintEvaluator,
+} from './protocol/ap2/mandates.js';

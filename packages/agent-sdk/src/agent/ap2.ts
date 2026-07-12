@@ -1,118 +1,221 @@
-import type { KeyObject } from 'node:crypto';
-import { signJws } from '../protocol/ap2/jws.js';
-import type { CartMandateClaims, IntentMandateClaims } from '../protocol/ap2/types.js';
+import { createHash, randomBytes, sign as nodeSign, type KeyObject } from 'node:crypto';
+import {
+  computeCheckoutHash,
+  VCT_CHECKOUT,
+  VCT_OPEN_CHECKOUT,
+  VCT_OPEN_PAYMENT,
+  VCT_PAYMENT,
+  type Checkout,
+  type PaymentMandate,
+} from '../protocol/ap2/mandates.js';
 
 /**
- * AP2 (Google Agent Payments Protocol) — agent-side signing.
+ * AP2 v0.2 — agent-side mandate creation (dSD-JWT chains).
  *
- * Symmetric to `signWithVisa`. Produces the AP2 attestation header pair an
- * agent attaches to a merchant request:
+ * CLEAN BREAK from v0.1: the Intent/Cart mandate API (signIntentMandate,
+ * signCartMandate, buildAp2Headers) is gone, replaced by the Checkout/Payment
+ * mandate chain model of AP2 v0.2.0 (github.com/google-agentic-commerce/AP2).
+ * @ava-pay/agent has not shipped a 0.2.0 release, so no published API breaks.
  *
- *   Ap2-Attestation:  <intent-mandate JWS>
- *   Ap2-Cart-Mandate: <cart-mandate JWS>
+ * Wire form mirrors the reference MandateClient:
+ *   - root SD-JWT (user-signed open mandate):
+ *       header {alg, kid}; payload { delegate_payload: [{"...": digest}],
+ *       _sd_alg: "sha-256" }; one array-element disclosure carrying the
+ *       mandate object; compact form `jwt~disclosure~`.
+ *   - KB hop (holder-signed closed mandate): header {alg, typ: "kb+sd-jwt"};
+ *       payload additionally carries iat/aud/nonce + sd_hash binding to the
+ *       previous token; joined `prev~~hop`.
  *
- * Both are signed with the agent's Ed25519 key. (FIDO/WebAuthn attestation of
- * the user's wallet is a separate signal supplied as a payload field, which
- * we don't yet validate.)
- *
- * Use `buildAp2Headers(...)` if you want a ready-to-go header map, or call
- * `signIntentMandate` and `signCartMandate` separately if you want to cache
- * an intent across multiple cart attempts (which is the real-world flow).
+ * AVA's HTTP binding of AP2 v0.2 (AP2 itself defines A2A message transport,
+ * not HTTP headers):
+ *   Ap2-Checkout-Mandate: <open>~~<closed>   (dSD-JWT chain)
+ *   Ap2-Payment-Mandate:  <open>~~<closed>   (optional second chain)
+ * aud = merchant origin (https://host); nonce = single-use random value the
+ * verifier deduplicates.
  */
 
-export interface BuildIntentInput {
-  agentId: string;
+export interface Ap2KeyRef {
   privateKey: KeyObject;
-  buyerId: string;
-  spendLimitMinor: number;
-  currency: string;
-  allowedMerchants: string[];
-  jti?: string;
+  /** kid resolvable by the merchant's federated directory (root keys only). */
+  kid?: string;
+}
+
+function b64u(obj: unknown): string {
+  return Buffer.from(JSON.stringify(obj)).toString('base64url');
+}
+
+function signCompactJwt(
+  header: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  key: KeyObject,
+): string {
+  const signingInput = `${b64u(header)}.${b64u(payload)}`;
+  const alg = key.asymmetricKeyType;
+  let sig: Buffer;
+  if (alg === 'ed25519') {
+    sig = nodeSign(null, Buffer.from(signingInput), key);
+  } else if (alg === 'ec') {
+    sig = nodeSign('sha256', Buffer.from(signingInput), { key, dsaEncoding: 'ieee-p1363' });
+  } else {
+    throw new Error(`unsupported AP2 signing key type: ${alg}`);
+  }
+  return `${signingInput}.${sig.toString('base64url')}`;
+}
+
+function jwsAlgOf(key: KeyObject): string {
+  return key.asymmetricKeyType === 'ed25519' ? 'EdDSA' : 'ES256';
+}
+
+/** One array-element disclosure ([salt, value]) + its sha-256 digest. */
+function makeDisclosure(value: Record<string, unknown>): { disclosure: string; digest: string } {
+  const salt = randomBytes(16).toString('base64url');
+  const disclosure = Buffer.from(JSON.stringify([salt, value])).toString('base64url');
+  const digest = createHash('sha256').update(disclosure, 'ascii').digest('base64url');
+  return { disclosure, digest };
+}
+
+/** Sign a root SD-JWT whose delegate payload is `mandate`. Returns `jwt~disclosure~`. */
+export function createRootMandate(mandate: Record<string, unknown>, issuer: Ap2KeyRef): string {
+  const { disclosure, digest } = makeDisclosure(mandate);
+  const header: Record<string, unknown> = {
+    alg: jwsAlgOf(issuer.privateKey),
+    ...(issuer.kid !== undefined ? { kid: issuer.kid } : {}),
+  };
+  const payload = { delegate_payload: [{ '...': digest }], _sd_alg: 'sha-256' };
+  return `${signCompactJwt(header, payload, issuer.privateKey)}~${disclosure}~`;
+}
+
+export interface PresentMandateInput {
+  /** The preceding token (`...~` form or full chain). */
+  prevToken: string;
+  /** This hop's signing key — must be the previous hop's cnf key. */
+  holderKey: KeyObject;
+  /** The mandate object this hop discloses (terminal unless it carries cnf). */
+  mandate: Record<string, unknown>;
+  /** Merchant origin, e.g. "https://shop.example.com". */
+  aud: string;
+  /** Single-use nonce; the verifier deduplicates it. */
+  nonce: string;
+  iat?: number;
+}
+
+/** Append one KB hop to `prevToken`. Returns the `~~`-joined chain. */
+export function presentMandate(input: PresentMandateInput): string {
+  const prevSegments = input.prevToken.split('~~');
+  const prevLast = prevSegments[prevSegments.length - 1]!;
+  const prevForBinding = prevLast.endsWith('~') ? prevLast : `${prevLast}~`;
+  const sdHash = createHash('sha256').update(prevForBinding, 'ascii').digest('base64url');
+
+  const terminal = !('cnf' in input.mandate);
+  const { disclosure, digest } = makeDisclosure(input.mandate);
+  const header = {
+    alg: jwsAlgOf(input.holderKey),
+    typ: terminal ? 'kb+sd-jwt' : 'kb+sd-jwt+kb',
+  };
+  const payload = {
+    delegate_payload: [{ '...': digest }],
+    _sd_alg: 'sha-256',
+    iat: input.iat ?? Math.floor(Date.now() / 1000),
+    aud: input.aud,
+    nonce: input.nonce,
+    sd_hash: sdHash,
+  };
+  const hop = `${signCompactJwt(header, payload, input.holderKey)}~${disclosure}~`;
+
+  const prevJoined = input.prevToken.endsWith('~')
+    ? input.prevToken.slice(0, -1)
+    : input.prevToken;
+  return `${prevJoined}~~${hop}`;
+}
+
+// ─── High-level helpers (demo + tests) ──────────────────────────────────────
+
+/** Merchant-signed checkout JWT (the artifact the closed mandate commits to). */
+export function makeCheckoutJwt(checkout: Checkout, merchantKey: KeyObject, kid?: string): string {
+  return signCompactJwt(
+    { alg: jwsAlgOf(merchantKey), typ: 'JWT', ...(kid !== undefined ? { kid } : {}) },
+    checkout as unknown as Record<string, unknown>,
+    merchantKey,
+  );
+}
+
+export interface CheckoutChainInput {
+  /** Root issuer (the user / credential provider); kid must resolve in the directory. */
+  user: Required<Ap2KeyRef>;
+  /** The agent the open mandate delegates to (its public key becomes cnf.jwk). */
+  agentPrivateKey: KeyObject;
+  agentPublicKey: KeyObject;
+  /** Open-mandate constraints (checkout.allowed_merchants / checkout.line_items / custom). */
+  constraints: Array<Record<string, unknown>>;
+  /** The merchant-signed checkout JWT this chain closes over. */
+  checkoutJwt: string;
+  aud: string;
+  nonce: string;
   iat?: number;
   exp?: number;
 }
 
-export interface BuildCartInput {
-  agentId: string;
-  privateKey: KeyObject;
-  intentJti: string;
-  merchant: string;
-  items: ReadonlyArray<{ sku: string; qty: number; price: number }>;
-  totalMinor: number;
-  currency: string;
-  jti?: string;
+/** Build a complete v0.2 Checkout Mandate chain: open (user) ~~ closed (agent). */
+export function buildCheckoutMandateChain(input: CheckoutChainInput): string {
+  const iat = input.iat ?? Math.floor(Date.now() / 1000);
+  const open = createRootMandate(
+    {
+      vct: VCT_OPEN_CHECKOUT,
+      constraints: input.constraints,
+      cnf: { jwk: input.agentPublicKey.export({ format: 'jwk' }) },
+      iat,
+      exp: input.exp ?? iat + 3600,
+    },
+    input.user,
+  );
+  return presentMandate({
+    prevToken: open,
+    holderKey: input.agentPrivateKey,
+    mandate: {
+      vct: VCT_CHECKOUT,
+      checkout_jwt: input.checkoutJwt,
+      checkout_hash: computeCheckoutHash(input.checkoutJwt),
+      iat,
+      exp: input.exp ?? iat + 600,
+    },
+    aud: input.aud,
+    nonce: input.nonce,
+    iat,
+  });
+}
+
+export interface PaymentChainInput {
+  user: Required<Ap2KeyRef>;
+  agentPrivateKey: KeyObject;
+  agentPublicKey: KeyObject;
+  constraints: Array<Record<string, unknown>>;
+  /** The closed payment mandate (transaction_id must be the checkout hash). */
+  payment: Omit<PaymentMandate, 'vct' | 'iat' | 'exp'>;
+  aud: string;
+  nonce: string;
   iat?: number;
   exp?: number;
 }
 
-export interface Ap2Attestations {
-  intent: string;
-  cart: string;
-  /** Header map ready to spread into a fetch() init. */
-  headers: { 'ap2-attestation': string; 'ap2-cart-mandate': string };
-}
-
-export function signIntentMandate(input: BuildIntentInput): string {
+/** Build a v0.2 Payment Mandate chain: open (user) ~~ closed (agent). */
+export function buildPaymentMandateChain(input: PaymentChainInput): string {
   const iat = input.iat ?? Math.floor(Date.now() / 1000);
-  const exp = input.exp ?? iat + 600;
-  const claims: IntentMandateClaims = {
-    iss: input.agentId,
-    iat,
-    exp,
-    jti: input.jti ?? randomId('intent'),
-    ap2: {
-      type: 'intent',
-      sub: input.buyerId,
-      spend_limit: { value: input.spendLimitMinor, currency: input.currency },
-      allowed_merchants: input.allowedMerchants,
+  const open = createRootMandate(
+    {
+      vct: VCT_OPEN_PAYMENT,
+      constraints: input.constraints,
+      cnf: { jwk: input.agentPublicKey.export({ format: 'jwk' }) },
+      iat,
+      exp: input.exp ?? iat + 3600,
     },
-  };
-  return signJws(
-    { alg: 'EdDSA', typ: 'JWT', kid: input.agentId },
-    claims,
-    input.privateKey,
+    input.user,
   );
-}
-
-export function signCartMandate(input: BuildCartInput): string {
-  const iat = input.iat ?? Math.floor(Date.now() / 1000);
-  const exp = input.exp ?? iat + 60;
-  const claims: CartMandateClaims = {
-    iss: input.agentId,
+  return presentMandate({
+    prevToken: open,
+    holderKey: input.agentPrivateKey,
+    mandate: { vct: VCT_PAYMENT, ...input.payment, iat, exp: input.exp ?? iat + 600 },
+    aud: input.aud,
+    nonce: input.nonce,
     iat,
-    exp,
-    jti: input.jti ?? randomId('cart'),
-    ap2: {
-      type: 'cart',
-      intent_ref: input.intentJti,
-      merchant: input.merchant,
-      items: input.items,
-      total: { value: input.totalMinor, currency: input.currency },
-    },
-  };
-  return signJws(
-    { alg: 'EdDSA', typ: 'JWT', kid: input.agentId },
-    claims,
-    input.privateKey,
-  );
-}
-
-export function buildAp2Headers(opts: {
-  intent: BuildIntentInput;
-  cart: Omit<BuildCartInput, 'intentJti'> & { intentJti?: string };
-}): Ap2Attestations {
-  const intentJti = opts.intent.jti ?? randomId('intent');
-  const intent = signIntentMandate({ ...opts.intent, jti: intentJti });
-  const cart = signCartMandate({ ...opts.cart, intentJti });
-  return {
-    intent,
-    cart,
-    headers: { 'ap2-attestation': intent, 'ap2-cart-mandate': cart },
-  };
-}
-
-function randomId(prefix: string): string {
-  const ts = Date.now();
-  const noise = Math.floor(Math.random() * 1e9).toString(36);
-  return `${prefix}_${ts}_${noise}`;
+  });
 }
