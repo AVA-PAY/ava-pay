@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@ava-pay/agent": "*",
+    "@fastify/rate-limit": "^9.1.0",
     "@fastify/static": "^7.0.4",
     "fastify": "^4.28.1"
   },

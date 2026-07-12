@@ -1,4 +1,4 @@
-import { sign as nodeSign, type KeyObject } from 'node:crypto';
+import { randomUUID, sign as nodeSign, type KeyObject } from 'node:crypto';
 import type { Mandate } from '../types.js';
 import { computeContentDigest } from '../protocol/visa/http-signatures.js';
 
@@ -31,6 +31,12 @@ export interface VisaSignInput {
   expires?: number;
   /** Defaults to "sig1". */
   label?: string;
+  /**
+   * Single-use nonce for replay protection. Defaults to a random UUID.
+   * Verifiers reject a nonce they have already seen within the signature
+   * window, so never reuse one across requests.
+   */
+  nonce?: string;
 }
 
 export interface SignedRequest {
@@ -44,6 +50,7 @@ export function signWithVisa(input: VisaSignInput): SignedRequest {
   const created = input.created ?? Math.floor(Date.now() / 1000);
   const expires = input.expires ?? created + 60;
   const label = input.label ?? 'sig1';
+  const nonce = input.nonce ?? randomUUID();
   const components = input.components ?? [
     '@method',
     '@target-uri',
@@ -64,7 +71,7 @@ export function signWithVisa(input: VisaSignInput): SignedRequest {
   };
 
   const componentList = components.map((c) => `"${c}"`).join(' ');
-  const params = `;created=${created};expires=${expires};keyid="${input.agentId}";alg="ed25519"`;
+  const params = `;created=${created};expires=${expires};keyid="${input.agentId}";alg="ed25519";nonce="${nonce}"`;
   const sigInputValue = `(${componentList})${params}`;
   const signatureInputHeader = `${label}=${sigInputValue}`;
 

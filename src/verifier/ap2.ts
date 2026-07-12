@@ -18,6 +18,7 @@ import type {
   IntentMandateClaims,
 } from '../protocol/ap2/types.js';
 import { safeHost } from './mandate.js';
+import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
 
 /**
  * Ap2AgentVerifier — Google Agent Payments Protocol verification.
@@ -48,6 +49,12 @@ export interface Ap2AgentVerifierOptions {
   directory: AgentDirectory;
   /** Tolerated clock skew on iat/exp, in seconds. */
   clockSkewSeconds?: number;
+  /**
+   * Replay guard shared across verifiers. Cart mandates are single-use:
+   * their jti is remembered until the cart expires. Defaults to a
+   * per-verifier in-memory guard; production should inject one shared instance.
+   */
+  replayGuard?: ReplayGuard;
   now?: () => number;
 }
 
@@ -57,11 +64,13 @@ const DEFAULT_TTL_SECONDS = 60;
 export class Ap2AgentVerifier implements AgentVerifier {
   private readonly directory: AgentDirectory;
   private readonly skew: number;
+  private readonly replayGuard: ReplayGuard;
   private readonly now: () => number;
 
   constructor(opts: Ap2AgentVerifierOptions) {
     this.directory = opts.directory;
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
+    this.replayGuard = opts.replayGuard ?? new InMemoryReplayGuard();
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
   }
 
@@ -174,6 +183,23 @@ export class Ap2AgentVerifier implements AgentVerifier {
       return fail(
         'mandate_merchant_mismatch',
         `Cart merchant "${cartMerchant}" does not match request host "${requestHost}".`,
+      );
+    }
+
+    // Replay check: a cart mandate is one checkout — its jti is single-use.
+    // (The long-lived intent mandate stays reusable across carts by design.)
+    // Runs after signature + scope checks so junk can't flood the store.
+    if (!cart.payload.jti) {
+      return fail('malformed_jws', 'Cart mandate must include a jti claim.');
+    }
+    const fresh = await this.replayGuard.checkAndStore(
+      `ap2:${agentId}:${cart.payload.jti}`,
+      cart.payload.exp + this.skew,
+    );
+    if (!fresh) {
+      return fail(
+        'replay_detected',
+        `Cart mandate jti "${cart.payload.jti}" has already been used.`,
       );
     }
 

@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { verifyRoute } from './routes/verify.js';
 import type { AgentVerifier } from './verifier/interface.js';
 import { VisaAgentVerifier } from './verifier/visa.js';
@@ -23,6 +24,7 @@ import {
 } from './directory/storage.js';
 import { StorageBackedAgentDirectory } from './directory/storage-directory.js';
 import { seedDemoAgent } from './directory/seed-demo.js';
+import { InMemoryReplayGuard } from './verifier/replay.js';
 
 export interface BuildServerOptions {
   /** Override the verifier (e.g. swap in MockAgentVerifier for non-crypto tests). */
@@ -39,6 +41,14 @@ export interface BuildServerOptions {
   directoryStorage?: DirectoryStorage;
   /** Bearer token gating directory writes. Defaults to $DIRECTORY_REGISTRATION_TOKEN. */
   registrationToken?: string;
+  /**
+   * Allow tokenless directory writes (local development only). Defaults to
+   * $AVA_ALLOW_OPEN_DIRECTORY_WRITES === '1'. Without a token and without
+   * this flag, directory write routes are disabled — fail closed.
+   */
+  allowOpenDirectoryWrites?: boolean;
+  /** Register the global rate limiter. Defaults to true; tests may pass false. */
+  rateLimit?: boolean;
   /** Serve the public/ landing page. Defaults to true if the dir exists. */
   servePublic?: boolean;
   /** Pass false in tests to silence Fastify's default logger. */
@@ -63,23 +73,38 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
   const mountDirectory = opts.mountDirectory ?? !opts.verifier;
   const directoryStorage = opts.directoryStorage ?? buildDefaultDirectoryStorage();
 
-  // Verifier selection.
+  // Global rate limit — /verify does an Ed25519 verification per request and
+  // must not be a free unauthenticated CPU sink.
+  if (opts.rateLimit ?? true) {
+    await app.register(fastifyRateLimit, {
+      max: Number(process.env.RATE_LIMIT_MAX ?? 300),
+      timeWindow: '1 minute',
+    });
+  }
+
+  // Verifier selection. One replay guard shared across protocols so a nonce
+  // seen on one path can't be replayed on another.
   let verifier = opts.verifier;
   if (!verifier) {
     const directory = opts.directory ?? buildDefaultDirectory(directoryStorage);
-    const visa = new VisaAgentVerifier({ directory });
-    const ap2 = new Ap2AgentVerifier({ directory });
+    const replayGuard = new InMemoryReplayGuard();
+    const visa = new VisaAgentVerifier({ directory, replayGuard });
+    const ap2 = new Ap2AgentVerifier({ directory, replayGuard });
     verifier = new MultiProtocolVerifier({ visa, ap2 });
   }
 
   await app.register(verifyRoute, { verifier });
 
-  // Hosted Agent Directory.
+  // Hosted Agent Directory. Writes fail closed: enabled only with a token,
+  // or with an explicit local-dev opt-in flag.
   if (mountDirectory) {
     const registrationToken = opts.registrationToken ?? process.env.DIRECTORY_REGISTRATION_TOKEN;
+    const allowOpenWrites =
+      opts.allowOpenDirectoryWrites ?? process.env.AVA_ALLOW_OPEN_DIRECTORY_WRITES === '1';
     await app.register(directoryRoutes, {
       storage: directoryStorage,
       ...(registrationToken ? { registrationToken } : {}),
+      allowOpenWrites,
     });
   }
 

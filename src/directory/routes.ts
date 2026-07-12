@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { DirectoryStorage } from './storage.js';
 import type { DirectoryAgentRecord, DirectoryListing } from './types.js';
@@ -20,8 +21,14 @@ import type { DirectoryAgentRecord, DirectoryListing } from './types.js';
 
 interface DirectoryRouteOptions {
   storage: DirectoryStorage;
-  /** If set, registration/revocation requires this bearer token. If unset, all writes are open. */
+  /** If set, registration/revocation requires this bearer token. */
   registrationToken?: string;
+  /**
+   * Explicit opt-in for tokenless writes (local development only). Without a
+   * token AND without this flag, write routes are disabled — the directory
+   * is the trust root, so it fails closed, never open.
+   */
+  allowOpenWrites?: boolean;
 }
 
 const registerBodySchema = {
@@ -58,7 +65,19 @@ export const directoryRoutes: FastifyPluginAsync<DirectoryRouteOptions> = async 
   fastify: FastifyInstance,
   opts,
 ) => {
-  const { storage, registrationToken } = opts;
+  const { storage, registrationToken, allowOpenWrites } = opts;
+  const writesEnabled = Boolean(registrationToken) || allowOpenWrites === true;
+
+  if (!writesEnabled) {
+    fastify.log.warn(
+      'Directory write routes are DISABLED: no registrationToken configured. ' +
+        'Set DIRECTORY_REGISTRATION_TOKEN (or allowOpenWrites for local dev).',
+    );
+  } else if (!registrationToken) {
+    fastify.log.warn(
+      'Directory writes are OPEN (allowOpenWrites=true, no token). Never use this in production.',
+    );
+  }
 
   fastify.get('/.well-known/ava-agent-directory', async () => {
     const all = await storage.list();
@@ -94,6 +113,12 @@ export const directoryRoutes: FastifyPluginAsync<DirectoryRouteOptions> = async 
     '/directory/agents',
     { schema: { body: registerBodySchema } },
     async (req, reply) => {
+      if (!writesEnabled) {
+        return reply.status(403).send({
+          error: 'registration_disabled',
+          message: 'Directory registration is not enabled on this deployment.',
+        });
+      }
       if (!authorize(req.headers.authorization, registrationToken)) {
         return reply.status(401).send({ error: 'unauthorized' });
       }
@@ -117,6 +142,12 @@ export const directoryRoutes: FastifyPluginAsync<DirectoryRouteOptions> = async 
   fastify.post<{ Params: { id: string } }>(
     '/directory/agents/:id/revoke',
     async (req, reply) => {
+      if (!writesEnabled) {
+        return reply.status(403).send({
+          error: 'registration_disabled',
+          message: 'Directory registration is not enabled on this deployment.',
+        });
+      }
       if (!authorize(req.headers.authorization, registrationToken)) {
         return reply.status(401).send({ error: 'unauthorized' });
       }
@@ -131,8 +162,17 @@ export const directoryRoutes: FastifyPluginAsync<DirectoryRouteOptions> = async 
 };
 
 function authorize(headerValue: string | undefined, expectedToken: string | undefined): boolean {
-  if (!expectedToken) return true; // no token configured → open writes (dev mode)
+  // No token configured: this is only reachable when allowOpenWrites was set
+  // explicitly (writesEnabled gate runs first) — local development mode.
+  if (!expectedToken) return true;
   if (!headerValue) return false;
   if (!headerValue.startsWith('Bearer ')) return false;
-  return headerValue.slice('Bearer '.length).trim() === expectedToken;
+  return tokenMatches(headerValue.slice('Bearer '.length).trim(), expectedToken);
+}
+
+/** Constant-time token comparison (hash both sides to fixed length first). */
+function tokenMatches(supplied: string, expected: string): boolean {
+  const a = createHash('sha256').update(supplied).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
 }

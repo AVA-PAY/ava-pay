@@ -15,6 +15,7 @@ import {
   verifyEd25519,
 } from './http-signatures.js';
 import { decodeMandate, isMerchantAllowed, MandateParseError, safeHost } from './mandate.js';
+import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
 
 /**
  * VisaAgentVerifier — real Trusted Agent Protocol verification.
@@ -46,23 +47,38 @@ export interface VisaAgentVerifierOptions {
   clockSkewSeconds?: number;
   /** Require a covered + matching content-digest when the request has a body. */
   requireContentDigest?: boolean;
+  /**
+   * Hard server-side cap on signature lifetime, in seconds. Applied from
+   * `created` regardless of what `expires` the signer volunteered (or omitted).
+   */
+  maxAgeSeconds?: number;
+  /**
+   * Replay guard shared across verifiers. Defaults to a per-verifier
+   * in-memory guard; production should inject one shared instance.
+   */
+  replayGuard?: ReplayGuard;
   /** Override "now" (seconds) for deterministic tests. */
   now?: () => number;
 }
 
 const DEFAULT_SKEW = 30;
 const DEFAULT_TTL_SECONDS = 60;
+const DEFAULT_MAX_AGE_SECONDS = 300;
 
 export class VisaAgentVerifier implements AgentVerifier {
   private readonly directory: AgentDirectory;
   private readonly skew: number;
   private readonly requireContentDigest: boolean;
+  private readonly maxAge: number;
+  private readonly replayGuard: ReplayGuard;
   private readonly now: () => number;
 
   constructor(opts: VisaAgentVerifierOptions) {
     this.directory = opts.directory;
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
     this.requireContentDigest = opts.requireContentDigest ?? true;
+    this.maxAge = opts.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
+    this.replayGuard = opts.replayGuard ?? new InMemoryReplayGuard();
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
   }
 
@@ -92,7 +108,14 @@ export class VisaAgentVerifier implements AgentVerifier {
     }
 
     // ── 2. Algorithm gate ─────────────────────────────────────────────────
-    if (parsedInput.parameters.alg !== undefined && parsedInput.parameters.alg !== 'ed25519') {
+    // `alg` is mandatory: an omitted alg must not silently bypass the gate.
+    if (parsedInput.parameters.alg === undefined) {
+      return fail(
+        'unsupported_algorithm',
+        'Signature-Input must declare alg="ed25519" explicitly.',
+      );
+    }
+    if (parsedInput.parameters.alg !== 'ed25519') {
       return fail(
         'unsupported_algorithm',
         `Algorithm "${parsedInput.parameters.alg}" is not supported (require ed25519).`,
@@ -100,13 +123,32 @@ export class VisaAgentVerifier implements AgentVerifier {
     }
 
     // ── 3. Time window ────────────────────────────────────────────────────
+    // `created` is mandatory, and the effective lifetime is capped server-side
+    // at maxAge regardless of the `expires` the signer volunteered (or omitted)
+    // — a hostile signer must not get an unbounded-lifetime signature.
     const now = this.now();
-    const { created, expires } = parsedInput.parameters;
-    if (created !== undefined && created > now + this.skew) {
+    const { created, expires, nonce } = parsedInput.parameters;
+    if (created === undefined) {
+      return fail(
+        'malformed_signature_header',
+        'Signature-Input must include a created parameter.',
+      );
+    }
+    if (created > now + this.skew) {
       return fail('signature_expired', `Signature created in the future (created=${created}, now=${now}).`);
     }
-    if (expires !== undefined && expires + this.skew < now) {
-      return fail('signature_expired', `Signature expired at ${expires} (now=${now}).`);
+    const effectiveExpires = Math.min(expires ?? created + this.maxAge, created + this.maxAge);
+    if (effectiveExpires + this.skew < now) {
+      return fail(
+        'signature_expired',
+        `Signature expired at ${effectiveExpires} (now=${now}, max age ${this.maxAge}s).`,
+      );
+    }
+    if (nonce === undefined || nonce === '') {
+      return fail(
+        'malformed_signature_header',
+        'Signature-Input must include a nonce parameter for replay protection.',
+      );
     }
 
     const agentId = parsedInput.parameters.keyid;
@@ -178,6 +220,20 @@ export class VisaAgentVerifier implements AgentVerifier {
     }
     if (!signatureOk) {
       return fail('invalid_signature', 'Ed25519 verification failed against directory key.');
+    }
+
+    // ── 6b. Replay check ──────────────────────────────────────────────────
+    // Runs only after the signature verifies, so unauthenticated junk can't
+    // flood the nonce store or burn a legitimate nonce it merely observed.
+    const fresh = await this.replayGuard.checkAndStore(
+      `visa:${agentId}:${nonce}`,
+      effectiveExpires + this.skew,
+    );
+    if (!fresh) {
+      return fail(
+        'replay_detected',
+        `Nonce has already been used by agent "${agentId}" within the signature window.`,
+      );
     }
 
     // ── 7. Mandate ────────────────────────────────────────────────────────

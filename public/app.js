@@ -147,7 +147,8 @@ async function signVisa({ privateKey, buyerName, spendCap, cartTotal }) {
   const componentList = components.map((c) => `"${c}"`).join(' ');
   const created = now;
   const expires = now + 60;
-  const sigInputValue = `(${componentList});created=${created};expires=${expires};keyid="${DEMO_AGENT_ID}";alg="ed25519"`;
+  const nonce = crypto.randomUUID();
+  const sigInputValue = `(${componentList});created=${created};expires=${expires};keyid="${DEMO_AGENT_ID}";alg="ed25519";nonce="${nonce}"`;
   const headerMap = {
     host: MERCHANT_HOST,
     'content-digest': contentDigest,

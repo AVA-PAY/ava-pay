@@ -58,15 +58,18 @@ AVA Pay/
 |---|---|
 | API `POST /verify` | ✅ Fastify + TypeScript + structured pino logs |
 | **Multi-protocol verifier** | ✅ `MultiProtocolVerifier` sniffs the request and dispatches |
-| Visa Trusted Agent Protocol | ✅ RFC 9421 + Ed25519, content-digest, signature window, alg gate |
-| Google AP2 | ✅ Intent + cart mandate JWS chain, spend-limit enforcement, merchant scoping |
+| Visa Trusted Agent Protocol | ✅ RFC 9421 + Ed25519, content-digest, mandatory alg/created/nonce, server-side max signature age |
+| Google AP2 | ✅ Intent + cart mandate JWS chain, spend-limit enforcement, merchant scoping, single-use cart jti |
+| **Replay protection** | ✅ nonce + cart-jti dedup via `ReplayGuard` (in-memory now, Redis-ready interface) |
+| Rate limiting | ✅ `@fastify/rate-limit`, `RATE_LIMIT_MAX`/min (default 300) |
+| Fail-closed directory writes | ✅ no `DIRECTORY_REGISTRATION_TOKEN` → writes disabled (opt-in dev flag `AVA_ALLOW_OPEN_DIRECTORY_WRITES=1`); constant-time token compare |
 | Agent Directory + caching | ✅ 5-min TTL, caches misses, `Remote`/`Static`/`StorageBacked` impls |
 | **Hosted Agent Directory** | ✅ `/.well-known/ava-agent-directory`, register/lookup/revoke, file-backed storage |
 | Public agent SDK | ✅ `packages/agent-sdk/` — `@ava-pay/agent`, ready-to-publish (17.4 kB tarball) |
 | Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
 | Runnable demos | ✅ `npm run demo`, `npm run demo:ap2` |
-| API tests | ✅ 37 with real cryptography (TAP + AP2 + directory + caching) |
+| API tests | ✅ 51 with real cryptography (TAP + AP2 + directory + caching + replay/hardening) |
 | Shopify plugin | ✅ OAuth, Polaris settings, traffic dashboard, App Proxy pass-through |
 | Plugin tests | ✅ 10 |
 | Dockerfile + compose with Redis | ✅ |

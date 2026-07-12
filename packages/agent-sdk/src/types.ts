@@ -71,6 +71,7 @@ export type VerificationFailureReason =
   | 'invalid_signature'
   | 'signature_expired'
   | 'content_digest_mismatch'
+  | 'replay_detected'
   // Directory / agent-state
   | 'unknown_agent'
   | 'revoked_agent'
