@@ -48,13 +48,14 @@ const registerBodySchema = {
         required: ['alg', 'jwk', 'protocols'],
         additionalProperties: false,
         properties: {
-          alg: { type: 'string', enum: ['ed25519', 'es256'] },
+          alg: { type: 'string', enum: ['ed25519', 'es256', 'ps256'] },
           jwk: { type: 'object' },
           protocols: {
             type: 'array',
             minItems: 1,
             items: { type: 'string', enum: ['visa', 'ap2'] },
           },
+          kid: { type: 'string', minLength: 1, maxLength: 128 },
         },
       },
     },

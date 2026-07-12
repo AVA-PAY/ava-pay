@@ -183,7 +183,7 @@ export class VisaAgentVerifier implements AgentVerifier {
     // ── 5. Directory lookup ───────────────────────────────────────────────
     let record;
     try {
-      record = await this.directory.resolve(agentId);
+      record = await this.directory.resolve(agentId, { protocol: 'visa', alg: 'ed25519' });
     } catch {
       // Directory unreachable. Fail closed with unknown_agent — operationally
       // the merchant treats this the same as "not in directory".

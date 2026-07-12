@@ -176,7 +176,7 @@ export class VisaTapVerifier implements AgentVerifier {
     // ── 2. Resolve the agent key ──────────────────────────────────────────
     let record;
     try {
-      record = await this.directory.resolve(keyid);
+      record = await this.directory.resolve(keyid, { protocol: 'visa', alg, kid: keyid });
     } catch {
       return fail('unknown_agent', `Agent key lookup for "${keyid}" failed.`);
     }

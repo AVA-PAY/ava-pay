@@ -22,6 +22,13 @@ import {
   StaticAgentDirectory,
   type AgentDirectory,
 } from './verifier/agent-directory.js';
+import {
+  asSource,
+  FederatedAgentDirectory,
+  VisaJwksKeySource,
+  WbaPublishedKeySource,
+  type FederatedSource,
+} from './verifier/federated-directory.js';
 import { directoryRoutes } from './directory/routes.js';
 import {
   FileDirectoryStorage,
@@ -89,26 +96,26 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
   }
 
   // Verifier selection. One replay guard shared across protocols so a nonce
-  // seen on one path can't be replayed on another.
+  // seen on one path can't be replayed on another. The fetching resolvers are
+  // shared between verifiers and the federated directory so their caches are
+  // shared too.
   let verifier = opts.verifier;
   if (!verifier) {
-    const directory = opts.directory ?? buildDefaultDirectory(directoryStorage);
+    // Visa's public verification JWKS (IdToken signing keys + a federated
+    // root of trust). Override with VISA_JWKS_URL, e.g. to pin a sandbox.
+    const visaJwks = new FetchingVisaJwksResolver(
+      process.env.VISA_JWKS_URL ? { url: process.env.VISA_JWKS_URL } : {},
+    );
+    const wbaOrigins = wbaAllowedOrigins();
+    const wbaKeys = new FetchingKeyDirectoryResolver({ allowedOrigins: wbaOrigins });
+
+    const directory =
+      opts.directory ?? buildDefaultDirectory(directoryStorage, visaJwks, wbaKeys, wbaOrigins);
     const replayGuard = new InMemoryReplayGuard();
     const visa = new VisaAgentVerifier({ directory, replayGuard });
-    const visaTap = new VisaTapVerifier({
-      directory,
-      replayGuard,
-      // Visa's public verification JWKS (IdToken signing keys). Override with
-      // VISA_JWKS_URL, e.g. to pin a sandbox or mirror endpoint.
-      visaJwks: new FetchingVisaJwksResolver(
-        process.env.VISA_JWKS_URL ? { url: process.env.VISA_JWKS_URL } : {},
-      ),
-    });
+    const visaTap = new VisaTapVerifier({ directory, replayGuard, visaJwks });
     const ap2 = new Ap2AgentVerifier({ directory, replayGuard });
-    const webBotAuth = new WebBotAuthVerifier({
-      resolver: new FetchingKeyDirectoryResolver({ allowedOrigins: wbaAllowedOrigins() }),
-      replayGuard,
-    });
+    const webBotAuth = new WebBotAuthVerifier({ resolver: wbaKeys, replayGuard });
     verifier = new MultiProtocolVerifier({ visa, visaTap, ap2, webBotAuth });
   }
 
@@ -181,20 +188,39 @@ function buildDefaultDirectoryStorage(): DirectoryStorage {
   return new InMemoryDirectoryStorage();
 }
 
-function buildDefaultDirectory(hostedStorage: DirectoryStorage): AgentDirectory {
+/**
+ * The federated resolution chain (roadmap Phase 1 §3). Order matters:
+ * Visa's partner directory (when credentialed) → Visa's public JWKS →
+ * Web Bot Auth key directories of allowlisted agents → our hosted
+ * directory / private allowlist. First root that knows the key wins; a
+ * root that is down is skipped. The whole chain sits behind one 5-minute
+ * cache keyed by (id, hints).
+ */
+function buildDefaultDirectory(
+  hostedStorage: DirectoryStorage,
+  visaJwks: FetchingVisaJwksResolver,
+  wbaKeys: FetchingKeyDirectoryResolver,
+  wbaOrigins: string[],
+): AgentDirectory {
+  const sources: FederatedSource[] = [];
+
   const remoteUrl = process.env.VISA_AGENT_DIRECTORY_URL;
   if (remoteUrl) {
     const apiKey = process.env.VISA_API_KEY;
-    const remote = new RemoteAgentDirectory({
-      baseUrl: remoteUrl,
-      ...(apiKey ? { apiKey } : {}),
-    });
-    return new CachingAgentDirectory(remote, { ttlMs: FIVE_MINUTES_MS });
+    sources.push(
+      asSource(
+        'visa-agent-directory',
+        new RemoteAgentDirectory({ baseUrl: remoteUrl, ...(apiKey ? { apiKey } : {}) }),
+      ),
+    );
   }
-  // No remote directory configured — use our own hosted storage as the source
-  // of truth. Registrations made via /directory/agents become resolvable
-  // immediately by the verifier.
-  return new CachingAgentDirectory(new StorageBackedAgentDirectory(hostedStorage), {
+  sources.push(new VisaJwksKeySource(visaJwks));
+  sources.push(new WbaPublishedKeySource({ resolver: wbaKeys, origins: wbaOrigins }));
+  // Hosted storage last: registrations made via /directory/agents become
+  // resolvable immediately, but never shadow the public roots of trust.
+  sources.push(asSource('hosted-directory', new StorageBackedAgentDirectory(hostedStorage)));
+
+  return new CachingAgentDirectory(new FederatedAgentDirectory(sources), {
     ttlMs: FIVE_MINUTES_MS,
   });
 }
