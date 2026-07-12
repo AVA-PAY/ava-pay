@@ -40,7 +40,8 @@ AVA Pay/
 │   │   ├── visa-tap.ts             # REAL Visa TAP verifier + Visa JWKS resolver
 │   │   ├── ap2.ts                  # AP2 verifier
 │   │   ├── web-bot-auth.ts         # Web Bot Auth verifier + key-directory resolvers
-│   │   ├── agent-directory.ts      # Static/Remote + 5-min CachingAgentDirectory
+│   │   ├── agent-directory.ts      # Static/Remote + 5-min CachingAgentDirectory (kid/protocol-aware)
+│   │   ├── federated-directory.ts  # federated resolution chain across roots of trust
 │   │   ├── mandate.ts              # shared mandate scope check
 │   │   └── mock.ts                 # non-crypto mock for plumbing tests
 │   ├── directory/
@@ -51,7 +52,7 @@ AVA Pay/
 │   └── server.ts                   # buildServer — composes verifier, directory, static landing
 ├── public/                         # static landing page (live in-browser demo using Web Crypto)
 ├── examples/agent-demo.ts          # runnable Node demo (all four protocols)
-├── tests/                          # 121 Vitest cases — real cryptography, no fakes
+├── tests/                          # 138 Vitest cases — real cryptography, no fakes
 ├── scripts/check-type-sync.ts      # CI guardrail against API↔plugin type drift
 ├── shopify-app/                    # Shopify Remix plugin (settings + traffic dashboard + theme extension)
 ├── AGENT_ISSUERS.md                # how AI agent issuers register with the directory
@@ -71,13 +72,14 @@ AVA Pay/
 | **Replay protection** | ✅ nonce + cart-jti dedup via `ReplayGuard` (in-memory now, Redis-ready interface) |
 | Rate limiting | ✅ `@fastify/rate-limit`, `RATE_LIMIT_MAX`/min (default 300) |
 | Fail-closed directory writes | ✅ no `DIRECTORY_REGISTRATION_TOKEN` → writes disabled (opt-in dev flag `AVA_ALLOW_OPEN_DIRECTORY_WRITES=1`); constant-time token compare |
-| Agent Directory + caching | ✅ 5-min TTL, caches misses, `Remote`/`Static`/`StorageBacked` impls |
+| **Federated key resolution** | ✅ chain: Visa Agentic Directory (when credentialed) → Visa public JWKS → Web Bot Auth agent cards → hosted/private allowlist; kid- + protocol- + algorithm-aware (replaced `keys[0]`); down roots skipped, revocations never shadowed |
+| Agent Directory + caching | ✅ 5-min TTL keyed by (id, hints), caches misses, `Remote`/`Static`/`StorageBacked` impls |
 | **Hosted Agent Directory** | ✅ `/.well-known/ava-agent-directory`, register/lookup/revoke, file-backed storage |
 | Public agent SDK | ✅ `packages/agent-sdk/` — `@ava-pay/agent`, ready-to-publish (17.4 kB tarball) |
 | Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
 | Runnable demos | ✅ `npm run demo`, `npm run demo:ap2`, `npm run demo:wba`, `npm run demo:tap` |
-| API tests | ✅ 121 with real cryptography (real TAP + AVA profile + AP2 + Web Bot Auth + directory + caching + replay/hardening) |
+| API tests | ✅ 138 with real cryptography (real TAP + AVA profile + AP2 + Web Bot Auth + federated resolution + directory + caching + replay/hardening) |
 | Shopify plugin | ✅ OAuth, Polaris settings, traffic dashboard, App Proxy pass-through |
 | Plugin tests | ✅ 15 |
 | Dockerfile + compose with Redis | ✅ |
@@ -104,7 +106,7 @@ docker compose up --build    # API on :3000, Redis on :6379 (ready for the cache
 ## Test it
 
 ```bash
-npm test                  # 121 real-cryptography tests across all four protocols + directory
+npm test                  # 138 real-cryptography tests across all four protocols + directory
 npm run typecheck         # full TS strict check
 npm run check:type-sync   # API ↔ plugin VerificationFailureReason drift guard
 npm run demo              # in-process AVA TAP profile demo
@@ -133,7 +135,7 @@ When the API runs, it also exposes:
 
 Storage path is `AVA_DIRECTORY_DATA` (file-backed JSON, persists across restarts). Defaults to in-memory when unset.
 
-When `VISA_AGENT_DIRECTORY_URL` is set, the verifier resolves through Visa's hosted directory instead. When it's not, the verifier resolves through the hosted-locally `StorageBackedAgentDirectory` — meaning agents you register here are immediately resolvable by `/verify`.
+Verifier key resolution is **federated**: keys resolve through a chain of roots of trust — Visa's Agentic Directory (when `VISA_AGENT_DIRECTORY_URL` is set) → Visa's public JWKS (`mcp.visa.com`) → the Web Bot Auth key directories of allowlisted signature agents → this hosted directory as the private-allowlist fallback. The first root that knows the key wins (a revocation in a higher root is definitive); a root that is down is skipped. Agents you register here are immediately resolvable by `/verify` — and an agent that already publishes a Web Bot Auth key card can sign Visa TAP requests with that same key (keyid = RFC 7638 thumbprint), no separate registration.
 
 See [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) for the agent-side onboarding flow.
 

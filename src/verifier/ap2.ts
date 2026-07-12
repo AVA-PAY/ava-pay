@@ -123,7 +123,10 @@ export class Ap2AgentVerifier implements AgentVerifier {
     const agentId = intent.header.kid;
     let record;
     try {
-      record = await this.directory.resolve(agentId);
+      record = await this.directory.resolve(agentId, {
+        protocol: 'ap2',
+        alg: intent.header.alg,
+      });
     } catch {
       return fail('unknown_agent', `Agent directory lookup for "${agentId}" failed.`);
     }

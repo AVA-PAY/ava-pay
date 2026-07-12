@@ -13,12 +13,18 @@
  */
 
 export interface DirectoryAgentKey {
-  /** "ed25519" or "es256" — what protocol verifiers will use it for. */
-  alg: 'ed25519' | 'es256';
+  /** Signing algorithm this key is used with. */
+  alg: 'ed25519' | 'es256' | 'ps256';
   /** JWK encoding of the public key. */
-  jwk: { kty: string; crv?: string; x?: string; y?: string; [k: string]: unknown };
+  jwk: { kty: string; crv?: string; x?: string; y?: string; n?: string; e?: string; [k: string]: unknown };
   /** What protocols this key is valid for ("visa", "ap2", or both). */
   protocols: ReadonlyArray<'visa' | 'ap2'>;
+  /**
+   * Optional key identifier for kid-aware resolution (e.g. an RFC 7638
+   * thumbprint). Lets one agent register several keys and have verifiers
+   * pick the exact one the request was signed with.
+   */
+  kid?: string;
 }
 
 export interface DirectoryAgentRecord {
