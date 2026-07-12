@@ -91,11 +91,41 @@ export type VerificationFailureReason =
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
   | 'unknown_key'
+  // Visa Trusted Agent Protocol (real wire format) — signed body objects
+  | 'malformed_recognition_object'
+  | 'recognition_nonce_mismatch'
+  | 'recognition_signature_invalid'
+  | 'id_token_invalid'
+  | 'malformed_payment_container'
+  | 'payment_container_signature_invalid'
   // Multi-protocol
   | 'ambiguous_protocol';
 
-/** Protocol that authenticated a trusted request. */
-export type VerifiedProtocol = 'visa-tap' | 'ap2' | 'web-bot-auth';
+/**
+ * Protocol that authenticated a trusted request.
+ * 'visa-tap' is Visa's real Trusted Agent Protocol wire format;
+ * 'ava-tap' is AVA's TAP-style profile (x-ava-mandate header).
+ */
+export type VerifiedProtocol = 'visa-tap' | 'ava-tap' | 'ap2' | 'web-bot-auth';
+
+/** What a real Visa TAP verification established, beyond agent identity. */
+export interface TapVerificationDetail {
+  /** browse = agent-browser-auth; payer = agent-payer-auth (payment intent). */
+  intent: 'browse' | 'payer';
+  /** Present when a Consumer Recognition Object validated (incl. its Visa-signed IdToken). */
+  consumer?: {
+    /** Opaque subject from the Visa IdToken. Never PII in the clear. */
+    sub?: string;
+    emailMask?: string;
+    phoneNumberMask?: string;
+  };
+  /** Present when an Agentic Payment Container validated. */
+  payment?: {
+    hasCredentialsHash: boolean;
+    /** Merchant-encrypted payload present (only the merchant can decrypt it). */
+    hasEncryptedPayload: boolean;
+  };
+}
 
 /**
  * The agent identity a signature actually proved.
@@ -135,6 +165,8 @@ export type VerificationResult =
        */
       buyerInfo?: BuyerInfo;
       mandate?: Mandate;
+      /** Real Visa TAP only: intent + validated consumer/payment context. */
+      tap?: TapVerificationDetail;
       /** Optional merchant-funded discount, expressed as a fraction 0..1 (e.g. 0.1 = 10%). */
       discount?: number;
       /** How long this decision is valid, in seconds. Merchant can cache. */

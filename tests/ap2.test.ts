@@ -5,6 +5,7 @@ import { Ap2AgentVerifier } from '../src/verifier/ap2.js';
 import { VisaAgentVerifier } from '../src/verifier/visa.js';
 import { MultiProtocolVerifier } from '../src/verifier/multi.js';
 import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../src/verifier/web-bot-auth.js';
+import { VisaTapVerifier } from '../src/verifier/visa-tap.js';
 import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
 import {
   buildAp2Headers,
@@ -47,7 +48,8 @@ describe('Ap2AgentVerifier — real JWS chains', () => {
       resolver: new StaticSignatureAgentKeys(),
       now: () => FIXED_NOW,
     });
-    const verifier = new MultiProtocolVerifier({ visa, ap2, webBotAuth });
+    const visaTap = new VisaTapVerifier({ directory, now: () => FIXED_NOW });
+    const verifier = new MultiProtocolVerifier({ visa, visaTap, ap2, webBotAuth });
 
     app = await buildServer({ verifier, logger: false });
     await app.ready();

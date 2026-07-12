@@ -2,7 +2,7 @@
 
 The neutral verification + payment layer for AI shopping agents.
 
-One install on the merchant side. One registration on the agent-issuer side. **Three protocols** supported out of the box — Visa Trusted Agent Protocol (RFC 9421 + Ed25519), Google Agent Payments Protocol (AP2 mandate-chain JWS), and IETF Web Bot Auth (the signature scheme real ChatGPT agent traffic carries today). One protocol-agnostic `VerificationResult` shape downstream.
+One install on the merchant side. One registration on the agent-issuer side. **Four protocols** supported out of the box — Visa Trusted Agent Protocol (the real wire format: `agent-browser-auth`/`agent-payer-auth` tags, Consumer Recognition Objects, Agentic Payment Containers, Visa-signed IdTokens), AVA's TAP-style profile (RFC 9421 + Ed25519 + `x-ava-mandate`), Google Agent Payments Protocol (AP2 mandate-chain JWS), and IETF Web Bot Auth (the signature scheme real ChatGPT agent traffic carries today). One protocol-agnostic `VerificationResult` shape downstream.
 
 Web Bot Auth results are **agent identity only** — they prove which agent operator sent the request (e.g. `https://chatgpt.com`), not that a buyer authorized a purchase. Payment authority comes from the mandate-carrying protocols (Visa TAP, AP2).
 
@@ -12,9 +12,10 @@ If you're an AI agent issuer, the on-ramp is [`AGENT_ISSUERS.md`](./AGENT_ISSUER
 
 ```bash
 npm install
-npm run demo            # Visa Trusted Agent Protocol (RFC 9421 + Ed25519)
+npm run demo            # AVA TAP-style profile (RFC 9421 + Ed25519 + x-ava-mandate)
 npm run demo:ap2        # Google Agent Payments Protocol (JWS mandate chain)
 npm run demo:wba        # IETF Web Bot Auth (identity-only, key-directory discovery)
+npm run demo:tap        # Visa Trusted Agent Protocol, real wire format
 ```
 
 You'll see a signed request and a `✓ trusted` response in well under a millisecond, on either protocol. The same primitives the demo uses (`src/sdk/index.ts` — soon `@ava-pay/agent` on npm) are what production agents would import.
@@ -35,7 +36,8 @@ AVA Pay/
 │   ├── verifier/
 │   │   ├── interface.ts            # AgentVerifier — the swap point
 │   │   ├── multi.ts                # MultiProtocolVerifier — header-sniffs and dispatches
-│   │   ├── visa.ts                 # Visa TAP verifier
+│   │   ├── visa.ts                 # AVA TAP-style profile verifier (x-ava-mandate)
+│   │   ├── visa-tap.ts             # REAL Visa TAP verifier + Visa JWKS resolver
 │   │   ├── ap2.ts                  # AP2 verifier
 │   │   ├── web-bot-auth.ts         # Web Bot Auth verifier + key-directory resolvers
 │   │   ├── agent-directory.ts      # Static/Remote + 5-min CachingAgentDirectory
@@ -48,8 +50,8 @@ AVA Pay/
 │   │   └── storage-directory.ts    # adapter — verifier resolves through hosted storage
 │   └── server.ts                   # buildServer — composes verifier, directory, static landing
 ├── public/                         # static landing page (live in-browser demo using Web Crypto)
-├── examples/agent-demo.ts          # runnable Node demo (TAP + AP2 + Web Bot Auth)
-├── tests/                          # 87 Vitest cases — real cryptography, no fakes
+├── examples/agent-demo.ts          # runnable Node demo (all four protocols)
+├── tests/                          # 121 Vitest cases — real cryptography, no fakes
 ├── scripts/check-type-sync.ts      # CI guardrail against API↔plugin type drift
 ├── shopify-app/                    # Shopify Remix plugin (settings + traffic dashboard + theme extension)
 ├── AGENT_ISSUERS.md                # how AI agent issuers register with the directory
@@ -62,7 +64,8 @@ AVA Pay/
 |---|---|
 | API `POST /verify` | ✅ Fastify + TypeScript + structured pino logs |
 | **Multi-protocol verifier** | ✅ `MultiProtocolVerifier` sniffs the request and dispatches |
-| Visa Trusted Agent Protocol | ✅ RFC 9421 + Ed25519, content-digest, mandatory alg/created/nonce, server-side max signature age |
+| **Visa Trusted Agent Protocol (real wire format)** | ✅ `agent-browser-auth`/`agent-payer-auth` tags, ed25519 + rsa-pss-sha256, 8-min window cap, nonce replay block, Consumer Recognition Object + Visa-signed PS256 IdToken (verified against `mcp.visa.com/.well-known/jwks`), Agentic Payment Container validation |
+| AVA TAP-style profile | ✅ RFC 9421 + Ed25519, content-digest, mandatory alg/created/nonce, server-side max signature age, `x-ava-mandate` |
 | Google AP2 | ✅ Intent + cart mandate JWS chain, spend-limit enforcement, merchant scoping, single-use cart jti |
 | **IETF Web Bot Auth** | ✅ draft-meunier-webbotauth-httpsig-protocol/-directory: `tag="web-bot-auth"`, Signature-Agent (both wire forms), RFC 7638 thumbprint keyids, allowlisted `/.well-known/http-message-signatures-directory` resolution, identity-only result (no mandate) |
 | **Replay protection** | ✅ nonce + cart-jti dedup via `ReplayGuard` (in-memory now, Redis-ready interface) |
@@ -73,10 +76,10 @@ AVA Pay/
 | Public agent SDK | ✅ `packages/agent-sdk/` — `@ava-pay/agent`, ready-to-publish (17.4 kB tarball) |
 | Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
-| Runnable demos | ✅ `npm run demo`, `npm run demo:ap2`, `npm run demo:wba` |
-| API tests | ✅ 87 with real cryptography (TAP + AP2 + Web Bot Auth + directory + caching + replay/hardening) |
+| Runnable demos | ✅ `npm run demo`, `npm run demo:ap2`, `npm run demo:wba`, `npm run demo:tap` |
+| API tests | ✅ 121 with real cryptography (real TAP + AVA profile + AP2 + Web Bot Auth + directory + caching + replay/hardening) |
 | Shopify plugin | ✅ OAuth, Polaris settings, traffic dashboard, App Proxy pass-through |
-| Plugin tests | ✅ 10 |
+| Plugin tests | ✅ 15 |
 | Dockerfile + compose with Redis | ✅ |
 | CI (typecheck + tests + drift + docker build) | ✅ |
 | Real Visa Agent Directory wiring | ⏳ partner-gated — `VISA_AGENT_DIRECTORY_URL` swaps in zero-code |
@@ -101,10 +104,11 @@ docker compose up --build    # API on :3000, Redis on :6379 (ready for the cache
 ## Test it
 
 ```bash
-npm test                  # 87 real-cryptography tests across all three protocols + directory
+npm test                  # 121 real-cryptography tests across all four protocols + directory
 npm run typecheck         # full TS strict check
 npm run check:type-sync   # API ↔ plugin VerificationFailureReason drift guard
-npm run demo              # in-process Visa TAP demo
+npm run demo              # in-process AVA TAP profile demo
+npm run demo:tap          # in-process real Visa TAP demo
 npm run demo:ap2          # in-process AP2 demo
 npm run demo:wba          # in-process Web Bot Auth demo
 ```

@@ -270,6 +270,9 @@ export class VisaAgentVerifier implements AgentVerifier {
 
     return {
       trusted: true,
+      // 'ava-tap' = AVA's TAP-style profile. Visa's real wire format is
+      // handled by VisaTapVerifier and labeled 'visa-tap'.
+      protocol: 'ava-tap',
       buyerInfo,
       mandate,
       ...(discountHint !== undefined ? { discount: discountHint } : {}),

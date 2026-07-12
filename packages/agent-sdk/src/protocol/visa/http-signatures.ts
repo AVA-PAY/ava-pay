@@ -81,6 +81,10 @@ export function parseSignatureInput(headerValue: string): ParsedSignatureInput {
       if (raw.startsWith('"') && raw.endsWith('"')) raw = raw.slice(1, -1);
       switch (name) {
         case 'keyid':
+        // Visa's TAP sample implementation emits `keyId` (RFC 8941 keys are
+        // lowercase-only, but real traffic wins — the raw header string still
+        // feeds the signature base, so tolerance here cannot affect crypto).
+        case 'keyId':
           parameters.keyid = raw;
           break;
         case 'created':

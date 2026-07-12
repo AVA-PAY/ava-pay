@@ -17,11 +17,13 @@ import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
 import { VisaAgentVerifier } from '../src/verifier/visa.js';
 import { Ap2AgentVerifier } from '../src/verifier/ap2.js';
 import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../src/verifier/web-bot-auth.js';
+import { VisaTapVerifier } from '../src/verifier/visa-tap.js';
 import { MultiProtocolVerifier } from '../src/verifier/multi.js';
 import {
   buildAp2Headers,
   generateAgentKeyPair,
   signWithVisa,
+  signWithVisaTap,
   signWithWebBotAuth,
 } from '../src/sdk/index.js';
 import type { Mandate, VerificationResult } from '../src/types.js';
@@ -29,6 +31,7 @@ import type { Mandate, VerificationResult } from '../src/types.js';
 const args = process.argv.slice(2);
 const useAp2 = args.includes('--ap2');
 const useWba = args.includes('--wba');
+const useTap = args.includes('--tap');
 const SIGNATURE_AGENT = 'https://agent-demo.ava.example';
 const mode = args.includes('--http') ? 'http' : 'inproc';
 const apiUrl = process.env.AVA_PAY_API_URL ?? 'http://localhost:3000';
@@ -65,7 +68,13 @@ interface SignedPayload {
 }
 
 async function inProcessRun(): Promise<void> {
-  const protocol = useAp2 ? 'AP2' : useWba ? 'Web Bot Auth' : 'Visa TAP';
+  const protocol = useAp2
+    ? 'AP2'
+    : useWba
+      ? 'Web Bot Auth'
+      : useTap
+        ? 'Visa TAP (real wire format)'
+        : 'AVA TAP profile';
   console.log(`▶ Mode: in-process · Protocol: ${protocol}\n`);
 
   const keyPair = generateAgentKeyPair();
@@ -79,9 +88,10 @@ async function inProcessRun(): Promise<void> {
   signatureAgentKeys.add(SIGNATURE_AGENT, { keys: [jwk] });
 
   const visa = new VisaAgentVerifier({ directory });
+  const visaTap = new VisaTapVerifier({ directory });
   const ap2 = new Ap2AgentVerifier({ directory });
   const webBotAuth = new WebBotAuthVerifier({ resolver: signatureAgentKeys });
-  const verifier = new MultiProtocolVerifier({ visa, ap2, webBotAuth });
+  const verifier = new MultiProtocolVerifier({ visa, visaTap, ap2, webBotAuth });
 
   const app = await buildServer({ verifier, logger: false });
   await app.ready();
@@ -90,7 +100,9 @@ async function inProcessRun(): Promise<void> {
     ? buildAp2Demo(keyPair)
     : useWba
       ? buildWbaDemo(keyPair)
-      : buildVisaDemo(keyPair);
+      : useTap
+        ? buildTapDemo(keyPair)
+        : buildVisaDemo(keyPair);
   printSignedRequest(signed);
 
   const res = await app.inject({ method: 'POST', url: '/verify', payload: signed });
@@ -142,6 +154,16 @@ function buildAp2Demo(keyPair: { privateKey: any }): SignedPayload {
     headers: { ...headers, host: MERCHANT_HOST },
     body: purchaseBody(),
   };
+}
+
+function buildTapDemo(keyPair: { privateKey: any }): SignedPayload {
+  const out = signWithVisaTap({
+    url: `https://${MERCHANT_HOST}/products/tool-1234`,
+    privateKey: keyPair.privateKey,
+    keyid: AGENT_ID,
+    tag: 'agent-browser-auth',
+  });
+  return { method: out.method, url: out.url, headers: out.headers };
 }
 
 function buildWbaDemo(keyPair: { privateKey: any }): SignedPayload {

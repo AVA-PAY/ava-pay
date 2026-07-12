@@ -8,4 +8,5 @@ export type {
   VerificationFailureReason,
   VerifiedProtocol,
   VerifiedAgentIdentity,
+  TapVerificationDetail,
 } from '@ava-pay/agent';

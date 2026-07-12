@@ -12,10 +12,12 @@ import type { IncomingRequest, VerificationResult } from '../types.js';
  * VerificationResult shape back.
  *
  * Detection rules:
- *   - `signature-input` + `signature` headers → an RFC 9421 protocol:
- *       - tag="web-bot-auth" in Signature-Input, or a Signature-Agent
- *         header → Web Bot Auth (ChatGPT/Claude/Perplexity agent traffic)
- *       - otherwise → Visa TAP
+ *   - `signature-input` + `signature` headers → an RFC 9421 protocol, split
+ *     by the spec-mandated tag:
+ *       - tag="web-bot-auth", or a Signature-Agent header → Web Bot Auth
+ *         (ChatGPT/Claude/Perplexity agent traffic)
+ *       - tag="agent-browser-auth" | "agent-payer-auth" → real Visa TAP
+ *       - no tag → AVA's TAP-style profile (x-ava-mandate)
  *   - `ap2-attestation` header → AP2
  *   - RFC 9421 + AP2 together → ambiguous_protocol (signal to the agent: pick one)
  *   - Neither → missing_agent_credentials
@@ -25,7 +27,10 @@ import type { IncomingRequest, VerificationResult } from '../types.js';
  */
 
 export interface MultiProtocolVerifierOptions {
+  /** AVA's TAP-style profile (x-ava-mandate). */
   visa: AgentVerifier;
+  /** Visa's real Trusted Agent Protocol wire format. */
+  visaTap: AgentVerifier;
   ap2: AgentVerifier;
   webBotAuth: AgentVerifier;
 }
@@ -36,11 +41,13 @@ export class MultiProtocolVerifier implements AgentVerifier {
   async verify(request: IncomingRequest): Promise<VerificationResult> {
     const sigInput = request.headers['signature-input'];
     const hasHttpSig = sigInput !== undefined && 'signature' in request.headers;
-    // Web Bot Auth is RFC 9421 like Visa TAP; the spec-mandated tag (and the
-    // Signature-Agent discovery header, which TAP never sends) disambiguates.
+    // All RFC 9421 protocols share the same two headers; the spec-mandated
+    // tag disambiguates (plus Signature-Agent, which only WBA sends).
     const hasWba =
       hasHttpSig && (/[;\s]tag="web-bot-auth"/.test(sigInput) || 'signature-agent' in request.headers);
-    const hasVisa = hasHttpSig && !hasWba;
+    const hasVisaTap =
+      hasHttpSig && !hasWba && /[;\s]tag="(agent-browser-auth|agent-payer-auth)"/.test(sigInput);
+    const hasVisa = hasHttpSig && !hasWba && !hasVisaTap;
     const hasAp2 = 'ap2-attestation' in request.headers;
 
     if (hasHttpSig && hasAp2) {
@@ -52,6 +59,7 @@ export class MultiProtocolVerifier implements AgentVerifier {
       };
     }
     if (hasWba) return this.impls.webBotAuth.verify(request);
+    if (hasVisaTap) return this.impls.visaTap.verify(request);
     if (hasVisa) return this.impls.visa.verify(request);
     if (hasAp2) return this.impls.ap2.verify(request);
 
