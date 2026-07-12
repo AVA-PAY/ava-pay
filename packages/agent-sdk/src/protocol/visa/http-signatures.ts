@@ -6,10 +6,13 @@ type JsonWebKeyLike = { kty: string; [k: string]: unknown };
  * Minimal RFC 9421 (HTTP Message Signatures) primitives.
  *
  * Scope intentionally narrow — one signature label per request, ed25519 only,
- * derived components (`@method`, `@target-uri`, `@authority`) plus arbitrary
- * lowercase header references. Structured-field rendering of header values is
- * not applied; values are taken as-is, which matches real-world Visa TAP
- * signers.
+ * derived components (`@method`, `@target-uri`, `@authority`, `@path`,
+ * `@query`) plus arbitrary lowercase header references. Structured-field
+ * rendering of header values is not applied; values are taken as-is, which
+ * matches real-world Visa TAP and Web Bot Auth signers.
+ *
+ * Despite living under protocol/visa (its first consumer), this is the
+ * generic RFC 9421 core — the Web Bot Auth verifier imports it too.
  *
  * Reference: https://www.rfc-editor.org/rfc/rfc9421
  */
@@ -31,6 +34,7 @@ export interface ParsedSignatureInput {
     expires?: number;
     alg?: string;
     nonce?: string;
+    tag?: string;
   };
 }
 
@@ -94,6 +98,9 @@ export function parseSignatureInput(headerValue: string): ParsedSignatureInput {
         case 'nonce':
           parameters.nonce = raw;
           break;
+        case 'tag':
+          parameters.tag = raw;
+          break;
         default:
           break;
       }
@@ -154,12 +161,18 @@ export function buildSignatureBase(
 function resolveComponent(name: string, inputs: SignatureBaseInputs): string {
   if (name === '@method') return inputs.method.toUpperCase();
   if (name === '@target-uri') return inputs.url;
-  if (name === '@authority') {
+  if (name === '@authority' || name === '@path' || name === '@query') {
+    let u: URL;
     try {
-      return new URL(inputs.url).host;
+      u = new URL(inputs.url);
     } catch {
-      throw new SignatureParseError(`@authority requires a valid URL, got: ${inputs.url}`);
+      throw new SignatureParseError(`${name} requires a valid URL, got: ${inputs.url}`);
     }
+    if (name === '@authority') return u.host;
+    if (name === '@path') return u.pathname;
+    // RFC 9421 §2.2.7: @query is the query string with its leading "?";
+    // when the target has no query, the component value is "?".
+    return u.search === '' ? '?' : u.search;
   }
   if (name.startsWith('@')) {
     throw new SignatureParseError(`Unsupported derived component: ${name}`);

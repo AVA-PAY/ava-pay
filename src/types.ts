@@ -6,4 +6,6 @@ export type {
   BuyerInfo,
   VerificationResult,
   VerificationFailureReason,
+  VerifiedProtocol,
+  VerifiedAgentIdentity,
 } from '@ava-pay/agent';

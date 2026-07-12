@@ -156,7 +156,14 @@ describe('AP2 hardening', () => {
     const ap2 = new Ap2AgentVerifier({ directory, now: () => FIXED_NOW });
     const visa = new VisaAgentVerifier({ directory, now: () => FIXED_NOW });
     const { MultiProtocolVerifier } = await import('../src/verifier/multi.js');
-    const verifier = new MultiProtocolVerifier({ visa, ap2 });
+    const { WebBotAuthVerifier, StaticSignatureAgentKeys } = await import(
+      '../src/verifier/web-bot-auth.js'
+    );
+    const webBotAuth = new WebBotAuthVerifier({
+      resolver: new StaticSignatureAgentKeys(),
+      now: () => FIXED_NOW,
+    });
+    const verifier = new MultiProtocolVerifier({ visa, ap2, webBotAuth });
     app = await buildServer({ verifier, logger: false, rateLimit: false });
     await app.ready();
   });

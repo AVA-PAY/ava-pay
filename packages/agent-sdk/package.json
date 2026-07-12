@@ -1,7 +1,7 @@
 {
   "name": "@ava-pay/agent",
   "version": "0.1.0",
-  "description": "Developer preview. Agent SDK for AVA Pay. Sign Visa Trusted Agent Protocol (RFC 9421) and Google Agent Payments Protocol (AP2) requests. Plus the parsing primitives for building your own verifier. Pre 1.0: API may change.",
+  "description": "Developer preview. Agent SDK for AVA Pay. Sign Visa Trusted Agent Protocol (RFC 9421), Google Agent Payments Protocol (AP2), and IETF Web Bot Auth requests. Plus the parsing primitives for building your own verifier. Pre 1.0: API may change.",
   "type": "module",
   "license": "MIT",
   "author": "AVA (https://ava.company)",
@@ -22,6 +22,7 @@
     "google-agent-payments-protocol",
     "rfc-9421",
     "http-message-signatures",
+    "web-bot-auth",
     "ed25519",
     "jws"
   ],
@@ -46,6 +47,10 @@
     "./protocol/ap2": {
       "types": "./dist/protocol/ap2/index.d.ts",
       "import": "./dist/protocol/ap2/index.js"
+    },
+    "./protocol/web-bot-auth": {
+      "types": "./dist/protocol/web-bot-auth/index.d.ts",
+      "import": "./dist/protocol/web-bot-auth/index.js"
     }
   },
   "files": [

@@ -63,6 +63,13 @@ export {
   type Ap2Attestations,
 } from './agent/ap2.js';
 
+// Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol)
+export {
+  signWithWebBotAuth,
+  webBotAuthKeyId,
+  type WebBotAuthSignInput,
+} from './agent/web-bot-auth.js';
+
 // Shared protocol-agnostic types
 export type {
   IncomingRequest,
@@ -70,6 +77,8 @@ export type {
   BuyerInfo,
   VerificationResult,
   VerificationFailureReason,
+  VerifiedProtocol,
+  VerifiedAgentIdentity,
 } from './types.js';
 
 // AP2 protocol type re-exports for users implementing custom AP2 logic

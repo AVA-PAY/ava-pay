@@ -3,6 +3,7 @@
  *
  *   npm run demo               # Visa Trusted Agent Protocol (RFC 9421 + Ed25519)
  *   npm run demo -- --ap2      # Google Agent Payments Protocol (JWS chain)
+ *   npm run demo -- --wba      # IETF Web Bot Auth (what real ChatGPT agent traffic speaks)
  *   npm run demo -- --http     # Same TAP demo against a running API at AVA_PAY_API_URL
  *
  * In default (in-process) mode the script builds an isolated server with the
@@ -15,16 +16,20 @@ import { buildServer } from '../src/server.js';
 import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
 import { VisaAgentVerifier } from '../src/verifier/visa.js';
 import { Ap2AgentVerifier } from '../src/verifier/ap2.js';
+import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../src/verifier/web-bot-auth.js';
 import { MultiProtocolVerifier } from '../src/verifier/multi.js';
 import {
   buildAp2Headers,
   generateAgentKeyPair,
   signWithVisa,
+  signWithWebBotAuth,
 } from '../src/sdk/index.js';
 import type { Mandate, VerificationResult } from '../src/types.js';
 
 const args = process.argv.slice(2);
 const useAp2 = args.includes('--ap2');
+const useWba = args.includes('--wba');
+const SIGNATURE_AGENT = 'https://agent-demo.ava.example';
 const mode = args.includes('--http') ? 'http' : 'inproc';
 const apiUrl = process.env.AVA_PAY_API_URL ?? 'http://localhost:3000';
 
@@ -60,21 +65,32 @@ interface SignedPayload {
 }
 
 async function inProcessRun(): Promise<void> {
-  const protocol = useAp2 ? 'AP2' : 'Visa TAP';
+  const protocol = useAp2 ? 'AP2' : useWba ? 'Web Bot Auth' : 'Visa TAP';
   console.log(`▶ Mode: in-process · Protocol: ${protocol}\n`);
 
   const keyPair = generateAgentKeyPair();
   const directory = new StaticAgentDirectory();
   directory.add(AGENT_ID, keyPair.publicKey);
 
+  // Publish the demo key the way a real agent operator would: as a JWKS at
+  // the Signature-Agent origin's well-known key directory.
+  const jwk = keyPair.publicKey.export({ format: 'jwk' });
+  const signatureAgentKeys = new StaticSignatureAgentKeys();
+  signatureAgentKeys.add(SIGNATURE_AGENT, { keys: [jwk] });
+
   const visa = new VisaAgentVerifier({ directory });
   const ap2 = new Ap2AgentVerifier({ directory });
-  const verifier = new MultiProtocolVerifier({ visa, ap2 });
+  const webBotAuth = new WebBotAuthVerifier({ resolver: signatureAgentKeys });
+  const verifier = new MultiProtocolVerifier({ visa, ap2, webBotAuth });
 
   const app = await buildServer({ verifier, logger: false });
   await app.ready();
 
-  const signed: SignedPayload = useAp2 ? buildAp2Demo(keyPair) : buildVisaDemo(keyPair);
+  const signed: SignedPayload = useAp2
+    ? buildAp2Demo(keyPair)
+    : useWba
+      ? buildWbaDemo(keyPair)
+      : buildVisaDemo(keyPair);
   printSignedRequest(signed);
 
   const res = await app.inject({ method: 'POST', url: '/verify', payload: signed });
@@ -128,6 +144,16 @@ function buildAp2Demo(keyPair: { privateKey: any }): SignedPayload {
   };
 }
 
+function buildWbaDemo(keyPair: { privateKey: any }): SignedPayload {
+  const out = signWithWebBotAuth({
+    method: 'GET',
+    url: `https://${MERCHANT_HOST}/products/tool-1234`,
+    signatureAgent: SIGNATURE_AGENT,
+    privateKey: keyPair.privateKey,
+  });
+  return { method: out.method, url: out.url, headers: out.headers };
+}
+
 async function httpRun(): Promise<void> {
   console.log(`▶ Mode: http (target ${apiUrl}/verify) · Protocol: Visa TAP\n`);
   console.error(
@@ -164,10 +190,17 @@ function printVerdict(status: number, body: VerificationResult, elapsed: string 
   console.log(`  HTTP ${status}${elapsed ? `   verify-ms: ${elapsed}` : ''}`);
   if (body.trusted) {
     console.log(`  ✓ trusted`);
-    console.log(`    buyer: ${body.buyerInfo.displayName ?? body.buyerInfo.buyerId}`);
-    console.log(
-      `    mandate: ${body.mandate.id} (max $${body.mandate.maxAmountMinor / 100} ${body.mandate.currency})`,
-    );
+    if (body.agent) {
+      console.log(`    agent: ${body.agent.id} (${body.agent.protocol}, identity-only — no mandate)`);
+    }
+    if (body.buyerInfo) {
+      console.log(`    buyer: ${body.buyerInfo.displayName ?? body.buyerInfo.buyerId}`);
+    }
+    if (body.mandate) {
+      console.log(
+        `    mandate: ${body.mandate.id} (max $${body.mandate.maxAmountMinor / 100} ${body.mandate.currency})`,
+      );
+    }
     if (body.discount !== undefined) console.log(`    discount hint: ${(body.discount * 100).toFixed(1)}%`);
     console.log(`    decision ttl: ${body.ttlSeconds}s`);
   } else {

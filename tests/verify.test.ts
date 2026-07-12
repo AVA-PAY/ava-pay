@@ -81,8 +81,8 @@ describe('POST /verify (VisaAgentVerifier, real signatures)', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as VerificationResult;
     if (!body.trusted) throw new Error(`expected trusted=true, got ${JSON.stringify(body)}`);
-    expect(body.buyerInfo.buyerId).toBe('buyer_alex_001');
-    expect(body.mandate.id).toBe('mandate_demo');
+    expect(body.buyerInfo?.buyerId).toBe('buyer_alex_001');
+    expect(body.mandate?.id).toBe('mandate_demo');
     expect(res.headers['x-ava-verify-ms']).toBeDefined();
   });
 
