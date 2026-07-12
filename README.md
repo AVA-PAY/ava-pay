@@ -75,7 +75,7 @@ AVA Pay/
 | **Federated key resolution** | ✅ chain: Visa Agentic Directory (when credentialed) → Visa public JWKS → Web Bot Auth agent cards → hosted/private allowlist; kid- + protocol- + algorithm-aware (replaced `keys[0]`); down roots skipped, revocations never shadowed |
 | Agent Directory + caching | ✅ 5-min TTL keyed by (id, hints), caches misses, `Remote`/`Static`/`StorageBacked` impls |
 | **Hosted Agent Directory** | ✅ `/.well-known/ava-agent-directory`, register/lookup/revoke, file-backed storage |
-| Public agent SDK | ✅ `packages/agent-sdk/` — `@ava-pay/agent`, ready-to-publish (17.4 kB tarball) |
+| Public agent SDK | ✅ [`@ava-pay/agent@0.2.0`](https://www.npmjs.com/package/@ava-pay/agent) — all four protocol signers + verifier primitives |
 | Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
 | Runnable demos | ✅ `npm run demo`, `npm run demo:ap2`, `npm run demo:wba`, `npm run demo:tap` |
@@ -87,7 +87,7 @@ AVA Pay/
 | Real Visa Agent Directory wiring | ⏳ partner-gated — `VISA_AGENT_DIRECTORY_URL` swaps in zero-code |
 | Real Google AP2 attestation roots | ⏳ awaiting public spec finalization |
 | Redis-backed `CachingAgentDirectory` | ⏳ Redis service provisioned, swap pending |
-| Published `@ava-pay/agent` npm package | ⏳ tarball builds clean, awaiting `npm publish` |
+| Published `@ava-pay/agent` npm package | ✅ 0.2.0 live (published 2026-07-12) |
 | Self-serve directory auth (DPoP) | ⏳ V1 uses bearer token; DPoP next |
 
 ## Run the API
