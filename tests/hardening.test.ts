@@ -9,7 +9,11 @@ import { Ap2AgentVerifier } from '../src/verifier/ap2.js';
 import { InMemoryReplayGuard } from '../src/verifier/replay.js';
 import type { Mandate, VerificationResult } from '../src/types.js';
 import { generateAgentKeyPair, signRequest, type KeyPair } from './sign-helper.js';
-import { buildAp2Headers, type AgentKeyPair } from '../src/sdk/index.js';
+import {
+  buildCheckoutMandateChain,
+  makeCheckoutJwt,
+  type AgentKeyPair,
+} from '../src/sdk/index.js';
 
 /**
  * Production-hardening tests (Phase 0):
@@ -174,34 +178,40 @@ describe('AP2 hardening', () => {
     await app.close();
   });
 
-  it('rejects a replayed cart mandate (same jti twice)', async () => {
-    const { headers } = buildAp2Headers({
-      intent: {
-        agentId: 'agent_demo',
-        privateKey: keys.privateKey,
-        buyerId: 'buyer_alex',
-        spendLimitMinor: 10_000,
+  it('rejects a replayed mandate presentation (same nonce twice)', async () => {
+    const agentKeys = generateAgentKeyPair();
+    const merchantKeys = generateAgentKeyPair();
+    const checkoutJwt = makeCheckoutJwt(
+      {
+        id: 'checkout_hardening',
+        merchant: { name: 'Shop', url: `https://${MERCHANT}` },
+        line_items: [{ item: { id: 'SKU-1', title: 'Widget' }, quantity: 1 }],
+        status: 'ready_for_complete',
         currency: 'USD',
-        allowedMerchants: [MERCHANT],
-        iat: FIXED_NOW - 10,
-        exp: FIXED_NOW + 600,
+        totals: [
+          { type: 'subtotal', amount: 5000 },
+          { type: 'total', amount: 5000 },
+        ],
       },
-      cart: {
-        agentId: 'agent_demo',
-        privateKey: keys.privateKey,
-        merchant: MERCHANT,
-        items: [{ sku: 'SKU-1', qty: 1, price: 5_000 }],
-        totalMinor: 5_000,
-        currency: 'USD',
-        iat: FIXED_NOW - 5,
-        exp: FIXED_NOW + 60,
-      },
+      merchantKeys.privateKey,
+    );
+    const chain = buildCheckoutMandateChain({
+      user: { privateKey: keys.privateKey, kid: 'agent_demo' },
+      agentPrivateKey: agentKeys.privateKey,
+      agentPublicKey: agentKeys.publicKey,
+      constraints: [
+        { type: 'checkout.allowed_merchants', allowed: [{ name: 'Shop', url: `https://${MERCHANT}` }] },
+      ],
+      checkoutJwt,
+      aud: `https://${MERCHANT}`,
+      nonce: 'hardening_nonce_1',
+      iat: FIXED_NOW - 5,
     });
 
     const payload = {
       method: 'POST',
       url: `https://${MERCHANT}/cart`,
-      headers: { ...headers, host: MERCHANT },
+      headers: { host: MERCHANT, 'ap2-checkout-mandate': chain },
       body: '',
     };
 

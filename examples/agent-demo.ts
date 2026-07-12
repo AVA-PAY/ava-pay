@@ -20,8 +20,11 @@ import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../src/verifier/we
 import { VisaTapVerifier } from '../src/verifier/visa-tap.js';
 import { MultiProtocolVerifier } from '../src/verifier/multi.js';
 import {
-  buildAp2Headers,
+  buildCheckoutMandateChain,
+  buildPaymentMandateChain,
+  computeCheckoutHash,
   generateAgentKeyPair,
+  makeCheckoutJwt,
   signWithVisa,
   signWithVisaTap,
   signWithWebBotAuth,
@@ -129,29 +132,63 @@ function buildVisaDemo(keyPair: { privateKey: any }): SignedPayload {
   };
 }
 
-function buildAp2Demo(keyPair: { privateKey: any }): SignedPayload {
-  const { headers } = buildAp2Headers({
-    intent: {
-      agentId: AGENT_ID,
-      privateKey: keyPair.privateKey,
-      buyerId: 'buyer_alex_001',
-      spendLimitMinor: 50_000,
+function buildAp2Demo(keyPair: { privateKey: any; publicKey: any }): SignedPayload {
+  // v0.2: user-signed open mandate delegating to the agent (cnf), closed over
+  // a merchant-signed checkout. The demo's registered key plays the user root;
+  // a fresh keypair plays the agent; another plays the merchant.
+  const agentKeys = generateAgentKeyPair();
+  const merchantKeys = generateAgentKeyPair();
+  const checkoutJwt = makeCheckoutJwt(
+    {
+      id: 'checkout_demo_1',
+      merchant: { name: 'Demo Shop', url: `https://${MERCHANT_HOST}` },
+      line_items: [{ item: { id: 'TOOL-1234', title: 'Demo Tool' }, quantity: 1 }],
+      status: 'ready_for_complete',
       currency: 'USD',
-      allowedMerchants: [MERCHANT_HOST],
+      totals: [
+        { type: 'subtotal', amount: 4999 },
+        { type: 'total', amount: 4999 },
+      ],
     },
-    cart: {
-      agentId: AGENT_ID,
-      privateKey: keyPair.privateKey,
-      merchant: MERCHANT_HOST,
-      items: [{ sku: 'TOOL-1234', qty: 1, price: 4999 }],
-      totalMinor: 4999,
-      currency: 'USD',
+    merchantKeys.privateKey,
+  );
+  const aud = `https://${MERCHANT_HOST}`;
+  const checkoutChain = buildCheckoutMandateChain({
+    user: { privateKey: keyPair.privateKey, kid: AGENT_ID },
+    agentPrivateKey: agentKeys.privateKey,
+    agentPublicKey: agentKeys.publicKey,
+    constraints: [
+      {
+        type: 'checkout.allowed_merchants',
+        allowed: [{ name: 'Demo Shop', url: `https://${MERCHANT_HOST}` }],
+      },
+    ],
+    checkoutJwt,
+    aud,
+    nonce: `nonce_${Date.now()}`,
+  });
+  const paymentChain = buildPaymentMandateChain({
+    user: { privateKey: keyPair.privateKey, kid: AGENT_ID },
+    agentPrivateKey: agentKeys.privateKey,
+    agentPublicKey: agentKeys.publicKey,
+    constraints: [{ type: 'payment.amount_range', currency: 'USD', max: 50_000 }],
+    payment: {
+      transaction_id: computeCheckoutHash(checkoutJwt),
+      payee: { name: 'Demo Shop', url: `https://${MERCHANT_HOST}` },
+      payment_amount: { currency: 'USD', amount: 4999 },
+      payment_instrument: { type: 'card', last_four: '4242' },
     },
+    aud,
+    nonce: `pnonce_${Date.now()}`,
   });
   return {
     method: 'POST',
     url: `https://${MERCHANT_HOST}/cart`,
-    headers: { ...headers, host: MERCHANT_HOST },
+    headers: {
+      host: MERCHANT_HOST,
+      'ap2-checkout-mandate': checkoutChain,
+      'ap2-payment-mandate': paymentChain,
+    },
     body: purchaseBody(),
   };
 }
@@ -213,7 +250,8 @@ function printVerdict(status: number, body: VerificationResult, elapsed: string 
   if (body.trusted) {
     console.log(`  ✓ trusted`);
     if (body.agent) {
-      console.log(`    agent: ${body.agent.id} (${body.agent.protocol}, identity-only — no mandate)`);
+      const scope = body.mandate ? 'mandate-backed' : 'identity-only — no mandate';
+      console.log(`    agent: ${body.agent.id} (${body.agent.protocol}, ${scope})`);
     }
     if (body.buyerInfo) {
       console.log(`    buyer: ${body.buyerInfo.displayName ?? body.buyerInfo.buyerId}`);

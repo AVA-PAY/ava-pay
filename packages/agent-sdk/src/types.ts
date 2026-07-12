@@ -80,13 +80,14 @@ export type VerificationFailureReason =
   | 'mandate_expired'
   | 'mandate_merchant_mismatch'
   | 'mandate_amount_exceeded'
-  // AP2 (Google Agent Payments Protocol)
+  // AP2 (Google Agent Payments Protocol, v0.2 dSD-JWT mandate chains)
   | 'malformed_jws'
   | 'jws_unsupported_algorithm'
   | 'jws_signature_invalid'
-  | 'cart_intent_mismatch'
-  | 'cart_exceeds_intent_limit'
   | 'mandate_chain_mismatch'
+  | 'mandate_constraint_violation'
+  | 'checkout_hash_mismatch'
+  | 'unsupported_protocol_version'
   // Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol)
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
