@@ -22,6 +22,7 @@ export default function App() {
           Settings
         </a>
         <a href="/app/traffic">Traffic</a>
+        <a href="/app/policies">Policies</a>
       </NavMenu>
       <Outlet />
     </AppProvider>

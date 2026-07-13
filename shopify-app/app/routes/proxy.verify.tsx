@@ -98,7 +98,6 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const result = verifyCall.result;
-  const decision = applyMerchantPolicy(settings, result);
 
   if (!result.trusted) {
     await prisma.verificationEvent.create({
@@ -114,6 +113,8 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const platform = result.agent?.id ?? platformHint;
   const protocol = result.protocol ?? result.agent?.protocol ?? null;
+
+  const decision = applyMerchantPolicy(settings, result, platform);
 
   if (!decision.allow) {
     await prisma.verificationEvent.create({

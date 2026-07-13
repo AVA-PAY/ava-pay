@@ -46,6 +46,9 @@ model ShopSettings {
   /// Discount for identity-only verified agents (no buyer mandate, e.g. Web Bot Auth).
   /// 0 = admit without a discount; merchants opt in explicitly.
   identityOnlyDiscountPct Int    @default(0)
+  /// Per-agent-platform policy document (versioned JSON, see lib/agent-policy.ts).
+  /// Null = no policy configured = pre-policy behavior.
+  policyJson            String?
   updatedAt             DateTime @updatedAt
 }
 

@@ -153,4 +153,4 @@ Polaris UI and OAuth flow aren't covered here — those need a real Shopify dev 
 
 - Wire the AVA Pay API at `VISA_AGENT_DIRECTORY_URL` once Visa Partners credentials are provisioned (see the root README).
 - Shopify Discount Function instead of generated codes (cleaner UX on Shopify Plus).
-- Policy engine: per-agent-platform allow/challenge/block rules, discount caps, agent-only offers.
+- App Store submission prep and the WooCommerce plugin (roadmap 2.3).
