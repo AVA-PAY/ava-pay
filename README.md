@@ -6,7 +6,7 @@ One install on the merchant side. One registration on the agent-issuer side. **F
 
 Web Bot Auth results are **agent identity only** — they prove which agent operator sent the request (e.g. `https://chatgpt.com`), not that a buyer authorized a purchase. Payment authority comes from the mandate-carrying protocols (Visa TAP, AP2).
 
-If you're an AI agent issuer, the on-ramp is [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) — register your public key once, every AVA Pay merchant trusts you on either protocol.
+If you're an AI agent issuer, the on-ramp is [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) — publish or register your public key once, and every AVA Pay merchant can verify you on any protocol you sign with.
 
 ## 60-second quickstart
 
@@ -18,7 +18,7 @@ npm run demo:wba        # IETF Web Bot Auth (identity-only, key-directory discov
 npm run demo:tap        # Visa Trusted Agent Protocol, real wire format
 ```
 
-You'll see a signed request and a `✓ trusted` response in well under a millisecond, on either protocol. The same primitives the demo uses are published as [`@ava-pay/agent`](https://www.npmjs.com/package/@ava-pay/agent) on npm — that's what production agents import.
+You'll see a signed request and a `✓ trusted` response in well under a millisecond, on every protocol. The same primitives the demo uses are published as [`@ava-pay/agent`](https://www.npmjs.com/package/@ava-pay/agent) on npm — that's what production agents import.
 
 ## Repo layout
 
@@ -141,31 +141,15 @@ See [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) for the agent-side onboarding flow.
 
 ## Architecture
 
-```
-src/
-├── index.ts                    # entry point — listens on $PORT (default 3000)
-├── server.ts                   # buildServer(opts) — wires VisaAgentVerifier by default
-├── routes/verify.ts            # POST /verify — schema-validates and delegates
-├── types.ts                    # IncomingRequest, VerificationResult, Mandate, BuyerInfo
-├── verifier/
-│   ├── interface.ts            # AgentVerifier — the swap point
-│   ├── visa.ts                 # VisaAgentVerifier — REAL Visa TAP verification
-│   ├── http-signatures.ts      # RFC 9421 base + Ed25519 verify (Node crypto, no deps)
-│   ├── agent-directory.ts      # AgentDirectory + Static + Remote + 5-min CachingDir
-│   ├── mandate.ts              # decode + scope-check (shared with mock)
-│   └── mock.ts                 # MockAgentVerifier — header-driven, for non-crypto tests
-└── store/keystore.ts           # legacy in-memory keystore (still used by mock)
-```
-
-`VisaAgentVerifier` is the default. The route is unchanged from the mock days — only the verifier behind the `AgentVerifier` interface swapped.
+The seam is `src/verifier/interface.ts` — `AgentVerifier`, one method. `MultiProtocolVerifier` (`src/verifier/multi.ts`) sniffs each incoming request's signature tag and dispatches: `web-bot-auth` → `WebBotAuthVerifier`, `agent-browser-auth`/`agent-payer-auth` → `VisaTapVerifier` (real Visa wire format), `ap2-checkout-mandate` header → `Ap2AgentVerifier`, untagged RFC 9421 → `VisaAgentVerifier` (AVA's TAP-style profile). Every verifier returns the same typed `VerificationResult`; none of them throw. Adding a protocol = one new implementation + a sniff rule. The full module map is in [Repo layout](#repo-layout) above.
 
 ## Real Visa Protocol — getting your Visa API credentials
 
-The Trusted Agent Protocol (TAP) is published by Visa. The on-the-wire format — RFC 9421 HTTP Message Signatures + Ed25519 + a JWKS-style Agent Directory — is what `VisaAgentVerifier` already implements. What's *partner-gated* is access to Visa's hosted Agent Directory (their authoritative source of agent public keys + revocation status).
+The Trusted Agent Protocol (TAP) is published by Visa. The on-the-wire format — RFC 9421 HTTP Message Signatures, Consumer Recognition Objects, Visa-signed IdTokens, Agentic Payment Containers — is what `VisaTapVerifier` already implements, validated against Visa's live public JWKS. What's *partner-gated* is access to Visa's hosted Agentic Directory (their authoritative source of agent public keys + revocation status).
 
 To wire that in:
 
-1. **Apply for Visa Partners access** at https://developer.visa.com (look for "Trusted Agent Protocol" / "AI Commerce"). Anthropic, OpenAI, and the other major agent issuers are already in the directory; you'll receive `VISA_API_KEY` and the `VISA_AGENT_DIRECTORY_URL` for your environment (sandbox vs prod).
+1. **Apply for Visa Partners access** at https://developer.visa.com (look for "Trusted Agent Protocol" / "AI Commerce"). You'll receive `VISA_API_KEY` and the `VISA_AGENT_DIRECTORY_URL` for your environment (sandbox vs prod).
 2. **Set environment variables** before starting the API:
 
    ```bash

@@ -6,7 +6,7 @@ If you ship an AI shopping agent — Anthropic, OpenAI, indie agent dev, anyone 
 
 AVA Pay merchants accept *verified* agent traffic and skip *unverified* traffic into their normal bot-detection lane. "Verified" means the merchant's plugin can resolve your agent's public key in an Agent Directory and confirm your signature on the request.
 
-You register **once**, with **one** public key, and you appear at every AVA Pay merchant — across both protocols (Visa Trusted Agent Protocol and Google Agent Payments Protocol).
+You publish or register **once**, with **one** public key, and you're verifiable at every AVA Pay merchant — across every protocol AVA Pay speaks (Visa Trusted Agent Protocol, Google AP2 v0.2, IETF Web Bot Auth, and AVA's TAP-style profile). Key resolution is federated: if you already publish a Web Bot Auth key directory (`/.well-known/http-message-signatures-directory`), AVA Pay merchants can verify you today with **no registration at all** — the AVA directory below is the fallback for issuers who don't.
 
 ## 1. Generate an Ed25519 keypair
 
@@ -25,7 +25,7 @@ Keep `privateKey` in your wallet/secrets. Only the public JWK gets registered.
 ## 2. Register with the AVA Agent Directory
 
 ```bash
-curl -X POST https://api.avapay.example.com/directory/agents \
+curl -X POST https://ava-payagent-production.up.railway.app/directory/agents \
   -H "Authorization: Bearer $AVA_DIRECTORY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -43,7 +43,7 @@ curl -X POST https://api.avapay.example.com/directory/agents \
 You'll get back a `DirectoryAgentRecord`. Anyone can now resolve you:
 
 ```bash
-curl https://api.avapay.example.com/directory/agents/agent_acme_shopping
+curl https://ava-payagent-production.up.railway.app/directory/agents/agent_acme_shopping
 ```
 
 > **Getting a registration token.** Email nick@lifelightlabs.com. We're not gating early issuers; the bearer token only exists to keep drive-by spam off the registry. Long term we'll move to DPoP-style proof-of-key-possession authentication so registration is fully self-serve.
@@ -132,14 +132,14 @@ The SDK is live on npm as [`@ava-pay/agent`](https://www.npmjs.com/package/@ava-
 | `allowedMerchants` | string[] | Allowlist of merchant hosts; `"*"` for any |
 | `buyer` (optional) | BuyerInfo | Embed buyer identity directly in the signed mandate |
 
-### IntentMandate / CartMandate (AP2)
+### Checkout Mandate / Payment Mandate (AP2 v0.2)
 
-Two JWS-encoded mandates, both signed with your agent key:
+AP2 v0.2 presentations are **delegated SD-JWT chains** (`<open>~~<closed>`):
 
-- **Intent**: "user authorizes me to spend up to X at merchant Y." Long-lived.
-- **Cart**: "right now, I'm buying these items totaling Z." Short-lived, references the intent by `jti`.
+- **Checkout Mandate**: a user-signed *open* mandate (constraints + your agent key as `cnf`) followed by your agent-signed *closed* mandate committing (by hash) to a merchant-signed checkout. Rides as the `Ap2-Checkout-Mandate` header.
+- **Payment Mandate**: same chain shape, committing to a payment with `transaction_id` linkage. Rides as `Ap2-Payment-Mandate`.
 
-Both ride on the request as `Ap2-Attestation` and `Ap2-Cart-Mandate` headers.
+Chains are bound to the merchant origin (`aud`) and a single-use `nonce`; verifiers deduplicate. Legacy v0.1 headers (`Ap2-Attestation`/`Ap2-Cart-Mandate`) are rejected with `unsupported_protocol_version`.
 
 ## Failure modes
 
@@ -150,9 +150,11 @@ If verification fails at the merchant, your agent gets back a `403` with one of:
 - `invalid_signature` / `jws_signature_invalid` — signature didn't verify
 - `signature_expired` / `mandate_expired` — time window violated
 - `mandate_merchant_mismatch` — your mandate didn't authorize this merchant
-- `cart_exceeds_intent_limit` (AP2) — cart total exceeds intent's spend cap
-- `cart_intent_mismatch` (AP2) — cart's `intent_ref` doesn't match the intent's `jti`
-- `mandate_chain_mismatch` (AP2) — intent and cart signed by different agents
+- `replay_detected` — nonce or chain already presented; sign fresh per request
+- `mandate_chain_mismatch` (AP2) — the delegation chain doesn't link (wrong `cnf`, `aud`, or signer)
+- `mandate_constraint_violation` (AP2) — a user constraint failed (or the constraint type is unknown — unknown types fail closed)
+- `checkout_hash_mismatch` (AP2) — the closed mandate doesn't match the merchant-signed checkout
+- `unsupported_protocol_version` (AP2) — v0.1 headers; migrate to the v0.2 chain format
 
 ## Questions?
 
