@@ -83,35 +83,65 @@ export async function action({ request }: ActionFunctionArgs) {
   const ava = getAvaPayClient();
   const verifyCall = await ava.verify(incoming);
 
+  const platformHint = extractAgentIdHint(headers);
+
   if (!verifyCall.ok) {
-    await prisma.verificationLog.create({
+    await prisma.verificationEvent.create({
       data: {
         shop,
-        agentId: extractAgentIdHint(headers),
-        trusted: false,
+        platform: platformHint,
+        outcome: 'error',
         reason: `ava_${verifyCall.error}`,
       },
     });
     return proxyJson({ allow: false, reason: `ava_${verifyCall.error}` });
   }
 
-  const decision = applyMerchantPolicy(settings, verifyCall.result);
+  const result = verifyCall.result;
+  const decision = applyMerchantPolicy(settings, result);
 
-  await prisma.verificationLog.create({
-    data: {
-      shop,
-      agentId: extractAgentIdHint(headers),
-      trusted: verifyCall.result.trusted,
-      reason: decision.allow ? 'verified' : decision.reason,
-      discountPct: decision.allow ? decision.discountPct : null,
-    },
-  });
+  if (!result.trusted) {
+    await prisma.verificationEvent.create({
+      data: {
+        shop,
+        platform: platformHint,
+        outcome: 'failed',
+        reason: result.reason,
+      },
+    });
+    return proxyJson({ allow: false, reason: 'agent_blocked' });
+  }
+
+  const platform = result.agent?.id ?? platformHint;
+  const protocol = result.protocol ?? result.agent?.protocol ?? null;
 
   if (!decision.allow) {
+    await prisma.verificationEvent.create({
+      data: {
+        shop,
+        platform,
+        protocol,
+        outcome: 'policy_blocked',
+        reason: decision.reason,
+        identityOnly: !result.mandate,
+      },
+    });
     return proxyJson({ allow: false, reason: decision.reason });
   }
 
   const discount = await createOneTimeDiscount(admin, decision.discountPct);
+
+  await prisma.verificationEvent.create({
+    data: {
+      shop,
+      platform,
+      protocol,
+      outcome: 'verified',
+      identityOnly: !result.mandate,
+      discountPct: decision.discountPct,
+      discountCode: discount?.code ?? null,
+    },
+  });
 
   return proxyJson({
     allow: true,

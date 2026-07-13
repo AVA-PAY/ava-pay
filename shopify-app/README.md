@@ -114,7 +114,7 @@ For end-to-end testing today, generate a signed request with the API repo's `tes
 ```
 shopify-app/
 ├── shopify.app.toml                          # App config (proxy, scopes, webhooks)
-├── prisma/schema.prisma                      # Sessions + ShopSettings + VerificationLog
+├── prisma/schema.prisma                      # Sessions + ShopSettings + VerificationEvent + AgentCommerceEvent
 ├── app/
 │   ├── shopify.server.ts                     # @shopify/shopify-app-react-router init
 │   ├── lib/
@@ -153,4 +153,4 @@ Polaris UI and OAuth flow aren't covered here — those need a real Shopify dev 
 
 - Wire the AVA Pay API at `VISA_AGENT_DIRECTORY_URL` once Visa Partners credentials are provisioned (see the root README).
 - Shopify Discount Function instead of generated codes (cleaner UX on Shopify Plus).
-- Merchant dashboard pages (verified agent traffic, discount spend, top agents).
+- Policy engine: per-agent-platform allow/challenge/block rules, discount caps, agent-only offers.

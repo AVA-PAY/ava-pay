@@ -1,30 +1,47 @@
 import type { ActionFunctionArgs } from 'react-router';
 import { authenticate } from '../shopify.server.js';
-import prisma from '../db.server.js';
+import { recordCommerceEvent } from '../lib/commerce.server.js';
+import {
+  findAvaDiscountCode,
+  hasVerifiedNoteAttribute,
+  toMinorUnits,
+  type WebhookDiscountCode,
+  type WebhookNoteAttribute,
+} from '../lib/commerce.js';
 
 /**
- * checkouts/create webhook — telemetry only.
+ * checkouts/create webhook — mid-funnel telemetry only.
  *
  * The actual verification + discount happens in the App Proxy before the
- * customer gets here. We use this hook to record what made it to checkout so
- * the merchant dashboard can show "X verified agent checkouts in the last 7
- * days, Y blocked" without needing to query Shopify.
+ * customer gets here. Recording checkout-reached lets the dashboard show the
+ * verified→checkout→order funnel without querying Shopify.
  */
 export async function action({ request }: ActionFunctionArgs) {
-  const { shop, payload, topic } = await authenticate.webhook(request);
+  const { shop, payload } = await authenticate.webhook(request);
 
-  const checkout = (payload ?? {}) as { note_attributes?: Array<{ name: string; value: string }> };
-  const attrs = checkout.note_attributes ?? [];
-  const verifiedAttr = attrs.find((a) => a.name === 'ava_pay_verified');
-  const discountAttr = attrs.find((a) => a.name === 'ava_pay_discount_pct');
+  const checkout = (payload ?? {}) as {
+    id?: number | string;
+    token?: string;
+    total_price?: string;
+    currency?: string;
+    note_attributes?: WebhookNoteAttribute[];
+    discount_codes?: WebhookDiscountCode[];
+  };
 
-  await prisma.verificationLog.create({
-    data: {
-      shop,
-      trusted: verifiedAttr?.value === 'true',
-      reason: `webhook_${topic}`,
-      discountPct: discountAttr ? Number(discountAttr.value) || null : null,
-    },
+  const avaCode = findAvaDiscountCode(checkout.discount_codes);
+  const verified = hasVerifiedNoteAttribute(checkout.note_attributes);
+  if (!verified && !avaCode) return new Response();
+
+  const sourceId = checkout.token ?? (checkout.id !== undefined ? String(checkout.id) : null);
+  if (!sourceId) return new Response();
+
+  await recordCommerceEvent({
+    shop,
+    kind: 'checkout',
+    sourceId,
+    totalMinor: toMinorUnits(checkout.total_price),
+    currency: checkout.currency ?? null,
+    discountCode: avaCode,
   });
 
   return new Response();

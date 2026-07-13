@@ -1,10 +1,13 @@
 // Prisma schema for AVA Pay's Shopify app.
 //
-// Two stores:
+// Stores:
 //   Session — required by @shopify/shopify-app-session-storage-prisma. Holds
 //             OAuth access tokens for each installed shop.
 //   ShopSettings — our merchant-controlled config (toggle + max discount).
-//   VerificationLog — telemetry, used by the dashboard later.
+//   VerificationEvent — one row per App Proxy verification request; feeds the
+//             Agent Traffic Intelligence dashboard.
+//   AgentCommerceEvent — checkout/order funnel rows attributed back to a
+//             verification via the minted discount code; carries order value.
 
 generator client {
   provider = "prisma-client-js"
@@ -46,14 +49,54 @@ model ShopSettings {
   updatedAt             DateTime @updatedAt
 }
 
-model VerificationLog {
-  id          String   @id @default(cuid())
-  shop        String
-  agentId     String?
-  trusted     Boolean
-  reason      String?
-  discountPct Int?
-  createdAt   DateTime @default(now())
+model VerificationEvent {
+  id        String   @id @default(cuid())
+  shop      String
+  createdAt DateTime @default(now())
+  /// Verified protocol ('web-bot-auth' | 'visa-tap' | 'ava-tap' | 'ap2').
+  /// Null when verification failed before a protocol was identified.
+  protocol  String?
+  /// Canonical agent platform — for Web Bot Auth the operator origin
+  /// (e.g. "https://chatgpt.com"), otherwise the signed keyid. Best-effort
+  /// header sniff for failures; the verifier's identity when trusted.
+  platform  String?
+  /// 'verified' | 'failed' | 'policy_blocked' | 'error'
+  ///   failed         — the agent presented credentials that did not verify
+  ///   policy_blocked — verified, but merchant settings rejected it
+  ///   error          — the AVA Pay API was unreachable (failed closed)
+  outcome   String
+  /// Typed VerificationFailureReason, policy reason, or ava_* client error.
+  /// Null when verified.
+  reason    String?
+  /// Trusted result carried no buyer mandate (identity-only, e.g. Web Bot Auth).
+  identityOnly Boolean @default(false)
+  discountPct  Int?
+  /// One-time discount code minted for this request — the join key that
+  /// attributes later checkouts/orders back to an agent platform.
+  discountCode String?
 
+  @@index([shop, createdAt])
+  @@index([shop, discountCode])
+}
+
+model AgentCommerceEvent {
+  id        String   @id @default(cuid())
+  shop      String
+  createdAt DateTime @default(now())
+  /// 'checkout' | 'order'
+  kind      String
+  /// Shopify checkout token or order id — dedup key per kind.
+  sourceId  String
+  orderName String?
+  /// Order total in minor units (cents). Null for checkouts without a total.
+  totalMinor Int?
+  currency   String?
+  /// The AVA-minted discount code found on the checkout/order, if any.
+  discountCode String?
+  /// Agent platform attributed via the discount code's VerificationEvent.
+  platform String?
+  protocol String?
+
+  @@unique([shop, kind, sourceId])
   @@index([shop, createdAt])
 }

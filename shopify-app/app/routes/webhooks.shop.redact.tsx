@@ -11,11 +11,12 @@ import prisma from '../db.server.js';
  *
  *   - Session (OAuth tokens, may already be gone via app/uninstalled)
  *   - ShopSettings (toggle + discount caps, may already be gone)
- *   - VerificationLog (kept after uninstall for audit/billing; deleted here)
+ *   - VerificationEvent + AgentCommerceEvent (kept after uninstall for
+ *     audit/billing; deleted here)
  *
  * The existing app/uninstalled webhook deletes Session + ShopSettings
- * immediately. We intentionally retain VerificationLog there because we
- * may need it for billing (per-verification pricing). When Shopify
+ * immediately. We intentionally retain the telemetry tables there because
+ * we may need them for billing (per-verification pricing). When Shopify
  * formally invokes shop/redact 48h later we delete everything, fulfilling
  * the right-to-erasure window.
  *
@@ -25,8 +26,9 @@ import prisma from '../db.server.js';
 export async function action({ request }: ActionFunctionArgs) {
   const { shop, topic } = await authenticate.webhook(request);
 
-  const [logs, settings, sessions] = await Promise.all([
-    prisma.verificationLog.deleteMany({ where: { shop } }),
+  const [events, commerce, settings, sessions] = await Promise.all([
+    prisma.verificationEvent.deleteMany({ where: { shop } }),
+    prisma.agentCommerceEvent.deleteMany({ where: { shop } }),
     prisma.shopSettings.deleteMany({ where: { shop } }),
     prisma.session.deleteMany({ where: { shop } }),
   ]);
@@ -36,7 +38,8 @@ export async function action({ request }: ActionFunctionArgs) {
       event: 'gdpr.shop.redact',
       topic,
       shop,
-      deletedVerificationLogs: logs.count,
+      deletedVerificationEvents: events.count,
+      deletedCommerceEvents: commerce.count,
       deletedShopSettings: settings.count,
       deletedSessions: sessions.count,
       ts: new Date().toISOString(),
