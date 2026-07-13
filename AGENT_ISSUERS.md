@@ -51,14 +51,14 @@ curl https://api.avapay.example.com/directory/agents/agent_acme_shopping
 ## 3. Sign requests using `@ava-pay/agent`
 
 ```bash
-npm install @ava-pay/agent     # publication pending — see Note below
+npm install @ava-pay/agent
 ```
 
 ```ts
 import {
   generateAgentKeyPair,
-  signWithVisa,    // RFC 9421 + Ed25519
-  buildAp2Headers, // AP2 attestation chain
+  signWithVisa,               // AVA TAP-style profile (RFC 9421 + Ed25519)
+  buildCheckoutMandateChain,  // Google AP2 v0.2 (dSD-JWT mandate chains)
 } from '@ava-pay/agent';
 
 // Visa TAP path
@@ -85,27 +85,29 @@ await fetch(signed.url, {
   body: signed.body,
 });
 
-// AP2 path
-const { headers } = buildAp2Headers({
-  intent: {
-    agentId: 'agent_acme_shopping',
-    privateKey,
-    buyerId: 'user_abc',
-    spendLimitMinor: 50_000,
-    currency: 'USD',
-    allowedMerchants: ['shop.example.com'],
-  },
-  cart: {
-    agentId: 'agent_acme_shopping',
-    privateKey,
-    merchant: 'shop.example.com',
-    items: [{ sku: 'TOOL-1', qty: 1, price: 4999 }],
-    totalMinor: 4999,
-    currency: 'USD',
-  },
+// AP2 v0.2 path — a delegated SD-JWT chain: user-signed open mandate
+// (constraints + the agent's key as cnf) followed by an agent-signed
+// closed mandate committing to a merchant-signed checkout.
+const user = generateAgentKeyPair();   // the wallet/root key, registered in a directory
+const agent = generateAgentKeyPair();  // the agent's key, delegated via cnf
+
+const checkoutChain = buildCheckoutMandateChain({
+  user: { privateKey: user.privateKey, kid: 'user_wallet_1' },
+  agentPrivateKey: agent.privateKey,
+  agentPublicKey: agent.publicKey,
+  constraints: [
+    { type: 'checkout.allowed_merchants', allowed: [{ name: 'Shop', url: 'https://shop.example.com' }] },
+  ],
+  checkoutJwt,                          // merchant-signed UCP Checkout JWT
+  aud: 'https://shop.example.com',      // the merchant origin
+  nonce: crypto.randomUUID(),           // single-use; verifiers deduplicate
 });
 
-await fetch('https://shop.example.com/cart', { method: 'POST', headers, body });
+await fetch('https://shop.example.com/cart', {
+  method: 'POST',
+  headers: { 'Ap2-Checkout-Mandate': checkoutChain },
+  body,
+});
 ```
 
 ## 4. Both your halves are now trusted
@@ -114,7 +116,7 @@ Every merchant who installs the AVA Pay Shopify plugin (or, soon, any other AVA 
 
 ### Note: SDK publication
 
-Today the SDK lives at `src/sdk/` in the AVA Pay monorepo and is consumed via local import. We'll publish to npm as `@ava-pay/agent` once the public API stabilizes. To use it before publication, copy the `src/sdk/` directory or vendor the relevant functions — the surface is small and stable.
+The SDK is live on npm as [`@ava-pay/agent`](https://www.npmjs.com/package/@ava-pay/agent) (0.2.0+), MIT-licensed, with signers for all four protocols. Source lives at `packages/agent-sdk/` in this monorepo; see its README for the full per-protocol reference.
 
 ## Field reference
 

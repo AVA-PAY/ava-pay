@@ -37,3 +37,6 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Shopify app build output
+shopify-app/build/

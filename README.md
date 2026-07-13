@@ -1,6 +1,6 @@
 # AVA Pay
 
-The neutral verification + payment layer for AI shopping agents.
+The merchant-side trust gateway for AI shopping agents — one API that verifies any signed agent and tells merchants exactly what that verification means.
 
 One install on the merchant side. One registration on the agent-issuer side. **Four protocols** supported out of the box — Visa Trusted Agent Protocol (the real wire format: `agent-browser-auth`/`agent-payer-auth` tags, Consumer Recognition Objects, Agentic Payment Containers, Visa-signed IdTokens), AVA's TAP-style profile (RFC 9421 + Ed25519 + `x-ava-mandate`), Google Agent Payments Protocol (AP2 v0.2 dSD-JWT mandate chains), and IETF Web Bot Auth (the signature scheme real ChatGPT agent traffic carries today). One protocol-agnostic `VerificationResult` shape downstream.
 
@@ -18,7 +18,7 @@ npm run demo:wba        # IETF Web Bot Auth (identity-only, key-directory discov
 npm run demo:tap        # Visa Trusted Agent Protocol, real wire format
 ```
 
-You'll see a signed request and a `✓ trusted` response in well under a millisecond, on either protocol. The same primitives the demo uses (`src/sdk/index.ts` — soon `@ava-pay/agent` on npm) are what production agents would import.
+You'll see a signed request and a `✓ trusted` response in well under a millisecond, on either protocol. The same primitives the demo uses are published as [`@ava-pay/agent`](https://www.npmjs.com/package/@ava-pay/agent) on npm — that's what production agents import.
 
 ## Repo layout
 
