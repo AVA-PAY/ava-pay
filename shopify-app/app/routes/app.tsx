@@ -1,9 +1,9 @@
-import { Outlet, useLoaderData, useRouteError } from '@remix-run/react';
-import { boundary } from '@shopify/shopify-app-remix/server';
-import { AppProvider } from '@shopify/shopify-app-remix/react';
+import { Outlet, useLoaderData, useRouteError } from 'react-router';
+import { boundary } from '@shopify/shopify-app-react-router/server';
+import { AppProvider } from '@shopify/shopify-app-react-router/react';
 import { NavMenu } from '@shopify/app-bridge-react';
 import polarisStyles from '@shopify/polaris/build/esm/styles.css?url';
-import type { HeadersFunction, LinksFunction, LoaderFunctionArgs } from '@remix-run/node';
+import type { HeadersFunction, LinksFunction, LoaderFunctionArgs } from 'react-router';
 import { authenticate } from '../shopify.server.js';
 
 export const links: LinksFunction = () => [{ rel: 'stylesheet', href: polarisStyles }];
@@ -16,7 +16,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export default function App() {
   const { apiKey } = useLoaderData<typeof loader>();
   return (
-    <AppProvider isEmbeddedApp apiKey={apiKey}>
+    <AppProvider embedded apiKey={apiKey}>
       <NavMenu>
         <a href="/app" rel="home">
           Settings

@@ -116,7 +116,7 @@ shopify-app/
 ├── shopify.app.toml                          # App config (proxy, scopes, webhooks)
 ├── prisma/schema.prisma                      # Sessions + ShopSettings + VerificationLog
 ├── app/
-│   ├── shopify.server.ts                     # @shopify/shopify-app-remix init
+│   ├── shopify.server.ts                     # @shopify/shopify-app-react-router init
 │   ├── lib/
 │   │   ├── ava.server.ts                     # AVA Pay /verify client (fail-closed)
 │   │   ├── ava-types.ts                      # mirror of API types

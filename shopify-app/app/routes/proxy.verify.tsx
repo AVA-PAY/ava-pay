@@ -1,4 +1,4 @@
-import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from '@remix-run/node';
+import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
 import { authenticate } from '../shopify.server.js';
 import { getAvaPayClient } from '../lib/ava.server.js';
 import { applyMerchantPolicy, getShopSettings } from '../lib/settings.server.js';
@@ -35,16 +35,21 @@ interface ProxyResponseBody {
   reason: string;
 }
 
+/** Resource route: always emit a real JSON Response (no UI data serialization). */
+function proxyJson(body: ProxyResponseBody, status = 200): Response {
+  return Response.json(body, { status });
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await authenticate.public.appProxy(request);
-  return json({ ok: true, service: 'ava-pay-proxy' });
+  return Response.json({ ok: true, service: 'ava-pay-proxy' });
 }
 
 export async function action({ request }: ActionFunctionArgs) {
   const { session, admin } = await authenticate.public.appProxy(request);
 
   if (!session || !admin) {
-    return json<ProxyResponseBody>({ allow: false, reason: 'no_session' }, { status: 401 });
+    return proxyJson({ allow: false, reason: 'no_session' }, 401);
   }
 
   const shop = session.shop;
@@ -87,7 +92,7 @@ export async function action({ request }: ActionFunctionArgs) {
         reason: `ava_${verifyCall.error}`,
       },
     });
-    return json<ProxyResponseBody>({ allow: false, reason: `ava_${verifyCall.error}` });
+    return proxyJson({ allow: false, reason: `ava_${verifyCall.error}` });
   }
 
   const decision = applyMerchantPolicy(settings, verifyCall.result);
@@ -103,12 +108,12 @@ export async function action({ request }: ActionFunctionArgs) {
   });
 
   if (!decision.allow) {
-    return json<ProxyResponseBody>({ allow: false, reason: decision.reason });
+    return proxyJson({ allow: false, reason: decision.reason });
   }
 
   const discount = await createOneTimeDiscount(admin, decision.discountPct);
 
-  return json<ProxyResponseBody>({
+  return proxyJson({
     allow: true,
     reason: 'verified',
     ...(discount ? { discount: { code: discount.code, percentage: discount.percentage } } : {}),

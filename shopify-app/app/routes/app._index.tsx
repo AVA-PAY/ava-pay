@@ -1,9 +1,11 @@
 import {
-  json,
+  data,
+  useActionData,
+  useLoaderData,
+  useSubmit,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
-} from '@remix-run/node';
-import { useActionData, useLoaderData, useSubmit } from '@remix-run/react';
+} from 'react-router';
 import { useState } from 'react';
 import {
   Banner,
@@ -35,13 +37,17 @@ interface ActionData {
   error?: string;
 }
 
+function badRequest(error: string) {
+  return data<ActionData>({ ok: false, error }, { status: 400 });
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const settings = await getShopSettings(session.shop);
-  return json<LoaderData>({
+  return {
     settings,
     embedScriptUrl: `https://${session.shop}/apps/ava-pay/embed.js`,
-  });
+  } satisfies LoaderData;
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -58,31 +64,22 @@ export async function action({ request }: ActionFunctionArgs) {
     !Number.isFinite(maxDiscountPct) ||
     !Number.isFinite(identityOnlyDiscountPct)
   ) {
-    return json<ActionData>({ ok: false, error: 'Discount values must be numbers.' }, { status: 400 });
+    return badRequest('Discount values must be numbers.');
   }
   if (defaultDiscountPct < 0 || defaultDiscountPct > 100) {
-    return json<ActionData>({ ok: false, error: 'Default discount must be 0–100%.' }, { status: 400 });
+    return badRequest('Default discount must be 0–100%.');
   }
   if (maxDiscountPct < 0 || maxDiscountPct > 100) {
-    return json<ActionData>({ ok: false, error: 'Max discount must be 0–100%.' }, { status: 400 });
+    return badRequest('Max discount must be 0–100%.');
   }
   if (identityOnlyDiscountPct < 0 || identityOnlyDiscountPct > 100) {
-    return json<ActionData>(
-      { ok: false, error: 'Identity-only discount must be 0–100%.' },
-      { status: 400 },
-    );
+    return badRequest('Identity-only discount must be 0–100%.');
   }
   if (defaultDiscountPct > maxDiscountPct) {
-    return json<ActionData>(
-      { ok: false, error: 'Default discount cannot exceed the max cap.' },
-      { status: 400 },
-    );
+    return badRequest('Default discount cannot exceed the max cap.');
   }
   if (identityOnlyDiscountPct > maxDiscountPct) {
-    return json<ActionData>(
-      { ok: false, error: 'Identity-only discount cannot exceed the max cap.' },
-      { status: 400 },
-    );
+    return badRequest('Identity-only discount cannot exceed the max cap.');
   }
 
   const saved = await saveShopSettings(session.shop, {
@@ -91,7 +88,7 @@ export async function action({ request }: ActionFunctionArgs) {
     maxDiscountPct,
     identityOnlyDiscountPct,
   });
-  return json<ActionData>({ ok: true, saved });
+  return data<ActionData>({ ok: true, saved });
 }
 
 export default function SettingsPage() {

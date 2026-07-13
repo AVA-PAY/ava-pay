@@ -1,5 +1,5 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "remix.env.d.ts"],
+  "include": ["**/*.ts", "**/*.tsx", "env.d.ts"],
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
