@@ -25,7 +25,7 @@ Keep `privateKey` in your wallet/secrets. Only the public JWK gets registered.
 ## 2. Register with the AVA Agent Directory
 
 ```bash
-curl -X POST https://ava-payagent-production.up.railway.app/directory/agents \
+curl -X POST https://pay.avalayer.com/directory/agents \
   -H "Authorization: Bearer $AVA_DIRECTORY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -43,7 +43,7 @@ curl -X POST https://ava-payagent-production.up.railway.app/directory/agents \
 You'll get back a `DirectoryAgentRecord`. Anyone can now resolve you:
 
 ```bash
-curl https://ava-payagent-production.up.railway.app/directory/agents/agent_acme_shopping
+curl https://pay.avalayer.com/directory/agents/agent_acme_shopping
 ```
 
 > **Getting a registration token.** Email help@avalayer.com. We're not gating early issuers; the bearer token only exists to keep drive-by spam off the registry. Long term we'll move to DPoP-style proof-of-key-possession authentication so registration is fully self-serve.
