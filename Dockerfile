@@ -26,6 +26,9 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 
+# su-exec lets the entrypoint fix volume ownership as root, then drop to `node`.
+RUN apk add --no-cache su-exec
+
 # Bring over package manifests and install production deps for the workspace.
 COPY package.json package-lock.json* ./
 COPY packages/agent-sdk/package.json ./packages/agent-sdk/
@@ -38,10 +41,13 @@ COPY --from=builder /app/dist ./dist
 # Static landing page assets.
 COPY public ./public
 
-USER node
+# Entrypoint fixes volume ownership (as root) then drops to `node`.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=2s --start-period=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1:${PORT}/healthz || exit 1
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/src/index.js"]
