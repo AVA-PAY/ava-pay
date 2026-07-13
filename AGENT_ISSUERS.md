@@ -46,7 +46,7 @@ You'll get back a `DirectoryAgentRecord`. Anyone can now resolve you:
 curl https://ava-payagent-production.up.railway.app/directory/agents/agent_acme_shopping
 ```
 
-> **Getting a registration token.** Email nick@lifelightlabs.com. We're not gating early issuers; the bearer token only exists to keep drive-by spam off the registry. Long term we'll move to DPoP-style proof-of-key-possession authentication so registration is fully self-serve.
+> **Getting a registration token.** Email help@avalayer.com. We're not gating early issuers; the bearer token only exists to keep drive-by spam off the registry. Long term we'll move to DPoP-style proof-of-key-possession authentication so registration is fully self-serve.
 
 ## 3. Sign requests using `@ava-pay/agent`
 
@@ -158,5 +158,5 @@ If verification fails at the merchant, your agent gets back a `403` with one of:
 
 ## Questions?
 
-- nick@lifelightlabs.com (registration tokens, integration help)
+- help@avalayer.com (registration tokens, integration help)
 - File an issue on the AVA Pay repo
