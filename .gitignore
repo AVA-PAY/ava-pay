@@ -40,3 +40,6 @@ npm-debug.log*
 
 # Shopify app build output
 shopify-app/build/
+
+# React Router 7 generated types
+shopify-app/.react-router/

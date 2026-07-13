@@ -1,4 +1,4 @@
-import type { AdminApiContext } from '@shopify/shopify-app-remix/server';
+import type { AdminApiContext } from '@shopify/shopify-app-react-router/server';
 
 /**
  * Create a one-time, single-use percentage discount via the Shopify Admin

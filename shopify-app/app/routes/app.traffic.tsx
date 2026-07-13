@@ -1,5 +1,4 @@
-import { json, type LoaderFunctionArgs } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
+import { useLoaderData, type LoaderFunctionArgs } from 'react-router';
 import {
   Badge,
   BlockStack,
@@ -14,10 +13,9 @@ import {
 import { authenticate } from '../shopify.server.js';
 import { getTrafficView, type TrafficSummary, type TrafficView } from '../lib/traffic.server.js';
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: LoaderFunctionArgs): Promise<TrafficView> {
   const { session } = await authenticate.admin(request);
-  const view = await getTrafficView(session.shop);
-  return json<TrafficView>(view);
+  return getTrafficView(session.shop);
 }
 
 export default function TrafficPage() {
