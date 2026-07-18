@@ -99,8 +99,12 @@ export class Ap2AgentVerifier implements AgentVerifier {
   constructor(opts: Ap2AgentVerifierOptions) {
     this.directory = opts.directory;
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
-    this.replayGuard = opts.replayGuard ?? new InMemoryReplayGuard();
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
+    // The internally-created guard must share the verifier's clock: with an
+    // injected test clock but a wall-clock guard, stored nonce expiries (in
+    // the frozen past) clamp to "now" and lapse one real second later —
+    // replays were intermittently accepted on slow CI runners.
+    this.replayGuard = opts.replayGuard ?? new InMemoryReplayGuard({ now: this.now });
     this.checkoutEvaluators = opts.checkoutEvaluators ?? DEFAULT_CHECKOUT_EVALUATORS;
     this.paymentEvaluators = opts.paymentEvaluators ?? DEFAULT_PAYMENT_EVALUATORS;
     this.checkoutJwtValidator = opts.checkoutJwtValidator;
