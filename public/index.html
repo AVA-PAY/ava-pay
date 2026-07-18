@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AVA Pay · verified agent commerce</title>
-  <meta name="description" content="The verification and payment layer for agentic commerce. AVA Pay lets AI buying agents prove who they represent, what they are allowed to spend, and why a merchant can trust the transaction." />
+  <title>AVA Pay · verify any AI shopping agent</title>
+  <meta name="description" content="AVA Pay is the merchant-side trust gateway for AI commerce. One API verifies ChatGPT-style signed traffic, Visa Trusted Agent Protocol, and Google AP2, with merchant policy deciding what verified identity earns." />
   <link rel="preconnect" href="https://rsms.me/" />
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -15,7 +15,7 @@
       <a class="brand" href="/">
         <!-- Drop /brand/ava-pay-shield-black.png in to replace the wordmark fallback -->
         <img src="/brand/ava-pay-shield-black.png" alt="AVA Pay" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex'" />
-        <span class="wordmark" style="display:none; align-items:baseline; gap:8px">AVA Pay<span class="brand-sub">· Agentic Payments</span></span>
+        <span class="wordmark" style="display:none; align-items:baseline; gap:8px">AVA Pay<span class="brand-sub">· Agent Verification</span></span>
       </a>
       <div class="navlinks">
         <a href="#demo">Demo</a>
@@ -30,10 +30,10 @@
     <div class="wrap">
       <div class="hero-grid">
         <div class="hero-text">
-          <span class="eyebrow">Agentic Payments</span>
-          <h1>The trust handshake for AI commerce.</h1>
+          <span class="eyebrow">Agent Verification</span>
+          <h1>The merchant-side trust gateway for AI commerce.</h1>
           <p class="lede">
-            Merchants block AI agents because they look like bots. AVA Pay adds the cryptographic handshake: Visa Trusted Agent Protocol and Google AP2. Verified agents complete checkout instead of getting turned away. <strong>One install. Both protocols. Every merchant.</strong>
+            Merchants block AI agents because they look like bots, and lose the sale. AVA Pay verifies the cryptographic signatures real agents already carry: ChatGPT-style Web Bot Auth, Visa Trusted Agent Protocol, Google AP2, and AVA's TAP-style profile. One verdict comes back, and your policy decides what verified identity earns. <strong>One install. Four protocols. Your rules.</strong>
           </p>
           <div class="cta-row">
             <a class="btn primary" href="#demo">See a verification happen</a>
@@ -41,7 +41,7 @@
           </div>
         </div>
         <div class="hero-visual">
-          <img src="/brand/ava-pay-shield-black.png" alt="AVA Pay shield" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'shield-placeholder',textContent:'AVA Pay · AGENTIC PAYMENTS'}))" />
+          <img src="/brand/ava-pay-shield-black.png" alt="AVA Pay shield" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'shield-placeholder',textContent:'AVA Pay · AGENT VERIFICATION'}))" />
         </div>
       </div>
     </div>
@@ -51,7 +51,7 @@
   <section class="bleed-inverse">
     <div class="wrap">
       <div class="inner">
-        <h2>AVA Pay establishes who an agent represents, what it is allowed to spend, and why a merchant can trust the transaction.</h2>
+        <h2>AVA Pay establishes who an agent represents, whether a buyer authorized the purchase, and what your store chooses to do about it.</h2>
       </div>
     </div>
   </section>
@@ -68,7 +68,7 @@
 
         <div class="demo-card">
           <div class="protocol-toggle">
-            <label><input type="radio" name="protocol" value="visa" checked /> Visa Trusted Agent Protocol</label>
+            <label><input type="radio" name="protocol" value="visa" checked /> Visa TAP-style profile (RFC 9421)</label>
             <label><input type="radio" name="protocol" value="ap2" /> Google AP2</label>
           </div>
 
@@ -108,10 +108,10 @@
   <section id="directory">
     <div class="wrap">
       <div class="inner">
-        <span class="eyebrow">The Agent Directory</span>
-        <h2>One public key. Every merchant trusts the agent.</h2>
+        <span class="eyebrow">Federated Key Resolution</span>
+        <h2>One key, resolved through the ecosystem's roots of trust.</h2>
         <p class="lede">
-          Every agent that wants to be trusted by every AVA Pay merchant registers their public key once. Lookup is a plain HTTPS GET; resolution is cached merchant-side for 5 minutes. Below is the live state of this instance's directory.
+          Keys resolve through a federated chain: Visa's directories, Web Bot Auth key directories, and this hosted AVA directory as the private-allowlist fallback. If you already publish a Web Bot Auth key card, AVA Pay merchants verify you with no registration at all. Lookup is a plain HTTPS GET; resolution is cached merchant-side for 5 minutes. Below is the live state of this instance's directory.
         </p>
       </div>
       <div id="directoryList" class="directory-list">Loading&hellip;</div>
@@ -130,7 +130,7 @@
         <div class="product-cell">
           <div class="num">01 &nbsp;&middot;&nbsp; For Agent Issuers</div>
           <h3><code>npm install @ava-pay/agent</code></h3>
-          <p>Three lines of code, plus one curl to register your key. Sign requests for either protocol from the same SDK.</p>
+          <p>Three lines of code. Sign requests for any of the four protocols from the same SDK, or skip registration entirely by publishing a Web Bot Auth key card.</p>
           <pre class="code-block"><code>import { generateAgentKeyPair, signWithVisa } from '@ava-pay/agent';
 
 const { privateKey } = generateAgentKeyPair();
@@ -162,8 +162,8 @@ await fetch(signed.url, {
 
         <div class="product-cell">
           <div class="num">02 &nbsp;&middot;&nbsp; For Merchants</div>
-          <h3>One Shopify install. Verified traffic, instantly.</h3>
-          <p>Install the AVA Pay app on Shopify. Toggle on a discount tier for verified agents. Every AI agent that supports either protocol now completes checkout instead of getting blocked, and you see them in your dashboard with traffic, conversion, and discount spend.</p>
+          <h3>One verdict. Your policy.</h3>
+          <p>Add AVA Pay through the API, the Shopify app, or the WooCommerce plugin. Every agent request returns one protocol-agnostic verdict: who the agent is, plus the buyer-scoped mandate when the protocol carries one. Your policy decides what that identity earns, and your dashboard shows traffic, conversion, and discount spend by agent platform.</p>
           <p>The WooCommerce plugin is <a href="https://github.com/AVA-PAY/ava-pay/tree/main/woocommerce-plugin" target="_blank" rel="noreferrer">built and open source</a> (WordPress.org listing in review). BigCommerce and a generic JS middleware are next.</p>
           <div class="meta">
             <div class="meta-row">
@@ -205,7 +205,10 @@ await fetch(signed.url, {
             </div>
             <a class="footer-parent-attr" href="https://avalayer.com" target="_blank" rel="noreferrer">
               <span class="footer-parent-label">A product of</span>
-              <img src="/brand/ava-wordmark-white.png" alt="AVA" class="footer-parent-mark" />
+              <span class="footer-parent-stack">
+                <img src="/brand/ava-wordmark-white.png" alt="AVA" class="footer-parent-mark" />
+                <span class="footer-parent-sub">Agentic Verification Architecture</span>
+              </span>
             </a>
           </div>
         </div>

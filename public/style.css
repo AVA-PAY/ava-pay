@@ -593,7 +593,7 @@ footer.site-footer {
 }
 
 .footer-bottom .brand img {
-  height: 28px;
+  height: 44px;
   width: auto;
   display: block;
 }
@@ -624,6 +624,21 @@ footer.site-footer {
 
 .footer-parent-attr:hover { color: var(--inverse-fg) !important; }
 .footer-parent-attr:hover .footer-parent-mark { opacity: 1; }
+
+.footer-parent-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.footer-parent-sub {
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--inverse-muted);
+  white-space: nowrap;
+}
 
 .footer-parent-label {
   text-transform: uppercase;
