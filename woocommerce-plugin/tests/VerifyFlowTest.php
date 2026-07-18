@@ -167,6 +167,45 @@ final class VerifyFlowTest extends TestCase {
 		}
 	}
 
+	public function test_sensitive_headers_are_stripped_before_forwarding(): void {
+		// Regression (ultrareview PR #9): WP REST hands the plugin cookies and
+		// authorization along with the agent's signed headers; they must never
+		// reach the external API.
+		$headers = array(
+			'signature'       => 'sig',
+			'signature-input' => 'sig1=…',
+			'cookie'          => 'wordpress_logged_in_abc=admin%7C…; wp_woocommerce_session_x=y',
+			'authorization'   => 'Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
+			'x-wp-nonce'      => 'deadbeef',
+			'x-ava-mandate'   => 'kept',
+		);
+		$stripped = AVA_Pay_Verify_Flow::strip_sensitive_headers( $headers );
+		$this->assertArrayNotHasKey( 'cookie', $stripped );
+		$this->assertArrayNotHasKey( 'authorization', $stripped );
+		$this->assertArrayNotHasKey( 'x-wp-nonce', $stripped );
+		$this->assertSame( 'sig', $stripped['signature'] );
+		$this->assertSame( 'kept', $stripped['x-ava-mandate'], 'agent material passes through untouched' );
+	}
+
+	public function test_signed_url_problems_flags_unusable_site_configs(): void {
+		$this->assertSame(
+			array(),
+			AVA_Pay_Verify_Flow::signed_url_problems( 'https://demo-store.example/wp-json/ava-pay/v1/verify-agent' )
+		);
+		$this->assertSame(
+			array( 'plain_permalinks' ),
+			AVA_Pay_Verify_Flow::signed_url_problems( 'https://demo-store.example/index.php?rest_route=/ava-pay/v1/verify-agent' )
+		);
+		$this->assertSame(
+			array( 'not_https' ),
+			AVA_Pay_Verify_Flow::signed_url_problems( 'http://demo-store.example/wp-json/ava-pay/v1/verify-agent' )
+		);
+		$this->assertSame(
+			array( 'plain_permalinks', 'not_https' ),
+			AVA_Pay_Verify_Flow::signed_url_problems( 'http://demo-store.example/?rest_route=/ava-pay/v1/verify-agent' )
+		);
+	}
+
 	public function test_interpret_api_response_maps_statuses_like_the_ts_client(): void {
 		$ok = AVA_Pay_Verify_Flow::interpret_api_response( 200, '{"trusted":true,"ttlSeconds":60}' );
 		$this->assertTrue( $ok['ok'] );

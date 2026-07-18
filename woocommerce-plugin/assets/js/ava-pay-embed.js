@@ -9,12 +9,14 @@
   const cfg = window.avaPayEmbed;
   if (!cfg || !cfg.endpoint) return;
 
-  // Headers the agent's signature requires.
-  // signature, signature-input, content-digest are the RFC 9421 trio.
-  // Host is set automatically by the browser based on window.location.
-  // x-ava-mandate carries the base64 mandate.
-  // We also forward any other x-* params the agent supplies (e.g. discount hints).
-  const SIG_PARAMS = ['signature', 'signature-input', 'content-digest', 'x-ava-mandate'];
+  // Headers the agent's signature requires. The list is owned by PHP
+  // (AVA_Pay_Frontend::SIG_PARAMS, delivered via wp_localize_script) so the
+  // enqueue gate and this collection can't drift; the literal below is only
+  // a fallback. Host is set automatically by the browser from
+  // window.location; x-ava-mandate carries the base64 mandate. We also
+  // forward any other x-* params the agent supplies (e.g. discount hints).
+  const SIG_PARAMS = cfg.sigParams ||
+    ['signature', 'signature-input', 'signature-agent', 'content-digest', 'x-ava-mandate'];
 
   const collectAgentHeaders = () => {
     const params = new URLSearchParams(window.location.search);
@@ -39,16 +41,17 @@
     // Store API cart mutations need the cart nonce; a GET on the cart
     // endpoint hands it back while also establishing the cart session.
     const cartRes = await fetch(cfg.storeApiCart, { credentials: 'same-origin' });
-    if (!cartRes.ok) return;
+    if (!cartRes.ok) return false;
     const nonce = cartRes.headers.get('Nonce');
-    if (!nonce) return;
+    if (!nonce) return false;
 
-    await fetch(cfg.storeApiCart + '/apply-coupon', {
+    const res = await fetch(cfg.storeApiCart + '/apply-coupon', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Nonce: nonce },
       body: JSON.stringify({ code }),
     });
+    return res.ok;
   };
 
   const apply = async () => {
@@ -76,9 +79,13 @@
     if (!data || !data.allow) return;
 
     if (data.discount && data.discount.code && !sessionStorage.getItem('ava_pay_applied')) {
-      sessionStorage.setItem('ava_pay_applied', data.discount.code);
+      // Mark applied only AFTER the Store API accepts the coupon — a
+      // transient failure (cache stripping the Nonce header, Store API
+      // hiccup) must not permanently suppress retries for the session.
       try {
-        await applyCoupon(data.discount.code);
+        if (await applyCoupon(data.discount.code)) {
+          sessionStorage.setItem('ava_pay_applied', data.discount.code);
+        }
       } catch (err) {
         console.warn('[ava-pay] coupon apply failed', err);
       }

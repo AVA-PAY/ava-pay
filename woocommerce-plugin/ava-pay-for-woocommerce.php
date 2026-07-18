@@ -8,7 +8,11 @@
  * Author URI: https://avalayer.com
  * License: MIT
  * Text Domain: ava-pay-for-woocommerce
- * Requires at least: 6.2
+ *
+ * WP 6.5 minimum is deliberate: it's the first release that enforces
+ * `Requires Plugins`, so the plugin can never activate without WooCommerce
+ * and silently show no settings screen.
+ * Requires at least: 6.5
  * Requires PHP: 7.4
  * Requires Plugins: woocommerce
  *

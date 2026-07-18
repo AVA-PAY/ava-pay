@@ -21,8 +21,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class AVA_Pay_Frontend {
 
-	/** Headers the agent's signature requires, passed as URL params. */
-	const SIG_PARAMS = array( 'signature', 'signature-input', 'content-digest', 'x-ava-mandate' );
+	/**
+	 * Headers the agent's signature requires, passed as URL params. This is
+	 * the single source of truth — it is handed to the embed JS via
+	 * wp_localize_script, so PHP gating and JS collection cannot drift.
+	 * signature-agent matters: Web Bot Auth (the flagship real-traffic
+	 * protocol) is undetectable without it.
+	 */
+	const SIG_PARAMS = array( 'signature', 'signature-input', 'signature-agent', 'content-digest', 'x-ava-mandate' );
 
 	public static function register() {
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'maybe_enqueue' ) );
@@ -44,9 +50,9 @@ class AVA_Pay_Frontend {
 			'ava-pay-embed',
 			'avaPayEmbed',
 			array(
-				// rest_url() keeps this working under plain permalinks too.
-				'endpoint'     => rest_url( AVA_Pay_Rest::NAMESPACE_V1 . AVA_Pay_Rest::ROUTE ),
+				'endpoint'     => AVA_Pay_Rest::signed_url(),
 				'storeApiCart' => rest_url( 'wc/store/v1/cart' ),
+				'sigParams'    => self::SIG_PARAMS,
 			)
 		);
 	}
@@ -56,6 +62,14 @@ class AVA_Pay_Frontend {
 		// never trusted here. phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		foreach ( self::SIG_PARAMS as $param ) {
 			if ( isset( $_GET[ $param ] ) ) {
+				return true;
+			}
+		}
+		// The embed also forwards arbitrary x-* hint params, so an
+		// x-*-only redirect must load it too (the gate and the JS
+		// collection must trigger on the same requests).
+		foreach ( array_keys( $_GET ) as $key ) {
+			if ( is_string( $key ) && 0 === strpos( strtolower( $key ), 'x-' ) ) {
 				return true;
 			}
 		}

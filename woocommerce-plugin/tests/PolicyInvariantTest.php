@@ -144,6 +144,20 @@ final class PolicyInvariantTest extends TestCase {
 		$this->assertSame( 'merchant_disabled', $d['reason'] );
 	}
 
+	public function test_null_discount_hint_means_zero_not_default(): void {
+		// Regression (ultrareview PR #9): a present-but-null discount key must
+		// take the hint branch like the TS reference (Math.round(null*100)=0),
+		// not fall through to defaultDiscountPct.
+		$result = self::MANDATE_BACKED + array( 'discount' => null );
+		$d      = AVA_Pay_Policy::apply_merchant_policy( $this->settings(), $result );
+		$this->assertTrue( $d['allow'] );
+		$this->assertSame( 0, $d['discountPct'], 'null hint must not upgrade to the merchant default' );
+
+		$garbage = self::MANDATE_BACKED + array( 'discount' => 'abc' );
+		$g       = AVA_Pay_Policy::apply_merchant_policy( $this->settings(), $garbage );
+		$this->assertSame( 0, $g['discountPct'], 'non-numeric hint fails closed to 0' );
+	}
+
 	public function test_clamp_pct(): void {
 		$this->assertSame( 0, AVA_Pay_Policy::clamp_pct( 'abc' ) );
 		$this->assertSame( 0, AVA_Pay_Policy::clamp_pct( -5 ) );

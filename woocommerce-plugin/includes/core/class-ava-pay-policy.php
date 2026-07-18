@@ -107,10 +107,15 @@ class AVA_Pay_Policy {
 		}
 
 		// Mandate-backed: platform offer > verifier hint > merchant default.
+		// A PRESENT discount key always takes the hint branch, even when its
+		// value is null/garbage — matching the TS `result.discount !==
+		// undefined` check, where JSON null yields Math.round(null*100) = 0.
+		// Falling back to defaultDiscountPct here would grant MORE than the
+		// reference implementation for the same response.
 		if ( null !== $rule && isset( $rule['offerDiscountPct'] ) ) {
 			$base_pct = $rule['offerDiscountPct'];
-		} elseif ( array_key_exists( 'discount', $result ) && is_numeric( $result['discount'] ) ) {
-			$base_pct = (int) round( $result['discount'] * 100 );
+		} elseif ( array_key_exists( 'discount', $result ) ) {
+			$base_pct = is_numeric( $result['discount'] ) ? (int) round( $result['discount'] * 100 ) : 0;
 		} else {
 			$base_pct = $settings['defaultDiscountPct'];
 		}

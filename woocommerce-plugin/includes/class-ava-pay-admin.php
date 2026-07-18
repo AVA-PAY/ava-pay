@@ -60,6 +60,7 @@ class AVA_Pay_Admin {
 			<?php foreach ( $notices as $notice ) : ?>
 				<div class="notice notice-<?php echo esc_attr( $notice['type'] ); ?>"><p><?php echo esc_html( $notice['message'] ); ?></p></div>
 			<?php endforeach; ?>
+			<?php self::render_signed_url_warnings(); ?>
 
 			<form method="post">
 				<?php wp_nonce_field( self::NONCE ); ?>
@@ -121,6 +122,43 @@ class AVA_Pay_Admin {
 			</form>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Fail LOUD when the site configuration cannot produce the canonical
+	 * URL agents sign against — otherwise every verification fails with a
+	 * bare invalid_signature row and the merchant has nothing to go on.
+	 */
+	private static function render_signed_url_warnings() {
+		$signed_url = AVA_Pay_Rest::signed_url();
+		$problems   = AVA_Pay_Verify_Flow::signed_url_problems( $signed_url );
+		if ( empty( $problems ) ) {
+			return;
+		}
+		$messages = array(
+			'plain_permalinks' => __( 'Pretty permalinks are disabled, so this site\'s REST URL uses the ?rest_route= form. Agents sign the /wp-json/… form, so every verification will fail. Fix: Settings → Permalinks → choose any structure other than "Plain".', 'ava-pay-for-woocommerce' ),
+			'not_https'        => __( 'This site\'s WordPress Address (home URL) is not https, but agents sign https URLs — verification signatures will not match. Fix: serve the site over https and update the WordPress/Site Address (or your reverse-proxy HTTPS detection) so WordPress generates https URLs.', 'ava-pay-for-woocommerce' ),
+		);
+		foreach ( $problems as $problem ) {
+			if ( ! isset( $messages[ $problem ] ) ) {
+				continue;
+			}
+			?>
+			<div class="notice notice-error">
+				<p>
+					<strong><?php esc_html_e( 'AVA Pay cannot verify agents with the current site configuration.', 'ava-pay-for-woocommerce' ); ?></strong>
+					<?php echo esc_html( $messages[ $problem ] ); ?>
+					<?php
+					printf(
+						/* translators: %s: the signed verify URL */
+						esc_html__( 'Current verify URL: %s', 'ava-pay-for-woocommerce' ),
+						'<code>' . esc_html( $signed_url ) . '</code>'
+					);
+					?>
+				</p>
+			</div>
+			<?php
+		}
 	}
 
 	/**

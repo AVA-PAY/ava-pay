@@ -79,7 +79,10 @@ class AVA_Pay_Events {
 			) {$charset_collate};"
 		);
 
-		update_option( 'ava_pay_db_version', AVA_PAY_WC_VERSION, false );
+		// Autoloaded on purpose: plugins_loaded reads it on EVERY request to
+		// decide whether dbDelta needs a re-run; non-autoloaded it would cost
+		// an extra uncached SELECT per page load for a tiny string.
+		update_option( 'ava_pay_db_version', AVA_PAY_WC_VERSION, true );
 	}
 
 	/**

@@ -54,13 +54,23 @@ class AVA_Pay_Rest {
 	}
 
 	public static function handle_ping() {
+		$problems = AVA_Pay_Verify_Flow::signed_url_problems( self::signed_url() );
 		return new WP_REST_Response(
 			array(
-				'ok'      => true,
-				'service' => 'ava-pay-woocommerce',
+				'ok'       => true,
+				'service'  => 'ava-pay-woocommerce',
+				// Agents/integrators can see up front whether this site's
+				// canonical URL can carry a valid signature base.
+				'signable' => empty( $problems ),
+				'problems' => $problems,
 			),
 			200
 		);
+	}
+
+	/** Canonical URL agents must sign against (see file docblock). */
+	public static function signed_url() {
+		return rest_url( self::NAMESPACE_V1 . self::ROUTE );
 	}
 
 	/**
@@ -83,11 +93,10 @@ class AVA_Pay_Rest {
 		$headers = self::collect_headers( $request );
 
 		// Canonical signed URL from site config (see file docblock).
-		$signed_url = rest_url( self::NAMESPACE_V1 . self::ROUTE );
-		$host       = wp_parse_url( $signed_url, PHP_URL_HOST );
-		$port       = wp_parse_url( $signed_url, PHP_URL_PORT );
-		if ( is_string( $host ) && '' !== $host ) {
-			$headers['host'] = $host . ( $port ? ':' . $port : '' );
+		$signed_url = self::signed_url();
+		$url_parts  = wp_parse_url( $signed_url );
+		if ( isset( $url_parts['host'] ) && '' !== $url_parts['host'] ) {
+			$headers['host'] = $url_parts['host'] . ( isset( $url_parts['port'] ) ? ':' . $url_parts['port'] : '' );
 		}
 
 		$body     = $request->get_body();
@@ -144,7 +153,10 @@ class AVA_Pay_Rest {
 			$name             = str_replace( '_', '-', strtolower( $key ) );
 			$headers[ $name ] = implode( ', ', (array) $values );
 		}
-		return $headers;
+		// WP REST hands us cookies + authorization along with everything
+		// else; those are site credentials, not agent material, and must
+		// not leave the site.
+		return AVA_Pay_Verify_Flow::strip_sensitive_headers( $headers );
 	}
 
 	private static function rate_limiter() {
@@ -163,11 +175,21 @@ class AVA_Pay_Rest {
 	}
 
 	/**
-	 * Rate-limit bucket: REMOTE_ADDR only. X-Forwarded-For is
+	 * Rate-limit bucket. Default is REMOTE_ADDR only — X-Forwarded-For is
 	 * client-controlled and would let an attacker rotate buckets at will.
+	 *
+	 * Behind a trusted reverse proxy/CDN that does NOT restore the real
+	 * client IP into REMOTE_ADDR, every request shares the proxy's IP and
+	 * therefore one bucket; use the `ava_pay_client_ip` filter to supply
+	 * the proxy-resolved client IP (e.g. from CF-Connecting-IP on a site
+	 * where only Cloudflare can reach origin). Only do this when the
+	 * source header is trustworthy on your host — a spoofable header here
+	 * disables the flood guard.
 	 */
 	private static function client_bucket() {
-		return isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
+		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
+		$ip          = apply_filters( 'ava_pay_client_ip', $remote_addr );
+		return is_string( $ip ) && '' !== $ip ? $ip : $remote_addr;
 	}
 
 	private static function json( array $body, $status ) {

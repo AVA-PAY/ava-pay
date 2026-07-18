@@ -124,6 +124,53 @@ class AVA_Pay_Verify_Flow {
 	}
 
 	/**
+	 * Headers that must NEVER be forwarded to the verification API. The
+	 * Shopify twin passes all headers too, but Shopify's app proxy strips
+	 * cookies before the app sees them — WordPress does not, and the
+	 * storefront embed calls the endpoint same-origin, so without this
+	 * denylist logged-in WP/Woo session cookies (and any Authorization
+	 * header WP synthesizes) would ship off-site inside the /verify payload.
+	 * None of these are ever part of an agent's signature base.
+	 */
+	const SENSITIVE_HEADERS = array( 'cookie', 'authorization', 'x-wp-nonce' );
+
+	/**
+	 * Drop credential-bearing headers before the map leaves the site.
+	 *
+	 * @param array $headers Lower-cased header map.
+	 * @return array Same map minus SENSITIVE_HEADERS.
+	 */
+	public static function strip_sensitive_headers( array $headers ) {
+		foreach ( self::SENSITIVE_HEADERS as $name ) {
+			unset( $headers[ $name ] );
+		}
+		return $headers;
+	}
+
+	/**
+	 * Config problems that make the canonical signed URL unusable for
+	 * RFC 9421 verification. Agents sign the documented
+	 * https://…/wp-json/… form; if the site cannot produce that URL the
+	 * signature base recomputes differently and EVERY verification fails
+	 * with invalid_signature — so we fail loud at the config surface
+	 * instead of leaving bare failure rows.
+	 *
+	 * @param string $signed_url The URL the REST layer will present to the API.
+	 * @return string[] Problem codes: 'plain_permalinks', 'not_https'. Empty = signable.
+	 */
+	public static function signed_url_problems( $signed_url ) {
+		$problems = array();
+		if ( false !== strpos( (string) $signed_url, 'rest_route=' ) ) {
+			$problems[] = 'plain_permalinks';
+		}
+		$scheme = parse_url( (string) $signed_url, PHP_URL_SCHEME );
+		if ( 'https' !== strtolower( (string) $scheme ) ) {
+			$problems[] = 'not_https';
+		}
+		return $problems;
+	}
+
+	/**
 	 * Interpret an HTTP response from AVA Pay /verify. Port of the
 	 * status/body handling in AvaPayClient.verify() (shopify-app
 	 * lib/ava.server.ts): 200 and 403 are the only statuses with valid

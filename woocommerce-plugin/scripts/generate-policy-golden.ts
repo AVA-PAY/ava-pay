@@ -39,6 +39,17 @@ const results: Record<string, VerificationResult> = {
   mandate_backed: { trusted: true, mandate: mandate(50_000), ttlSeconds: 300 },
   mandate_with_hint: { trusted: true, mandate: mandate(50_000), discount: 0.15, ttlSeconds: 300 },
   mandate_with_zero_hint: { trusted: true, mandate: mandate(50_000), discount: 0, ttlSeconds: 300 },
+  // JSON `discount: null` — outside the TS type but representable on the
+  // wire. The reference treats a PRESENT discount as the hint branch
+  // (null !== undefined → Math.round(null*100) = 0), NOT as absent; the PHP
+  // port must not fall back to defaultDiscountPct here (it would grant more
+  // than the reference for the same response).
+  mandate_with_null_hint: {
+    trusted: true,
+    mandate: mandate(50_000),
+    discount: null as unknown as number,
+    ttlSeconds: 300,
+  },
   mandate_large_spend: { trusted: true, mandate: mandate(100_000), ttlSeconds: 300 },
 };
 

@@ -57,7 +57,11 @@ class AVA_Pay_Coupons {
 			$coupon->set_date_expires( time() + (int) apply_filters( 'ava_pay_coupon_expiry', self::EXPIRY_SECONDS ) );
 			$coupon->set_description( sprintf( 'AVA Pay verified agent (%s)', $code ) );
 			$saved = $coupon->save();
-		} catch ( Exception $e ) {
+		} catch ( Throwable $e ) {
+			// Throwable, not Exception: an engine Error (e.g. a TypeError
+			// from a conflicting plugin's coupon filter) must degrade to
+			// "no discount", never 500 the verify request before its event
+			// is recorded.
 			self::log( 'Coupon creation failed: ' . $e->getMessage() );
 			return null;
 		}

@@ -615,6 +615,130 @@
       }
     },
     {
+      "name": "defaults__none__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__none__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__none__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__none__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "defaults__none__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -1337,6 +1461,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__allow_with_offer_and_cap__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__allow_with_offer_and_cap__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 8,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__allow_with_offer_and_cap__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 8,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__allow_with_offer_and_cap__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -2071,6 +2319,130 @@
       }
     },
     {
+      "name": "defaults__challenge_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__challenge_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__challenge_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__challenge_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "defaults__challenge_platform__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -2774,6 +3146,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "defaults__block_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "defaults__block_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "defaults__block_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "defaults__block_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -3511,6 +4003,130 @@
       }
     },
     {
+      "name": "defaults__spend_capped__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__spend_capped__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__spend_capped__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__spend_capped__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "defaults__spend_capped__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -4225,6 +4841,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__default_rule_challenge__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__default_rule_challenge__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 15,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__default_rule_challenge__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 15,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__default_rule_challenge__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -4957,6 +5697,128 @@
       }
     },
     {
+      "name": "defaults__synthesis_mixed__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
+      "name": "defaults__synthesis_mixed__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__synthesis_mixed__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "defaults__synthesis_mixed__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 0,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
       "name": "defaults__synthesis_mixed__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -5677,6 +6539,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__none__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__none__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__none__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__none__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -6419,6 +7405,130 @@
       }
     },
     {
+      "name": "identity_tier_5__allow_with_offer_and_cap__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__allow_with_offer_and_cap__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 8,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__allow_with_offer_and_cap__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 8,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__allow_with_offer_and_cap__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "identity_tier_5__allow_with_offer_and_cap__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -7143,6 +8253,130 @@
       }
     },
     {
+      "name": "identity_tier_5__challenge_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__challenge_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__challenge_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__challenge_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "identity_tier_5__challenge_platform__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -7846,6 +9080,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_5__block_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_5__block_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_5__block_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_5__block_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -8583,6 +9937,130 @@
       }
     },
     {
+      "name": "identity_tier_5__spend_capped__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__spend_capped__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__spend_capped__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__spend_capped__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "identity_tier_5__spend_capped__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -9297,6 +10775,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__default_rule_challenge__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__default_rule_challenge__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 15,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__default_rule_challenge__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 15,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__default_rule_challenge__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -10029,6 +11631,128 @@
       }
     },
     {
+      "name": "identity_tier_5__synthesis_mixed__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
+      "name": "identity_tier_5__synthesis_mixed__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__synthesis_mixed__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_5__synthesis_mixed__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
       "name": "identity_tier_5__synthesis_mixed__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -10749,6 +12473,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__none__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__none__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__none__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__none__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -11491,6 +13339,130 @@
       }
     },
     {
+      "name": "identity_tier_above_cap__allow_with_offer_and_cap__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__allow_with_offer_and_cap__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 8,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__allow_with_offer_and_cap__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 8,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__allow_with_offer_and_cap__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "identity_tier_above_cap__allow_with_offer_and_cap__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -12215,6 +14187,130 @@
       }
     },
     {
+      "name": "identity_tier_above_cap__challenge_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__challenge_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__challenge_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__challenge_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "identity_tier_above_cap__challenge_platform__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -12918,6 +15014,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__block_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__block_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__block_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__block_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -13655,6 +15871,130 @@
       }
     },
     {
+      "name": "identity_tier_above_cap__spend_capped__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__spend_capped__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__spend_capped__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__spend_capped__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "identity_tier_above_cap__spend_capped__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -14369,6 +16709,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__default_rule_challenge__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__default_rule_challenge__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 15,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__default_rule_challenge__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 15,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__default_rule_challenge__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -15101,6 +17565,128 @@
       }
     },
     {
+      "name": "identity_tier_above_cap__synthesis_mixed__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__synthesis_mixed__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__synthesis_mixed__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "identity_tier_above_cap__synthesis_mixed__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 30,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
       "name": "identity_tier_above_cap__synthesis_mixed__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -15821,6 +18407,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__none__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__none__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__none__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__none__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -16563,6 +19273,130 @@
       }
     },
     {
+      "name": "low_max__allow_with_offer_and_cap__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__allow_with_offer_and_cap__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__allow_with_offer_and_cap__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__allow_with_offer_and_cap__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "low_max__allow_with_offer_and_cap__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -17287,6 +20121,130 @@
       }
     },
     {
+      "name": "low_max__challenge_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__challenge_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__challenge_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__challenge_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "low_max__challenge_platform__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -17990,6 +20948,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "low_max__block_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "low_max__block_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "low_max__block_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "blocked_by_policy"
+      }
+    },
+    {
+      "name": "low_max__block_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -18727,6 +21805,130 @@
       }
     },
     {
+      "name": "low_max__spend_capped__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__spend_capped__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__spend_capped__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__spend_capped__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
       "name": "low_max__spend_capped__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -19441,6 +22643,130 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__default_rule_challenge__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": true,
+        "discountPct": 0,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__default_rule_challenge__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__default_rule_challenge__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__default_rule_challenge__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -20173,6 +23499,128 @@
       }
     },
     {
+      "name": "low_max__synthesis_mixed__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
+      "name": "low_max__synthesis_mixed__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__synthesis_mixed__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": true,
+        "discountPct": 5,
+        "reason": "verified"
+      }
+    },
+    {
+      "name": "low_max__synthesis_mixed__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": true,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 5,
+        "identityOnlyDiscountPct": 3,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "spend_limit_exceeded"
+      }
+    },
+    {
       "name": "low_max__synthesis_mixed__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": true,
@@ -20874,6 +24322,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__none__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__none__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__none__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__none__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": null
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -21591,6 +25159,126 @@
       }
     },
     {
+      "name": "disabled__allow_with_offer_and_cap__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__allow_with_offer_and_cap__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__allow_with_offer_and_cap__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__allow_with_offer_and_cap__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":12,\"offerDiscountPct\":8}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
       "name": "disabled__allow_with_offer_and_cap__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": false,
@@ -22290,6 +25978,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__challenge_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__challenge_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__challenge_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__challenge_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"challenge\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -23007,6 +26815,126 @@
       }
     },
     {
+      "name": "disabled__block_platform__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__block_platform__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__block_platform__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__block_platform__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"block\"}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
       "name": "disabled__block_platform__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": false,
@@ -23706,6 +27634,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__spend_capped__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__spend_capped__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__spend_capped__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__spend_capped__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxSpendMinor\":60000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
@@ -24423,6 +28471,126 @@
       }
     },
     {
+      "name": "disabled__default_rule_challenge__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__default_rule_challenge__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__default_rule_challenge__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__default_rule_challenge__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"offerDiscountPct\":15}],\"defaultRule\":{\"action\":\"challenge\"}}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
       "name": "disabled__default_rule_challenge__mandate_large_spend__no-platform",
       "settings": {
         "acceptVerifiedAgents": false,
@@ -25122,6 +29290,126 @@
           ]
         },
         "discount": 0,
+        "ttlSeconds": 300
+      },
+      "platform": "https://unknown-agent.example",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__synthesis_mixed__mandate_with_null_hint__no-platform",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": null,
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__synthesis_mixed__mandate_with_null_hint__https://chatgpt.com",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "https://chatgpt.com",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__synthesis_mixed__mandate_with_null_hint__HTTPS://CHATGPT.COM",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
+        "ttlSeconds": 300
+      },
+      "platform": "HTTPS://CHATGPT.COM",
+      "expected": {
+        "allow": false,
+        "reason": "merchant_disabled"
+      }
+    },
+    {
+      "name": "disabled__synthesis_mixed__mandate_with_null_hint__https://unknown-agent.example",
+      "settings": {
+        "acceptVerifiedAgents": false,
+        "defaultDiscountPct": 10,
+        "maxDiscountPct": 20,
+        "identityOnlyDiscountPct": 5,
+        "policyJson": "{\"version\":1,\"rules\":[{\"platform\":\"https://chatgpt.com\",\"action\":\"allow\",\"maxDiscountPct\":5,\"offerDiscountPct\":5},{\"platform\":\"https://agents.visa.com\",\"action\":\"challenge\",\"maxSpendMinor\":30000}]}"
+      },
+      "result": {
+        "trusted": true,
+        "mandate": {
+          "id": "mandate_golden",
+          "iat": 1700000000,
+          "exp": 1700000600,
+          "maxAmountMinor": 50000,
+          "currency": "USD",
+          "allowedMerchants": [
+            "demo-store.example"
+          ]
+        },
+        "discount": null,
         "ttlSeconds": 300
       },
       "platform": "https://unknown-agent.example",
