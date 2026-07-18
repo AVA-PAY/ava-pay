@@ -1,0 +1,120 @@
+{
+  "generatedBy": "woocommerce-plugin/scripts/generate-verify-fixtures.ts",
+  "note": "Real SDK signatures verified by the real multi-protocol verifier at generation time.",
+  "verifyUrl": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
+  "fixtures": [
+    {
+      "name": "ava_tap_mandate_backed",
+      "note": "AVA TAP profile, Ed25519, buyer mandate — expects trusted with mandate",
+      "request": {
+        "method": "POST",
+        "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
+        "headers": {
+          "host": "demo-store.example",
+          "content-digest": "sha-256=:bOr7ySKVN1cFwOcEmvDplebnL6158gyYgBli3aT/Tck=:",
+          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3ODQzNDYyMjEiLCJpYXQiOjE3ODQzNDYyMTYsImV4cCI6MTc4NDM0NjgyMSwibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
+          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1784346221;expires=1784346281;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"d0df5ba7-ba42-4ee1-9312-5dd472ed6ad0\"",
+          "signature": "sig1=:wO2ikaKWf8W0KYjUEk0cOjXQnraqGIJtyrE5zVoXXkXcfnwYYKoIOCYHvdyaYwj9kjRD886KWmRZqpk00Iy0Bg==:"
+        },
+        "body": "{\"cart\":[{\"sku\":\"WOO-1\",\"qty\":1,\"price_minor\":4999}],\"total_minor\":4999,\"currency\":\"USD\"}"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "trusted": true,
+          "protocol": "ava-tap",
+          "buyerInfo": {
+            "buyerId": "buyer_fixture_001",
+            "country": "US",
+            "displayName": "Fixture Buyer"
+          },
+          "mandate": {
+            "id": "mandate_woo_1784346221",
+            "iat": 1784346216,
+            "exp": 1784346821,
+            "maxAmountMinor": 50000,
+            "currency": "USD",
+            "allowedMerchants": [
+              "demo-store.example"
+            ],
+            "buyer": {
+              "buyerId": "buyer_fixture_001",
+              "country": "US",
+              "displayName": "Fixture Buyer"
+            }
+          },
+          "ttlSeconds": 60
+        }
+      }
+    },
+    {
+      "name": "web_bot_auth_identity_only",
+      "note": "Web Bot Auth — expects trusted, identity-only (no mandate)",
+      "request": {
+        "method": "GET",
+        "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
+        "headers": {
+          "host": "demo-store.example",
+          "signature-agent": "\"https://agent-demo.ava.example\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1784346221;expires=1784346521;keyid=\"FOHjUIl3x36vET_z-9LOkV8kkydzb1fVTKbtJhjUGDI\";alg=\"ed25519\";nonce=\"2RqLUH9PckBlZfue0VVGR3v14BBy2kRq_pT9_jdYF8_XZLl0Ef7tIE_uC0R1_I0YvZ41uLZuVTqL5kiMgzlkIg\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:EjX8WYwSJBuLmry3/ISY8Uz+SVDBo+WtkStXbUfVePOxXPeIZeWXyUssDzgqjxK/Mo4R10ZCLQuVhcRMAyWGCg==:"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "trusted": true,
+          "protocol": "web-bot-auth",
+          "agent": {
+            "id": "https://agent-demo.ava.example",
+            "protocol": "web-bot-auth",
+            "keyThumbprint": "FOHjUIl3x36vET_z-9LOkV8kkydzb1fVTKbtJhjUGDI"
+          },
+          "ttlSeconds": 60
+        }
+      }
+    },
+    {
+      "name": "web_bot_auth_tampered_signature",
+      "note": "Same WBA request with signature bytes flipped — expects invalid_signature",
+      "request": {
+        "method": "GET",
+        "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
+        "headers": {
+          "host": "demo-store.example",
+          "signature-agent": "\"https://agent-demo.ava.example\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1784346221;expires=1784346521;keyid=\"FOHjUIl3x36vET_z-9LOkV8kkydzb1fVTKbtJhjUGDI\";alg=\"ed25519\";nonce=\"G0J1UJrEIbwL6CKxFdlq9DrOZ3UbPscWb6t6ff1bDpiZJX5ixUGNGu1hLik1oAxU54dImZGhPI6VtZJ2L_-thw\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:uEdk9hFq1lMswI4CdS8tjcs4KUe/0AfTDC/aNoD4C5gSRmv5qy6DNy1UEKgUlYdOAKdELdzpYGErkE9xCE2aAA==:"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "trusted": false,
+          "reason": "invalid_signature",
+          "message": "Ed25519 verification failed against the directory key."
+        }
+      }
+    },
+    {
+      "name": "no_credentials",
+      "note": "Plain browser-ish request — expects missing_agent_credentials",
+      "request": {
+        "method": "GET",
+        "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
+        "headers": {
+          "host": "demo-store.example",
+          "user-agent": "definitely-not-an-agent/1.0"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "trusted": false,
+          "reason": "missing_agent_credentials",
+          "message": "No supported protocol detected. Send Visa TAP (Signature + Signature-Input), Web Bot Auth (Signature + Signature-Input + Signature-Agent, tag=\"web-bot-auth\"), or AP2 v0.2 (Ap2-Checkout-Mandate dSD-JWT chain)."
+        }
+      }
+    }
+  ]
+}

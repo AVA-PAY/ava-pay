@@ -43,6 +43,33 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  woocommerce:
+    name: WooCommerce plugin — lint + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+      - name: PHP syntax lint
+        run: find woocommerce-plugin -name '*.php' -not -path '*/vendor/*' -print0 | xargs -0 -n1 php -l
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @ava-pay/agent
+      - name: Golden-file freshness (PHP port must track the TS decision logic)
+        run: |
+          npx tsx woocommerce-plugin/scripts/generate-policy-golden.ts
+          git diff --exit-code woocommerce-plugin/tests/fixtures/policy-golden.json
+      - name: PHPUnit
+        working-directory: woocommerce-plugin
+        run: |
+          composer install --no-interaction --no-progress
+          ./vendor/bin/phpunit
+
   docker:
     name: Docker build smoke test
     runs-on: ubuntu-latest
