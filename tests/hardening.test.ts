@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { buildServer } from '../src/server.js';
 import { directoryRoutes } from '../src/directory/routes.js';
@@ -326,6 +326,64 @@ describe('Rate limiting', () => {
     } finally {
       if (prev === undefined) delete process.env.RATE_LIMIT_MAX;
       else process.env.RATE_LIMIT_MAX = prev;
+    }
+  });
+});
+
+describe('replay guard clock coherence (regression)', () => {
+  /**
+   * CI flake, main run 29631175428 (2026-07-18): a verifier built with an
+   * injected test clock but no explicit ReplayGuard constructed its default
+   * guard on the wall clock. Nonce expiries computed from the frozen clock
+   * land in the guard's past, are clamped to "now", and lapse one real
+   * second later — so a replay was accepted whenever a wall-clock second
+   * ticked between the two verifies (slow CI runners only; the window is
+   * milliseconds locally). Deterministic reproduction: advance the wall
+   * clock between the calls. The fix propagates the verifier's clock into
+   * the internally-created guard (all four protocol verifiers).
+   */
+  it('detects a replay even when wall-clock time advances between the two verifies', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-07-18T00:00:00Z'));
+
+      const keys = generateAgentKeyPair();
+      const directory = new StaticAgentDirectory();
+      directory.add('agent_demo', keys.publicKey);
+      // Injected clock, defaulted guard — the exact wiring that flaked.
+      const verifier = new VisaAgentVerifier({ directory, now: () => FIXED_NOW });
+
+      const signed = signRequest({
+        method: 'POST',
+        url: `https://${MERCHANT}/cart`,
+        body: BODY,
+        agentId: 'agent_demo',
+        privateKey: keys.privateKey,
+        mandate: mandate(),
+        created: FIXED_NOW - 5,
+        expires: FIXED_NOW + 30,
+      });
+      const incoming = {
+        method: signed.method,
+        url: signed.url,
+        headers: Object.fromEntries(
+          Object.entries(signed.headers).map(([k, v]) => [k.toLowerCase(), v]),
+        ),
+        body: signed.body,
+      };
+
+      const first = await verifier.verify(incoming);
+      expect(first.trusted).toBe(true);
+
+      // The CI second-tick, exaggerated: five wall-clock seconds pass
+      // between the original request and its replay.
+      vi.setSystemTime(new Date('2026-07-18T00:00:05Z'));
+
+      const second = await verifier.verify(incoming);
+      expect(second.trusted).toBe(false);
+      if (!second.trusted) expect(second.reason).toBe('replay_detected');
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

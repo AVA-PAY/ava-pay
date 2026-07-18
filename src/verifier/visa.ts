@@ -78,8 +78,12 @@ export class VisaAgentVerifier implements AgentVerifier {
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
     this.requireContentDigest = opts.requireContentDigest ?? true;
     this.maxAge = opts.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
-    this.replayGuard = opts.replayGuard ?? new InMemoryReplayGuard();
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
+    // The internally-created guard must share the verifier's clock: with an
+    // injected test clock but a wall-clock guard, stored nonce expiries (in
+    // the frozen past) clamp to "now" and lapse one real second later —
+    // replays were intermittently accepted on slow CI runners.
+    this.replayGuard = opts.replayGuard ?? new InMemoryReplayGuard({ now: this.now });
   }
 
   async verify(request: IncomingRequest): Promise<VerificationResult> {
