@@ -22,6 +22,9 @@ RESUME.md
 HANDOFF.md
 CLAUDE.md
 
+# WooCommerce plugin dev tooling
+woocommerce-plugin/vendor/
+
 # Shopify plugin local DB
 shopify-app/dev.sqlite*
 shopify-app/.shopify/
@@ -43,3 +46,6 @@ shopify-app/build/
 
 # React Router 7 generated types
 shopify-app/.react-router/
+
+# PHPUnit cache
+woocommerce-plugin/.phpunit.result.cache
