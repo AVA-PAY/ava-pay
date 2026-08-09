@@ -20,6 +20,15 @@ import { createHash } from 'node:crypto';
  * key directory at https://{signature-agent}/.well-known/http-message-signatures-directory.
  */
 
+export {
+  DIRECTORY_PROOF_TAG,
+  buildDirectoryProofBase,
+  signDirectoryResponse,
+  verifyDirectoryProofs,
+  type KeyProofStatus,
+  type DirectoryProofSigner,
+} from './directory-proof.js';
+
 export const WEB_BOT_AUTH_TAG = 'web-bot-auth';
 export const KEY_DIRECTORY_PATH = '/.well-known/http-message-signatures-directory';
 export const KEY_DIRECTORY_MEDIA_TYPE = 'application/http-message-signatures-directory+json';

@@ -63,6 +63,13 @@ export type VerificationFailureReason =
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
   | 'unknown_key'
+  // Appendix B directory proof-of-possession. unsigned_key is "no proof
+  // offered" (tolerated under the per-source grace flag, dropped when it is
+  // off); key_proof_invalid is "proof offered and failed verification", never
+  // tolerated. Both are definitive per-key determinations (conclusive), unlike
+  // a directory-level fetch failure.
+  | 'unsigned_key'
+  | 'key_proof_invalid'
   // Visa Trusted Agent Protocol (real wire format) — signed body objects
   | 'malformed_recognition_object'
   | 'recognition_nonce_mismatch'

@@ -13,8 +13,10 @@ import {
   KEY_DIRECTORY_PATH,
   parseKeyDirectory,
   parseSignatureAgent,
+  verifyDirectoryProofs,
   WEB_BOT_AUTH_TAG,
   WebBotAuthParseError,
+  type KeyProofStatus,
   type WebBotAuthKey,
 } from '@ava-pay/agent/protocol/web-bot-auth';
 import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
@@ -52,8 +54,13 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  * in the trust set → unknown_signature_agent, unknown/expired key → unknown_key.
  */
 
+/** A directory key plus its Appendix B proof-of-possession status. */
+export interface ResolvedDirectoryKey extends WebBotAuthKey {
+  proof: KeyProofStatus;
+}
+
 export type KeyDirectoryResolution =
-  | { status: 'ok'; keys: WebBotAuthKey[] }
+  | { status: 'ok'; keys: ResolvedDirectoryKey[] }
   | { status: 'not_allowed' }
   | { status: 'unavailable'; detail?: string };
 
@@ -79,6 +86,15 @@ export interface WebBotAuthVerifierOptions {
    * agent, not the body; merchants needing signed carts use Visa TAP / AP2.
    */
   requireContentDigest?: boolean;
+  /**
+   * Signature-Agent origins that MUST serve Appendix B directory
+   * proof-of-possession (the per-source grace flag is OFF for these). Default:
+   * none, so grace is ON everywhere and a key that offers no proof is tolerated.
+   * As of 2026-08-09 no live directory serves proofs, so an ON-by-default hard
+   * fail would reject all real traffic. A key whose proof is present but
+   * INVALID is dropped regardless, at every grace setting.
+   */
+  proofRequiredOrigins?: string[];
   /** Override "now" (seconds) for deterministic tests. */
   now?: () => number;
 }
@@ -86,6 +102,8 @@ export interface WebBotAuthVerifierOptions {
 const DEFAULT_SKEW = 30;
 const DEFAULT_TTL_SECONDS = 60;
 const DEFAULT_MAX_AGE_SECONDS = 300;
+/** Clock skew tolerated on Appendix B proof created/expires, evaluated at fetch. */
+const PROOF_SKEW_SECONDS = 300;
 /** keyid must be a base64url SHA-256 JWK thumbprint — always 43 chars. */
 const THUMBPRINT_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
@@ -95,12 +113,14 @@ export class WebBotAuthVerifier implements AgentVerifier {
   private readonly maxAge: number;
   private readonly replayGuard: ReplayGuard;
   private readonly requireContentDigest: boolean;
+  private readonly proofRequired: Set<string>;
   private readonly now: () => number;
 
   constructor(opts: WebBotAuthVerifierOptions) {
     this.resolver = opts.resolver;
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
     this.maxAge = opts.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
+    this.proofRequired = new Set((opts.proofRequiredOrigins ?? []).map(normalizeOrigin));
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
     // The internally-created guard must share the verifier's clock: with an
     // injected test clock but a wall-clock guard, stored nonce expiries (in
@@ -265,6 +285,23 @@ export class WebBotAuthVerifier implements AgentVerifier {
         `keyid "${keyid}" is not published in ${origin}${KEY_DIRECTORY_PATH}.`,
       );
     }
+    // Appendix B proof-of-possession gate (D2). A proof that was offered and
+    // FAILED is never tolerated: the directory entry is untrustworthy, so this
+    // runs before the entry's own nbf/exp are believed. A proof that is ABSENT
+    // is tolerated unless this source has the grace flag off. Both are
+    // definitive per-key determinations, so the fail() results are conclusive.
+    if (key.proof === 'invalid') {
+      return fail(
+        'key_proof_invalid',
+        `Directory proof-of-possession for key "${keyid}" was offered but failed verification.`,
+      );
+    }
+    if (key.proof === 'absent' && this.proofRequired.has(origin)) {
+      return fail(
+        'unsigned_key',
+        `Directory for "${origin}" served no proof-of-possession for key "${keyid}", and this source requires one.`,
+      );
+    }
     if (key.nbf !== undefined && key.nbf > now + this.skew) {
       return fail('unknown_key', `Key "${keyid}" is not yet valid (nbf=${key.nbf}).`);
     }
@@ -363,7 +400,9 @@ export class StaticSignatureAgentKeys implements SignatureAgentKeyResolver {
     if (this.unavailable.has(origin)) return { status: 'unavailable' };
     const keys = this.byOrigin.get(origin);
     if (!keys) return { status: 'not_allowed' };
-    return { status: 'ok', keys };
+    // A static key list carries no wire response, hence no proof-of-possession:
+    // proof is honestly 'absent' (tolerated under grace, dropped without it).
+    return { status: 'ok', keys: keys.map((k) => ({ ...k, proof: 'absent' as const })) };
   }
 }
 
@@ -401,9 +440,11 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * requests cannot turn us into a fetch cannon.
  *
  * Directory responses are trusted on the strength of TLS to an allowlisted
- * origin. The draft's optional per-key response signatures
- * (proof-of-possession) are not validated yet — no live directory publishes
- * them today (checked chatgpt.com 2026-07-12); revisit when they appear.
+ * origin, plus Appendix B proof-of-possession when the directory serves it:
+ * each key is classified valid/invalid/absent (verifyDirectoryProofs) and the
+ * verifier applies the per-source grace flag. No live directory publishes
+ * proofs today (checked chatgpt.com and www.shopify.com 2026-08-09), so grace
+ * defaults on and absent proofs are tolerated until a source ships them.
  */
 export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   private readonly allowed: Set<string>;
@@ -467,7 +508,23 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         }
         const body = await readBounded(res, this.maxBytes);
         const keys = parseKeyDirectory(JSON.parse(body));
-        return { status: 'ok', keys };
+        // Appendix B: classify each key by its response proof-of-possession.
+        // The request authority is the host we actually fetched (post-redirect),
+        // which is what the directory operator signs over (@authority;req).
+        const proofByThumbprint = verifyDirectoryProofs({
+          authority: new URL(url).host,
+          body,
+          signatureInput: res.headers.get('signature-input') ?? undefined,
+          signature: res.headers.get('signature') ?? undefined,
+          now: Math.floor(this.nowMs() / 1000),
+          skewSeconds: PROOF_SKEW_SECONDS,
+          keys,
+        });
+        const resolved: ResolvedDirectoryKey[] = keys.map((k) => ({
+          ...k,
+          proof: proofByThumbprint.get(k.thumbprint) ?? 'absent',
+        }));
+        return { status: 'ok', keys: resolved };
       } catch (err) {
         return {
           status: 'unavailable',

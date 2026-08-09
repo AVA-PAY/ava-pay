@@ -15,6 +15,7 @@ import {
   ed25519JwkThumbprint,
   parseKeyDirectory,
   parseSignatureAgent,
+  signDirectoryResponse,
   WebBotAuthParseError,
 } from '@ava-pay/agent/protocol/web-bot-auth';
 import { generateAgentKeyPair, signWithVisa, signWithWebBotAuth, webBotAuthKeyId } from '../src/sdk/index.js';
@@ -164,6 +165,27 @@ describe('WebBotAuthVerifier', () => {
       trusted: false,
       reason: 'key_directory_unavailable',
       conclusive: false,
+    });
+  });
+
+  it('tolerates an absent Appendix B proof by default (grace on)', async () => {
+    // The default verifier has no proofRequiredOrigins, and the static resolver
+    // carries no proof, so an unsigned directory still verifies.
+    expect((await verifier.verify(toIncoming(sign()))).trusted).toBe(true);
+  });
+
+  it('drops an absent-proof key when the source requires proof → unsigned_key (conclusive true)', async () => {
+    // Grace off for this origin: "no proof offered" is now a definitive
+    // rejection, distinct from a directory-level fetch failure.
+    const strict = new WebBotAuthVerifier({
+      resolver,
+      proofRequiredOrigins: [AGENT_ORIGIN],
+      now: () => FIXED_NOW,
+    });
+    expect(await strict.verify(toIncoming(sign()))).toMatchObject({
+      trusted: false,
+      reason: 'unsigned_key',
+      conclusive: true,
     });
   });
 
@@ -607,6 +629,99 @@ describe('FetchingKeyDirectoryResolver', () => {
 
   it('ships chatgpt.com as the only default trusted signature agent', () => {
     expect(DEFAULT_SIGNATURE_AGENTS).toEqual(['https://chatgpt.com']);
+  });
+});
+
+describe('WebBotAuthVerifier Appendix B proof-of-possession (real crypto)', () => {
+  const ORIGIN = 'https://agent.example';
+  const HOST = 'agent.example';
+  let keys: AgentKeyPair;
+
+  beforeEach(() => {
+    keys = generateAgentKeyPair();
+  });
+
+  /** A fetch that serves the directory with an Appendix B proof bound to `proofAuthority`. */
+  function signedDirectoryFetch(proofAuthority: string): typeof fetch {
+    const body = JSON.stringify({ keys: [keys.publicKey.export({ format: 'jwk' })] });
+    const proof = signDirectoryResponse({
+      signers: [{ privateKey: keys.privateKey, keyid: webBotAuthKeyId(keys.publicKey) }],
+      authority: proofAuthority,
+      body,
+      created: FIXED_NOW - 5,
+      expires: FIXED_NOW + 3600,
+    });
+    return (async () =>
+      new Response(body, {
+        headers: {
+          'content-digest': proof['content-digest'],
+          'signature-input': proof['signature-input'],
+          signature: proof.signature,
+        },
+      })) as unknown as typeof fetch;
+  }
+
+  function fetchingResolver(fetchImpl: typeof fetch): FetchingKeyDirectoryResolver {
+    return new FetchingKeyDirectoryResolver({
+      allowedOrigins: [ORIGIN],
+      fetchImpl,
+      nowMs: () => FIXED_NOW * 1000,
+    });
+  }
+
+  function signedRequest(): IncomingRequest {
+    return toIncoming(
+      signWithWebBotAuth({
+        method: 'GET',
+        url: MERCHANT_URL,
+        signatureAgent: ORIGIN,
+        privateKey: keys.privateKey,
+        created: FIXED_NOW - 5,
+      }),
+    );
+  }
+
+  it('classifies proof status at the resolver: valid when it verifies, invalid otherwise', async () => {
+    const good = await fetchingResolver(signedDirectoryFetch(HOST)).resolve(ORIGIN);
+    if (good.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(good)}`);
+    expect(good.keys[0]?.proof).toBe('valid');
+
+    // Proof signed for the wrong authority does not bind to the serving host.
+    const bad = await fetchingResolver(signedDirectoryFetch('wrong.example')).resolve(ORIGIN);
+    if (bad.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(bad)}`);
+    expect(bad.keys[0]?.proof).toBe('invalid');
+  });
+
+  it('marks proof absent when the directory serves no response signature', async () => {
+    const plain = (async () =>
+      new Response(
+        JSON.stringify({ keys: [keys.publicKey.export({ format: 'jwk' })] }),
+      )) as unknown as typeof fetch;
+    const res = await fetchingResolver(plain).resolve(ORIGIN);
+    if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.keys[0]?.proof).toBe('absent');
+  });
+
+  it('accepts a request when the directory proof verifies', async () => {
+    const verifier = new WebBotAuthVerifier({
+      resolver: fetchingResolver(signedDirectoryFetch(HOST)),
+      now: () => FIXED_NOW,
+    });
+    expect((await verifier.verify(signedRequest())).trusted).toBe(true);
+  });
+
+  it('rejects a present-but-invalid proof → key_proof_invalid (conclusive true), even under grace on', async () => {
+    // No proofRequiredOrigins, so grace is ON. An invalid proof is still never
+    // tolerated: the determination is definitive, so conclusive stays true.
+    const verifier = new WebBotAuthVerifier({
+      resolver: fetchingResolver(signedDirectoryFetch('wrong.example')),
+      now: () => FIXED_NOW,
+    });
+    expect(await verifier.verify(signedRequest())).toMatchObject({
+      trusted: false,
+      reason: 'key_proof_invalid',
+      conclusive: true,
+    });
   });
 });
 
