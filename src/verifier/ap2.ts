@@ -257,6 +257,7 @@ export class Ap2AgentVerifier implements AgentVerifier {
 
     return {
       trusted: true,
+      conclusive: true,
       protocol: 'ap2',
       agent: { id: rootKid, protocol: 'ap2' },
       buyerInfo,
@@ -276,6 +277,7 @@ export class Ap2AgentVerifier implements AgentVerifier {
     let rootKid = '';
     let unknownRoot = false;
     let revokedRoot = false;
+    let directoryUnavailable = false;
     let chain: VerifiedChain;
     try {
       chain = await verifyChain(token, {
@@ -286,7 +288,9 @@ export class Ap2AgentVerifier implements AgentVerifier {
           try {
             record = await this.directory.resolve(kid, { protocol: 'ap2' });
           } catch {
-            unknownRoot = true;
+            // Directory unreachable: could-not-check, distinct from a reachable
+            // directory that does not resolve the root kid (unknownRoot below).
+            directoryUnavailable = true;
             return null;
           }
           if (!record) {
@@ -306,6 +310,16 @@ export class Ap2AgentVerifier implements AgentVerifier {
     } catch (err) {
       if (revokedRoot) {
         return { ok: false, failure: fail('revoked_agent', `Root key "${rootKid}" is revoked.`) };
+      }
+      if (directoryUnavailable) {
+        return {
+          ok: false,
+          failure: fail(
+            'directory_unavailable',
+            `Directory lookup for root kid "${rootKid}" failed.`,
+            false,
+          ),
+        };
       }
       if (unknownRoot) {
         return {
@@ -338,6 +352,10 @@ export class Ap2AgentVerifier implements AgentVerifier {
   }
 }
 
-function fail(reason: VerificationFailureReason, message: string): VerificationResult {
-  return { trusted: false, reason, message };
+function fail(
+  reason: VerificationFailureReason,
+  message: string,
+  conclusive = true,
+): VerificationResult {
+  return { trusted: false, reason, message, conclusive };
 }

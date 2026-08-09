@@ -1,6 +1,10 @@
 import { createPublicKey, randomBytes, sign as nodeSign, type KeyObject } from 'node:crypto';
 import { computeContentDigest } from '../protocol/visa/http-signatures.js';
-import { ed25519JwkThumbprint, WEB_BOT_AUTH_TAG } from '../protocol/web-bot-auth/index.js';
+import {
+  ed25519JwkThumbprint,
+  WEB_BOT_AUTH_TAG,
+  type SignatureAgentType,
+} from '../protocol/web-bot-auth/index.js';
 import type { SignedRequest } from './visa.js';
 
 /**
@@ -51,6 +55,12 @@ export interface WebBotAuthSignInput {
    * label-keyed form of the restructured draft.
    */
   signatureAgentFormat?: 'item' | 'dictionary';
+  /**
+   * §5.5 discovery type, emitted as a `;type=` parameter on the dictionary
+   * member (only meaningful with signatureAgentFormat "dictionary", since a
+   * bare string carries no parameters). Omit for the default `directory`.
+   */
+  signatureAgentType?: SignatureAgentType;
 }
 
 export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
@@ -64,9 +74,11 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
   const components = input.components ?? ['@authority', '@method', '@path', 'signature-agent'];
 
   const url = new URL(input.url);
+  const typeParam =
+    input.signatureAgentType !== undefined ? `;type=${input.signatureAgentType}` : '';
   const signatureAgentHeader =
     input.signatureAgentFormat === 'dictionary'
-      ? `${label}="${input.signatureAgent}"`
+      ? `${label}="${input.signatureAgent}"${typeParam}`
       : `"${input.signatureAgent}"`;
 
   const headers: Record<string, string> = {

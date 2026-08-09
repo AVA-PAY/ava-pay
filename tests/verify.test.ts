@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildServer } from '../src/server.js';
 import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
+import type { AgentDirectory, AgentRecord } from '../src/verifier/agent-directory.js';
 import { VisaAgentVerifier } from '../src/verifier/visa.js';
 import type { Mandate, VerificationResult } from '../src/types.js';
 import { generateAgentKeyPair, signRequest, type KeyPair } from './sign-helper.js';
@@ -81,6 +82,7 @@ describe('POST /verify (VisaAgentVerifier, real signatures)', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as VerificationResult;
     if (!body.trusted) throw new Error(`expected trusted=true, got ${JSON.stringify(body)}`);
+    expect(body.conclusive).toBe(true);
     expect(body.buyerInfo?.buyerId).toBe('buyer_alex_001');
     expect(body.mandate?.id).toBe('mandate_demo');
     expect(res.headers['x-ava-verify-ms']).toBeDefined();
@@ -255,6 +257,10 @@ describe('POST /verify (VisaAgentVerifier, real signatures)', () => {
     const body = res.json() as VerificationResult;
     if (body.trusted) throw new Error('unreachable');
     expect(body.reason).toBe('unknown_agent');
+    // A reachable directory that does not list the agent is a definitive
+    // rejection: conclusive stays true (contrast the directory-unavailable
+    // block below, which is inconclusive).
+    expect(body.conclusive).toBe(true);
   });
 
   it('rejects a wrong-key signature (signer ≠ directory key) → invalid_signature', async () => {
@@ -344,5 +350,39 @@ describe('POST /verify (VisaAgentVerifier, real signatures)', () => {
       payload: { method: 'POST' /* missing url + headers */ },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('VisaAgentVerifier could-not-check path (directory unreachable)', () => {
+  it('a throwing directory yields directory_unavailable with conclusive=false (fail closed)', async () => {
+    const keys = generateAgentKeyPair();
+    // The directory backend is down: resolve() rejects rather than returning
+    // null. This must be reported distinctly from unknown_agent so a merchant
+    // can tell "we could not check" from "we checked, agent is not listed".
+    const throwingDirectory: AgentDirectory = {
+      async resolve(): Promise<AgentRecord | null> {
+        throw new Error('directory backend unreachable');
+      },
+    };
+    const verifier = new VisaAgentVerifier({
+      directory: throwingDirectory,
+      now: () => FIXED_NOW,
+    });
+
+    const signed = signRequest({
+      method: 'POST',
+      url: 'https://shop.example.com/cart',
+      body: DEFAULT_BODY,
+      agentId: 'agent_demo',
+      privateKey: keys.privateKey,
+      mandate: defaultMandate(),
+      created: FIXED_NOW,
+      expires: FIXED_NOW + 30,
+    });
+
+    const result = await verifier.verify(signed);
+    if (result.trusted) throw new Error('expected trusted=false');
+    expect(result.reason).toBe('directory_unavailable');
+    expect(result.conclusive).toBe(false);
   });
 });

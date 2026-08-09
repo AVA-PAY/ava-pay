@@ -182,7 +182,13 @@ export class VisaTapVerifier implements AgentVerifier {
     try {
       record = await this.directory.resolve(keyid, { protocol: 'visa', alg, kid: keyid });
     } catch {
-      return fail('unknown_agent', `Agent key lookup for "${keyid}" failed.`);
+      // Directory unreachable: could-not-check. Fail closed but inconclusive,
+      // distinct from a reachable directory that does not list the key.
+      return fail(
+        'directory_unavailable',
+        `Agent key lookup for "${keyid}" failed.`,
+        false,
+      );
     }
     if (!record) {
       return fail('unknown_agent', `Agent key "${keyid}" is not registered.`);
@@ -268,6 +274,7 @@ export class VisaTapVerifier implements AgentVerifier {
 
     return {
       trusted: true,
+      conclusive: true,
       protocol: 'visa-tap',
       agent: { id: keyid, protocol: 'visa-tap' },
       tap: detail,
@@ -321,16 +328,23 @@ export class VisaTapVerifier implements AgentVerifier {
 
     if (!this.visaJwks) {
       // Fail closed: we cannot vouch for consumer recognition we cannot verify.
+      // Could-not-check, so inconclusive. Reason kept as key_directory_unavailable
+      // for backward compatibility; it unifies with directory_unavailable in v1.0.
       return failure(
         'key_directory_unavailable',
         'No Visa JWKS resolver configured; cannot verify the IdToken.',
+        false,
       );
     }
     let visaKey: VisaJwk | null;
     try {
       visaKey = await this.visaJwks.resolve(idToken.header.kid as string);
     } catch {
-      return failure('key_directory_unavailable', 'Visa JWKS could not be fetched or parsed.');
+      return failure(
+        'key_directory_unavailable',
+        'Visa JWKS could not be fetched or parsed.',
+        false,
+      );
     }
     if (!visaKey) {
       return failure('id_token_invalid', `IdToken kid "${idToken.header.kid}" is not in Visa's JWKS.`);
@@ -444,15 +458,20 @@ function normAlg(alg: unknown): string {
   return String(alg).toLowerCase();
 }
 
-function fail(reason: VerificationFailureReason, message: string): VerificationResult {
-  return { trusted: false, reason, message };
+function fail(
+  reason: VerificationFailureReason,
+  message: string,
+  conclusive = true,
+): VerificationResult {
+  return { trusted: false, reason, message, conclusive };
 }
 
 function failure(
   reason: VerificationFailureReason,
   message: string,
+  conclusive = true,
 ): { ok: false; failure: VerificationResult } {
-  return { ok: false, failure: fail(reason, message) };
+  return { ok: false, failure: fail(reason, message, conclusive) };
 }
 
 // ─── Visa JWKS resolver ─────────────────────────────────────────────────────

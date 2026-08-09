@@ -38,6 +38,14 @@ export type VerificationFailureReason =
   // Directory / agent-state
   | 'unknown_agent'
   | 'revoked_agent'
+  // An agent directory could not be reached or parsed, so the verifier could
+  // not complete its checks. Distinct from unknown_agent, which is a reachable
+  // directory that does not list the agent. Pairs with conclusive=false, and
+  // trusted stays false (fail closed). Note that web-bot-auth and the Visa JWKS
+  // paths report the same could-not-check condition as key_directory_unavailable
+  // for backward compatibility, and the two names unify in the v1.0 contract
+  // revision, which also promotes conclusive to the full ternary (D4).
+  | 'directory_unavailable'
   // Mandate
   | 'malformed_mandate'
   | 'mandate_expired'
@@ -55,6 +63,13 @@ export type VerificationFailureReason =
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
   | 'unknown_key'
+  // Appendix B directory proof-of-possession. unsigned_key is "no proof
+  // offered" (tolerated under the per-source grace flag, dropped when it is
+  // off); key_proof_invalid is "proof offered and failed verification", never
+  // tolerated. Both are definitive per-key determinations (conclusive), unlike
+  // a directory-level fetch failure.
+  | 'unsigned_key'
+  | 'key_proof_invalid'
   // Visa Trusted Agent Protocol (real wire format) — signed body objects
   | 'malformed_recognition_object'
   | 'recognition_nonce_mismatch'
@@ -85,11 +100,24 @@ export interface VerifiedAgentIdentity {
   id: string;
   protocol: VerifiedProtocol;
   keyThumbprint?: string;
+  /**
+   * Web Bot Auth only: how strongly the identity is bound (§5.5). `domain` when
+   * discovered via the reserved well-known directory path; `url-only` when the
+   * Signature-Agent declared a `jwks_uri`/`cimd` type (key continuity at an
+   * arbitrary URL, no origin association). Merchants can price the difference.
+   */
+  binding?: 'domain' | 'url-only';
 }
 
 export type VerificationResult =
   | {
       trusted: true;
+      /**
+       * Whether the verifier completed its checks. A successful verification is
+       * always conclusive, so this is true. Present on both branches so callers
+       * can read `result.conclusive` without first narrowing on `trusted`.
+       */
+      conclusive?: boolean;
       protocol?: VerifiedProtocol;
       /** The agent identity the signature proved (always set for web-bot-auth). */
       agent?: VerifiedAgentIdentity;
@@ -108,4 +136,14 @@ export type VerificationResult =
       trusted: false;
       reason: VerificationFailureReason;
       message: string;
+      /**
+       * Whether the verifier completed its checks. false ONLY on could-not-check
+       * paths, where a trust root was unreachable (reason directory_unavailable
+       * or key_directory_unavailable); trusted stays false there too, so
+       * fail-closed behavior is unchanged. true means the request was
+       * definitively rejected. Additive and non-breaking: AVA's engine always
+       * sets this, and an absent value should be read as conclusive for forward
+       * compatibility. The full ternary lands in the v1.0 contract (D4).
+       */
+      conclusive?: boolean;
     };

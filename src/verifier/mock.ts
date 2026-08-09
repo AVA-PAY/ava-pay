@@ -37,6 +37,7 @@ export class MockAgentVerifier implements AgentVerifier {
         trusted: false,
         reason: 'missing_agent_credentials',
         message: 'Required headers x-ava-agent-id, x-ava-signature, x-ava-mandate are missing.',
+        conclusive: true,
       };
     }
 
@@ -46,6 +47,7 @@ export class MockAgentVerifier implements AgentVerifier {
         trusted: false,
         reason: 'unknown_agent',
         message: `Agent "${agentId}" is not registered.`,
+        conclusive: true,
       };
     }
     if (record.revoked) {
@@ -53,6 +55,7 @@ export class MockAgentVerifier implements AgentVerifier {
         trusted: false,
         reason: 'revoked_agent',
         message: `Agent "${agentId}" has been revoked.`,
+        conclusive: true,
       };
     }
 
@@ -61,6 +64,7 @@ export class MockAgentVerifier implements AgentVerifier {
         trusted: false,
         reason: 'invalid_signature',
         message: 'Cryptographic signature did not verify against the registered key.',
+        conclusive: true,
       };
     }
 
@@ -72,6 +76,7 @@ export class MockAgentVerifier implements AgentVerifier {
         trusted: false,
         reason: 'malformed_mandate',
         message: err instanceof MandateParseError ? err.message : 'Mandate could not be parsed.',
+        conclusive: true,
       };
     }
 
@@ -81,6 +86,7 @@ export class MockAgentVerifier implements AgentVerifier {
         trusted: false,
         reason: 'mandate_expired',
         message: `Mandate ${mandate.id} expired at ${mandate.exp} (now=${now}).`,
+        conclusive: true,
       };
     }
 
@@ -90,6 +96,7 @@ export class MockAgentVerifier implements AgentVerifier {
         trusted: false,
         reason: 'mandate_merchant_mismatch',
         message: `Mandate ${mandate.id} does not authorize purchases on ${merchantHost ?? '(unknown host)'}.`,
+        conclusive: true,
       };
     }
 
@@ -100,6 +107,7 @@ export class MockAgentVerifier implements AgentVerifier {
 
     return {
       trusted: true,
+      conclusive: true,
       buyerInfo,
       mandate,
       ...(discount !== undefined ? { discount } : {}),

@@ -59,6 +59,7 @@ export class MultiProtocolVerifier implements AgentVerifier {
         reason: 'ambiguous_protocol',
         message:
           'Request includes both an RFC 9421 signature and AP2 credentials. Send exactly one protocol per request.',
+        conclusive: true,
       };
     }
     if (hasWba) return this.impls.webBotAuth.verify(request);
@@ -71,6 +72,7 @@ export class MultiProtocolVerifier implements AgentVerifier {
       reason: 'missing_agent_credentials',
       message:
         'No supported protocol detected. Send Visa TAP (Signature + Signature-Input), Web Bot Auth (Signature + Signature-Input + Signature-Agent, tag="web-bot-auth"), or AP2 v0.2 (Ap2-Checkout-Mandate dSD-JWT chain).',
+      conclusive: true,
     };
   }
 }

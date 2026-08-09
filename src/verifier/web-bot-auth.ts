@@ -13,8 +13,10 @@ import {
   KEY_DIRECTORY_PATH,
   parseKeyDirectory,
   parseSignatureAgent,
+  verifyDirectoryProofs,
   WEB_BOT_AUTH_TAG,
   WebBotAuthParseError,
+  type KeyProofStatus,
   type WebBotAuthKey,
 } from '@ava-pay/agent/protocol/web-bot-auth';
 import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
@@ -52,8 +54,13 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  * in the trust set → unknown_signature_agent, unknown/expired key → unknown_key.
  */
 
+/** A directory key plus its Appendix B proof-of-possession status. */
+export interface ResolvedDirectoryKey extends WebBotAuthKey {
+  proof: KeyProofStatus;
+}
+
 export type KeyDirectoryResolution =
-  | { status: 'ok'; keys: WebBotAuthKey[] }
+  | { status: 'ok'; keys: ResolvedDirectoryKey[] }
   | { status: 'not_allowed' }
   | { status: 'unavailable'; detail?: string };
 
@@ -79,6 +86,15 @@ export interface WebBotAuthVerifierOptions {
    * agent, not the body; merchants needing signed carts use Visa TAP / AP2.
    */
   requireContentDigest?: boolean;
+  /**
+   * Signature-Agent origins that MUST serve Appendix B directory
+   * proof-of-possession (the per-source grace flag is OFF for these). Default:
+   * none, so grace is ON everywhere and a key that offers no proof is tolerated.
+   * As of 2026-08-09 no live directory serves proofs, so an ON-by-default hard
+   * fail would reject all real traffic. A key whose proof is present but
+   * INVALID is dropped regardless, at every grace setting.
+   */
+  proofRequiredOrigins?: string[];
   /** Override "now" (seconds) for deterministic tests. */
   now?: () => number;
 }
@@ -86,6 +102,8 @@ export interface WebBotAuthVerifierOptions {
 const DEFAULT_SKEW = 30;
 const DEFAULT_TTL_SECONDS = 60;
 const DEFAULT_MAX_AGE_SECONDS = 300;
+/** Clock skew tolerated on Appendix B proof created/expires, evaluated at fetch. */
+const PROOF_SKEW_SECONDS = 300;
 /** keyid must be a base64url SHA-256 JWK thumbprint — always 43 chars. */
 const THUMBPRINT_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
@@ -95,12 +113,14 @@ export class WebBotAuthVerifier implements AgentVerifier {
   private readonly maxAge: number;
   private readonly replayGuard: ReplayGuard;
   private readonly requireContentDigest: boolean;
+  private readonly proofRequired: Set<string>;
   private readonly now: () => number;
 
   constructor(opts: WebBotAuthVerifierOptions) {
     this.resolver = opts.resolver;
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
     this.maxAge = opts.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
+    this.proofRequired = new Set((opts.proofRequiredOrigins ?? []).map(normalizeOrigin));
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
     // The internally-created guard must share the verifier's clock: with an
     // injected test clock but a wall-clock guard, stored nonce expiries (in
@@ -205,8 +225,14 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
 
     let origin: string;
+    // Binding strength (D3) is declarative: it reflects the Signature-Agent
+    // discovery type the agent asserted, which is what a merchant prices. A
+    // `directory` type binds the key to the origin; jwks_uri/cimd do not.
+    let binding: 'domain' | 'url-only';
     try {
-      origin = parseSignatureAgent(sigAgentHeader, parsedInput.label).origin;
+      const parsedAgent = parseSignatureAgent(sigAgentHeader, parsedInput.label);
+      origin = parsedAgent.origin;
+      binding = parsedAgent.type === 'directory' ? 'domain' : 'url-only';
     } catch (err) {
       return fail(
         'malformed_signature_header',
@@ -242,10 +268,13 @@ export class WebBotAuthVerifier implements AgentVerifier {
       );
     }
     if (resolution.status === 'unavailable') {
-      // Fail closed: no key material, no trust.
+      // Fail closed: no key material, no trust. Could-not-check, so inconclusive.
+      // Reason kept as key_directory_unavailable for backward compatibility; it
+      // unifies with directory_unavailable in the v1.0 contract revision.
       return fail(
         'key_directory_unavailable',
         `Key directory for "${origin}" could not be fetched or parsed.`,
+        false,
       );
     }
 
@@ -254,6 +283,23 @@ export class WebBotAuthVerifier implements AgentVerifier {
       return fail(
         'unknown_key',
         `keyid "${keyid}" is not published in ${origin}${KEY_DIRECTORY_PATH}.`,
+      );
+    }
+    // Appendix B proof-of-possession gate (D2). A proof that was offered and
+    // FAILED is never tolerated: the directory entry is untrustworthy, so this
+    // runs before the entry's own nbf/exp are believed. A proof that is ABSENT
+    // is tolerated unless this source has the grace flag off. Both are
+    // definitive per-key determinations, so the fail() results are conclusive.
+    if (key.proof === 'invalid') {
+      return fail(
+        'key_proof_invalid',
+        `Directory proof-of-possession for key "${keyid}" was offered but failed verification.`,
+      );
+    }
+    if (key.proof === 'absent' && this.proofRequired.has(origin)) {
+      return fail(
+        'unsigned_key',
+        `Directory for "${origin}" served no proof-of-possession for key "${keyid}", and this source requires one.`,
       );
     }
     if (key.nbf !== undefined && key.nbf > now + this.skew) {
@@ -310,15 +356,20 @@ export class WebBotAuthVerifier implements AgentVerifier {
 
     return {
       trusted: true,
+      conclusive: true,
       protocol: 'web-bot-auth',
-      agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: keyid },
+      agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: keyid, binding },
       ttlSeconds: DEFAULT_TTL_SECONDS,
     };
   }
 }
 
-function fail(reason: VerificationFailureReason, message: string): VerificationResult {
-  return { trusted: false, reason, message };
+function fail(
+  reason: VerificationFailureReason,
+  message: string,
+  conclusive = true,
+): VerificationResult {
+  return { trusted: false, reason, message, conclusive };
 }
 
 // ─── Key directory resolvers ────────────────────────────────────────────────
@@ -349,7 +400,9 @@ export class StaticSignatureAgentKeys implements SignatureAgentKeyResolver {
     if (this.unavailable.has(origin)) return { status: 'unavailable' };
     const keys = this.byOrigin.get(origin);
     if (!keys) return { status: 'not_allowed' };
-    return { status: 'ok', keys };
+    // A static key list carries no wire response, hence no proof-of-possession:
+    // proof is honestly 'absent' (tolerated under grace, dropped without it).
+    return { status: 'ok', keys: keys.map((k) => ({ ...k, proof: 'absent' as const })) };
   }
 }
 
@@ -380,14 +433,18 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * bounded and cached.
  *
  * Fetch discipline (the directory draft leaves these to implementations):
- * https only, redirects are errors, 5s timeout, 64 KiB response cap, and only
- * allowlisted origins are ever contacted. Success and failure are both cached
- * (10 min / 30 s) so a flood of requests cannot turn us into a fetch cannon.
+ * https only (a redirect to any non-https URL is refused, never followed),
+ * redirects honored only to allowlisted https origins and capped at 3, 5s
+ * timeout, 64 KiB response cap, and only allowlisted origins are ever
+ * contacted. Success and failure are both cached (10 min / 30 s) so a flood of
+ * requests cannot turn us into a fetch cannon.
  *
  * Directory responses are trusted on the strength of TLS to an allowlisted
- * origin. The draft's optional per-key response signatures
- * (proof-of-possession) are not validated yet — no live directory publishes
- * them today (checked chatgpt.com 2026-07-12); revisit when they appear.
+ * origin, plus Appendix B proof-of-possession when the directory serves it:
+ * each key is classified valid/invalid/absent (verifyDirectoryProofs) and the
+ * verifier applies the per-source grace flag. No live directory publishes
+ * proofs today (checked chatgpt.com and www.shopify.com 2026-08-09), so grace
+ * defaults on and absent proofs are tolerated until a source ships them.
  */
 export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   private readonly allowed: Set<string>;
@@ -426,32 +483,88 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   }
 
   private async fetchDirectory(origin: string): Promise<KeyDirectoryResolution> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const res = await this.fetchImpl(`${origin}${KEY_DIRECTORY_PATH}`, {
-        redirect: 'error',
-        signal: controller.signal,
-        headers: { accept: 'application/http-message-signatures-directory+json, application/json' },
-      });
-      if (!res.ok) {
-        return { status: 'unavailable', detail: `HTTP ${res.status}` };
+    const MAX_REDIRECTS = 3;
+    let url = `${origin}${KEY_DIRECTORY_PATH}`;
+    for (let hop = 0; ; hop++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        // Redirects are handled manually so a hop to a non-https or
+        // non-allowlisted URL is refused rather than followed (see below).
+        const res = await this.fetchImpl(url, {
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: { accept: 'application/http-message-signatures-directory+json, application/json' },
+        });
+        if (res.status >= 300 && res.status < 400) {
+          if (hop >= MAX_REDIRECTS) return { status: 'unavailable', detail: 'too many redirects' };
+          const next = this.validateRedirect(res.headers.get('location'), url);
+          if (!next.ok) return { status: 'unavailable', detail: next.detail };
+          url = next.url;
+          continue;
+        }
+        if (!res.ok) {
+          return { status: 'unavailable', detail: `HTTP ${res.status}` };
+        }
+        const body = await readBounded(res, this.maxBytes);
+        const keys = parseKeyDirectory(JSON.parse(body));
+        // Appendix B: classify each key by its response proof-of-possession.
+        // The request authority is the host we actually fetched (post-redirect),
+        // which is what the directory operator signs over (@authority;req).
+        const proofByThumbprint = verifyDirectoryProofs({
+          authority: new URL(url).host,
+          body,
+          signatureInput: res.headers.get('signature-input') ?? undefined,
+          signature: res.headers.get('signature') ?? undefined,
+          now: Math.floor(this.nowMs() / 1000),
+          skewSeconds: PROOF_SKEW_SECONDS,
+          keys,
+        });
+        const resolved: ResolvedDirectoryKey[] = keys.map((k) => ({
+          ...k,
+          proof: proofByThumbprint.get(k.thumbprint) ?? 'absent',
+        }));
+        return { status: 'ok', keys: resolved };
+      } catch (err) {
+        return {
+          status: 'unavailable',
+          detail: err instanceof Error ? err.message : 'fetch failed',
+        };
+      } finally {
+        clearTimeout(timer);
       }
-      const body = await readBounded(res, this.maxBytes);
-      const keys = parseKeyDirectory(JSON.parse(body));
-      return { status: 'ok', keys };
-    } catch (err) {
-      return {
-        status: 'unavailable',
-        detail: err instanceof Error ? err.message : 'fetch failed',
-      };
-    } finally {
-      clearTimeout(timer);
     }
+  }
+
+  /**
+   * Decide whether a directory redirect may be followed. A key-distribution
+   * path must never be downgraded, so a non-https Location is refused (fail
+   * closed to "unavailable", never fetched over plaintext). SSRF guard: the
+   * redirect target origin must itself be allowlisted, so a compromised or
+   * misconfigured directory cannot bounce us onto an unvetted host.
+   */
+  private validateRedirect(
+    location: string | null,
+    from: string,
+  ): { ok: true; url: string } | { ok: false; detail: string } {
+    if (!location) return { ok: false, detail: 'redirect without a Location header' };
+    let next: URL;
+    try {
+      next = new URL(location, from);
+    } catch {
+      return { ok: false, detail: 'redirect Location is not a valid URL' };
+    }
+    if (next.protocol !== 'https:') {
+      return { ok: false, detail: `refused non-https redirect (${next.protocol})` };
+    }
+    if (!this.allowed.has(next.origin.toLowerCase())) {
+      return { ok: false, detail: `refused redirect to non-allowlisted origin ${next.origin}` };
+    }
+    return { ok: true, url: next.toString() };
   }
 }
 
-async function readBounded(res: Response, maxBytes: number): Promise<string> {
+export async function readBounded(res: Response, maxBytes: number): Promise<string> {
   if (!res.body) {
     const text = await res.text();
     if (Buffer.byteLength(text) > maxBytes) throw new Error('directory response too large');

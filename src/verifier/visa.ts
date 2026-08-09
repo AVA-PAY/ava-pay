@@ -189,9 +189,14 @@ export class VisaAgentVerifier implements AgentVerifier {
     try {
       record = await this.directory.resolve(agentId, { protocol: 'visa', alg: 'ed25519' });
     } catch {
-      // Directory unreachable. Fail closed with unknown_agent — operationally
-      // the merchant treats this the same as "not in directory".
-      return fail('unknown_agent', `Agent directory lookup for "${agentId}" failed.`);
+      // Directory unreachable: we could not complete the check. Fail closed but
+      // mark it inconclusive so callers can tell this apart from a reachable
+      // directory that simply does not list the agent (unknown_agent below).
+      return fail(
+        'directory_unavailable',
+        `Agent directory lookup for "${agentId}" failed.`,
+        false,
+      );
     }
     if (!record) {
       return fail('unknown_agent', `Agent "${agentId}" is not in the directory.`);
@@ -274,6 +279,7 @@ export class VisaAgentVerifier implements AgentVerifier {
 
     return {
       trusted: true,
+      conclusive: true,
       // 'ava-tap' = AVA's TAP-style profile. Visa's real wire format is
       // handled by VisaTapVerifier and labeled 'visa-tap'.
       protocol: 'ava-tap',
@@ -285,8 +291,12 @@ export class VisaAgentVerifier implements AgentVerifier {
   }
 }
 
-function fail(reason: VerificationFailureReason, message: string): VerificationResult {
-  return { trusted: false, reason, message };
+function fail(
+  reason: VerificationFailureReason,
+  message: string,
+  conclusive = true,
+): VerificationResult {
+  return { trusted: false, reason, message, conclusive };
 }
 
 function parseDiscountHint(raw: string | undefined): number | undefined {
