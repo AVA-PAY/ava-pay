@@ -121,6 +121,7 @@ describe('POST /verify (AP2 v0.2 mandate chains)', () => {
   it('verifies a checkout mandate chain (open user mandate ~~ closed agent mandate)', async () => {
     const result = await verifyVia({ 'ap2-checkout-mandate': chain() });
     if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.conclusive).toBe(true);
     expect(result.protocol).toBe('ap2');
     expect(result.agent?.id).toBe(USER_KID);
     expect(result.mandate?.id).toBe(computeCheckoutHash(checkoutJwt));
@@ -160,15 +161,37 @@ describe('POST /verify (AP2 v0.2 mandate chains)', () => {
 
   it('rejects an unknown root kid → unknown_agent and a revoked one → revoked_agent', async () => {
     const unknown = chain({ user: { privateKey: userKeys.privateKey, kid: 'nobody' } });
+    // Reachable directory, root kid not resolvable: definitive, conclusive=true.
     expect(await verifyVia({ 'ap2-checkout-mandate': unknown })).toMatchObject({
       trusted: false,
       reason: 'unknown_agent',
+      conclusive: true,
     });
 
     const revoked = chain({ user: { privateKey: strangerKeys.privateKey, kid: 'user_revoked' } });
     expect(await verifyVia({ 'ap2-checkout-mandate': revoked })).toMatchObject({
       trusted: false,
       reason: 'revoked_agent',
+      conclusive: true,
+    });
+  });
+
+  it('fails closed as directory_unavailable (conclusive=false) when the root-key directory throws', async () => {
+    // Directory backend down: resolve() rejects. Must be reported distinctly
+    // from an unresolvable root kid (unknown_agent), while trusted stays false.
+    const throwingAp2 = new Ap2AgentVerifier({
+      directory: {
+        async resolve() {
+          throw new Error('directory backend unreachable');
+        },
+      },
+      now: () => FIXED_NOW,
+    });
+    const result = await throwingAp2.verify(payload({ 'ap2-checkout-mandate': chain() }));
+    expect(result).toMatchObject({
+      trusted: false,
+      reason: 'directory_unavailable',
+      conclusive: false,
     });
   });
 

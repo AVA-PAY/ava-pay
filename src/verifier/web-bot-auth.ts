@@ -242,10 +242,13 @@ export class WebBotAuthVerifier implements AgentVerifier {
       );
     }
     if (resolution.status === 'unavailable') {
-      // Fail closed: no key material, no trust.
+      // Fail closed: no key material, no trust. Could-not-check, so inconclusive.
+      // Reason kept as key_directory_unavailable for backward compatibility; it
+      // unifies with directory_unavailable in the v1.0 contract revision.
       return fail(
         'key_directory_unavailable',
         `Key directory for "${origin}" could not be fetched or parsed.`,
+        false,
       );
     }
 
@@ -310,6 +313,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
 
     return {
       trusted: true,
+      conclusive: true,
       protocol: 'web-bot-auth',
       agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: keyid },
       ttlSeconds: DEFAULT_TTL_SECONDS,
@@ -317,8 +321,12 @@ export class WebBotAuthVerifier implements AgentVerifier {
   }
 }
 
-function fail(reason: VerificationFailureReason, message: string): VerificationResult {
-  return { trusted: false, reason, message };
+function fail(
+  reason: VerificationFailureReason,
+  message: string,
+  conclusive = true,
+): VerificationResult {
+  return { trusted: false, reason, message, conclusive };
 }
 
 // ─── Key directory resolvers ────────────────────────────────────────────────

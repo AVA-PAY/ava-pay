@@ -113,6 +113,7 @@ describe('VisaTapVerifier — message signature', () => {
 
     const result = await verifier.verify(toIncoming(signed));
     if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.conclusive).toBe(true);
     expect(result.protocol).toBe('visa-tap');
     expect(result.agent?.id).toBe(AGENT_ID);
     expect(result.tap).toEqual({ intent: 'browse' });
@@ -146,9 +147,30 @@ describe('VisaTapVerifier — message signature', () => {
 
   it('rejects a signature from a key that is not registered → unknown_agent', async () => {
     const signed = sign({ keyid: 'never_registered' });
+    // Reachable directory, key not listed: definitive, so conclusive stays true.
     expect(await verifier.verify(toIncoming(signed))).toMatchObject({
       trusted: false,
       reason: 'unknown_agent',
+      conclusive: true,
+    });
+  });
+
+  it('fails closed as directory_unavailable (conclusive=false) when the key directory throws', async () => {
+    // The directory backend is down: resolve() rejects. Distinct from
+    // unknown_agent above so a merchant can tell could-not-check apart from
+    // checked-and-absent. trusted stays false either way (fail closed).
+    const throwingVerifier = new VisaTapVerifier({
+      directory: {
+        async resolve() {
+          throw new Error('directory backend unreachable');
+        },
+      },
+      now: () => FIXED_NOW,
+    });
+    expect(await throwingVerifier.verify(toIncoming(sign()))).toMatchObject({
+      trusted: false,
+      reason: 'directory_unavailable',
+      conclusive: false,
     });
   });
 
@@ -370,19 +392,23 @@ describe('VisaTapVerifier — Consumer Recognition Object + IdToken', () => {
     });
   });
 
-  it('fails closed when the Visa JWKS is unavailable → key_directory_unavailable', async () => {
+  it('fails closed when the Visa JWKS is unavailable → key_directory_unavailable (conclusive=false)', async () => {
     visaJwks.markUnavailable();
+    // Could-not-check: reason kept as key_directory_unavailable for backward
+    // compatibility, now carrying conclusive=false.
     expect(await verifier.verify(toIncoming(signedCheckout()))).toMatchObject({
       trusted: false,
       reason: 'key_directory_unavailable',
+      conclusive: false,
     });
   });
 
-  it('fails closed when no Visa JWKS resolver is configured at all', async () => {
+  it('fails closed when no Visa JWKS resolver is configured at all (conclusive=false)', async () => {
     const bare = new VisaTapVerifier({ directory, now: () => FIXED_NOW });
     expect(await bare.verify(toIncoming(signedCheckout()))).toMatchObject({
       trusted: false,
       reason: 'key_directory_unavailable',
+      conclusive: false,
     });
   });
 

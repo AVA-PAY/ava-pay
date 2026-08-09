@@ -80,6 +80,7 @@ describe('WebBotAuthVerifier', () => {
   it('verifies a valid signed request and returns an identity-only result', async () => {
     const result = await verifier.verify(toIncoming(sign()));
     if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.conclusive).toBe(true);
     expect(result.protocol).toBe('web-bot-auth');
     expect(result.agent).toEqual({
       id: AGENT_ORIGIN,
@@ -98,10 +99,12 @@ describe('WebBotAuthVerifier', () => {
     expect(result.trusted).toBe(true);
   });
 
-  it('rejects a signature made with a key the directory does not publish → unknown_key', async () => {
+  it('rejects a signature made with a key the directory does not publish → unknown_key (conclusive=true)', async () => {
     const signed = sign({ privateKey: strangerKeys.privateKey });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key' });
+    // Directory fetched fine, key simply absent: definitive, so conclusive stays
+    // true (contrast the unavailable-directory case, which is inconclusive).
+    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: true });
   });
 
   it('rejects a forged signature under a published keyid → invalid_signature', async () => {
@@ -133,10 +136,16 @@ describe('WebBotAuthVerifier', () => {
     expect(result).toMatchObject({ trusted: false, reason: 'unknown_signature_agent' });
   });
 
-  it('fails closed when the key directory is unavailable → key_directory_unavailable', async () => {
+  it('fails closed when the key directory is unavailable → key_directory_unavailable (conclusive=false)', async () => {
     resolver.markUnavailable(AGENT_ORIGIN);
     const result = await verifier.verify(toIncoming(sign()));
-    expect(result).toMatchObject({ trusted: false, reason: 'key_directory_unavailable' });
+    // Could-not-check: reason unchanged for backward compatibility, now
+    // carrying conclusive=false alongside the fail-closed trusted=false.
+    expect(result).toMatchObject({
+      trusted: false,
+      reason: 'key_directory_unavailable',
+      conclusive: false,
+    });
   });
 
   it('rejects an expired signature → signature_expired', async () => {
