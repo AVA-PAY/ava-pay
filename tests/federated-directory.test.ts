@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   asSource,
   FederatedAgentDirectory,
+  InMemoryKeyObservationLog,
+  JwksUriKeySource,
   VisaJwksKeySource,
   WbaPublishedKeySource,
 } from '../src/verifier/federated-directory.js';
@@ -125,7 +127,7 @@ describe('WbaPublishedKeySource', () => {
     resolver.add(WBA_ORIGIN, { keys: [jwkOf(ed)] });
   });
 
-  it('resolves a published key by RFC 7638 thumbprint', async () => {
+  it('resolves a published key by RFC 7638 thumbprint and records the (key, domain) pair', async () => {
     const source = new WbaPublishedKeySource({
       resolver,
       origins: [WBA_ORIGIN],
@@ -134,6 +136,9 @@ describe('WbaPublishedKeySource', () => {
     const record = await source.resolve(thumbprint, { alg: 'ed25519' });
     expect(record?.source).toBe(`wba:${WBA_ORIGIN}`);
     expect(record?.publicKey.asymmetricKeyType).toBe('ed25519');
+    // (key, domain) pair + binding provenance (D1 / D3).
+    expect(record?.domain).toBe(WBA_ORIGIN);
+    expect(record?.binding).toBe('domain');
   });
 
   it('ignores non-thumbprint ids and non-ed25519 algorithm hints', async () => {
@@ -165,6 +170,143 @@ describe('WbaPublishedKeySource', () => {
       now: () => FIXED_NOW,
     });
     await expect(source.resolve(thumbprint)).rejects.toThrow();
+  });
+});
+
+describe('FederatedAgentDirectory append-only key observations (D6)', () => {
+  it('records a (key, domain, source, binding) observation on every hit, append-only', async () => {
+    const ed = generateAgentKeyPair();
+    const thumbprint = webBotAuthKeyId(ed.publicKey);
+    const wba = new StaticSignatureAgentKeys();
+    wba.add(WBA_ORIGIN, { keys: [jwkOf(ed)] });
+    const log = new InMemoryKeyObservationLog();
+    const federated = new FederatedAgentDirectory(
+      [new WbaPublishedKeySource({ resolver: wba, origins: [WBA_ORIGIN], now: () => FIXED_NOW })],
+      { observations: log, now: () => FIXED_NOW },
+    );
+
+    await federated.resolve(thumbprint, { alg: 'ed25519' });
+    await federated.resolve(thumbprint, { alg: 'ed25519' });
+
+    // Append-only: two hits produce two entries, never a mutated single record.
+    expect(log.all()).toHaveLength(2);
+    expect(log.all()[0]).toMatchObject({
+      keyId: thumbprint,
+      domain: WBA_ORIGIN,
+      source: `wba:${WBA_ORIGIN}`,
+      binding: 'domain',
+      revoked: false,
+      observedAt: FIXED_NOW,
+    });
+  });
+
+  it('records a revoked hit too, so a revocation is observable (never shadowed)', async () => {
+    const ed = generateAgentKeyPair();
+    const upper = new StaticAgentDirectory();
+    upper.add('agent_x', ed.publicKey, true);
+    const log = new InMemoryKeyObservationLog();
+    const federated = new FederatedAgentDirectory([asSource('upper', upper)], {
+      observations: log,
+      now: () => FIXED_NOW,
+    });
+    expect((await federated.resolve('agent_x'))?.revoked).toBe(true);
+    expect(log.all()).toHaveLength(1);
+    expect(log.all()[0]).toMatchObject({ keyId: 'agent_x', source: 'upper', revoked: true });
+  });
+
+  it('records nothing when no root knows the key', async () => {
+    const log = new InMemoryKeyObservationLog();
+    const federated = new FederatedAgentDirectory([asSource('hosted', new StaticAgentDirectory())], {
+      observations: log,
+    });
+    await federated.resolve('nobody');
+    expect(log.all()).toHaveLength(0);
+  });
+});
+
+describe('JwksUriKeySource (typed jwks_uri / cimd, url-only binding)', () => {
+  const JWKS_URL = 'https://keys.agent.example/jwks.json';
+  let ed: AgentKeyPair;
+  let thumbprint: string;
+
+  beforeEach(() => {
+    ed = generateAgentKeyPair();
+    thumbprint = webBotAuthKeyId(ed.publicKey);
+  });
+
+  function jwksFetch(): typeof fetch {
+    const body = JSON.stringify({ keys: [jwkOf(ed)] });
+    return (async () => new Response(body)) as unknown as typeof fetch;
+  }
+
+  it('resolves a key by thumbprint from a jwks_uri and records url-only binding + the URL', async () => {
+    const source = new JwksUriKeySource({
+      urls: [JWKS_URL],
+      type: 'jwks_uri',
+      fetchImpl: jwksFetch(),
+      now: () => FIXED_NOW,
+    });
+    const record = await source.resolve(thumbprint, { alg: 'ed25519' });
+    expect(record?.publicKey.asymmetricKeyType).toBe('ed25519');
+    expect(record?.domain).toBe(JWKS_URL);
+    expect(record?.binding).toBe('url-only');
+    expect(record?.source).toBe(`jwks_uri:${JWKS_URL}`);
+  });
+
+  it('ignores non-thumbprint ids and non-ed25519 algorithm hints', async () => {
+    const source = new JwksUriKeySource({
+      urls: [JWKS_URL],
+      type: 'jwks_uri',
+      fetchImpl: jwksFetch(),
+      now: () => FIXED_NOW,
+    });
+    expect(await source.resolve('agent_demo')).toBeNull();
+    expect(await source.resolve(thumbprint, { alg: 'ps256' })).toBeNull();
+  });
+
+  it('refuses non-https URLs at construction (never fetch keys over plaintext)', () => {
+    expect(
+      () => new JwksUriKeySource({ urls: ['http://keys.agent.example/jwks.json'], type: 'jwks_uri' }),
+    ).toThrow(/https/);
+  });
+
+  it('reports an outage (throws) so the chain skips rather than concluding a miss', async () => {
+    const down = (async () => {
+      throw new Error('network down');
+    }) as unknown as typeof fetch;
+    const source = new JwksUriKeySource({
+      urls: [JWKS_URL],
+      type: 'jwks_uri',
+      fetchImpl: down,
+      now: () => FIXED_NOW,
+    });
+    await expect(source.resolve(thumbprint)).rejects.toThrow();
+  });
+
+  it('verifies a TAP request signed with a key published only at a jwks_uri', async () => {
+    const federated = new FederatedAgentDirectory([
+      new JwksUriKeySource({
+        urls: [JWKS_URL],
+        type: 'jwks_uri',
+        fetchImpl: jwksFetch(),
+        now: () => FIXED_NOW,
+      }),
+      asSource('hosted-directory', new StaticAgentDirectory()),
+    ]);
+    const verifier = new VisaTapVerifier({ directory: federated, now: () => FIXED_NOW });
+    const signed = signWithVisaTap({
+      url: 'https://shop.example.com/products/tool-1234',
+      privateKey: ed.privateKey,
+      keyid: thumbprint,
+      created: FIXED_NOW - 5,
+    });
+    const result = await verifier.verify({
+      method: signed.method,
+      url: signed.url,
+      headers: signed.headers,
+    });
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.agent?.id).toBe(thumbprint);
   });
 });
 

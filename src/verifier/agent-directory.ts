@@ -33,6 +33,20 @@ export interface AgentRecord {
   revoked: boolean;
   /** Which root of trust produced this record (federated resolution provenance). */
   source?: string;
+  /**
+   * The domain or URL the key was observed at. Reputation and events key on the
+   * (key, domain) pair, not the key alone (D1): the same key seen at two
+   * origins is two observations. For a well-known directory this is the origin;
+   * for a jwks_uri/cimd source it is the URL.
+   */
+  domain?: string;
+  /**
+   * Binding strength of the source that resolved this key (§5.5 / D3).
+   * `domain` = discovered through an origin-bound path (well-known directory,
+   * Visa root); `url-only` = key continuity at an arbitrary URL with no origin
+   * association (jwks_uri/cimd).
+   */
+  binding?: 'domain' | 'url-only';
 }
 
 /**

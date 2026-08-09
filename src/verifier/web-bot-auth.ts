@@ -564,7 +564,7 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   }
 }
 
-async function readBounded(res: Response, maxBytes: number): Promise<string> {
+export async function readBounded(res: Response, maxBytes: number): Promise<string> {
   if (!res.body) {
     const text = await res.text();
     if (Buffer.byteLength(text) > maxBytes) throw new Error('directory response too large');
