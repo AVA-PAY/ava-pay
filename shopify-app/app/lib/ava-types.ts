@@ -93,6 +93,13 @@ export interface VerifiedAgentIdentity {
   id: string;
   protocol: VerifiedProtocol;
   keyThumbprint?: string;
+  /**
+   * Web Bot Auth only: how strongly the identity is bound (§5.5). `domain` when
+   * discovered via the reserved well-known directory path; `url-only` when the
+   * Signature-Agent declared a `jwks_uri`/`cimd` type (key continuity at an
+   * arbitrary URL, no origin association). Merchants can price the difference.
+   */
+  binding?: 'domain' | 'url-only';
 }
 
 export type VerificationResult =

@@ -150,6 +150,16 @@ export interface VerifiedAgentIdentity {
   protocol: VerifiedProtocol;
   /** RFC 7638 JWK thumbprint of the key that verified, when applicable. */
   keyThumbprint?: string;
+  /**
+   * Web Bot Auth only: how strongly the identity is bound (§5.5). `domain` when
+   * the key was discovered through the reserved well-known directory path (the
+   * `directory` type), which ties the key to the origin. `url-only` when the
+   * Signature-Agent declared a `jwks_uri`/`cimd` type, which proves key
+   * continuity at an arbitrary URL with no origin association. Merchants can
+   * price the difference. Absent for protocols where the distinction does not
+   * apply.
+   */
+  binding?: 'domain' | 'url-only';
 }
 
 /**

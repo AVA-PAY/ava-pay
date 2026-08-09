@@ -86,10 +86,29 @@ describe('WebBotAuthVerifier', () => {
       id: AGENT_ORIGIN,
       protocol: 'web-bot-auth',
       keyThumbprint: webBotAuthKeyId(keys.publicKey),
+      // Discovered via the well-known directory path → domain-bound (D3).
+      binding: 'domain',
     });
     // Identity is not payment authority.
     expect(result.mandate).toBeUndefined();
     expect(result.buyerInfo).toBeUndefined();
+  });
+
+  it('marks a jwks_uri-typed Signature-Agent as url-only binding (D3)', async () => {
+    // Same origin + key, but the agent declares the jwks_uri discovery type,
+    // which gives key continuity without an origin association. The verdict
+    // must surface that as url-only so a merchant can price it lower.
+    const result = await verifier.verify(
+      toIncoming(sign({ signatureAgentFormat: 'dictionary', signatureAgentType: 'jwks_uri' })),
+    );
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.agent?.binding).toBe('url-only');
+  });
+
+  it('accepts a padded-base64 nonce (D5 tolerance; -01 grammar says base64url)', async () => {
+    // Shopify production sends a padded base64 nonce. It must not be rejected.
+    const result = await verifier.verify(toIncoming(sign({ nonce: 'YWJjZGVarw==' })));
+    expect(result.trusted).toBe(true);
   });
 
   it('accepts the dictionary Signature-Agent form of the restructured draft', async () => {
@@ -321,10 +340,11 @@ describe('web-bot-auth protocol primitives', () => {
     );
   });
 
-  it('parses bare-string and dictionary Signature-Agent forms', () => {
+  it('parses bare-string and dictionary Signature-Agent forms (bare string is directory type)', () => {
     expect(parseSignatureAgent('"https://ChatGPT.com"')).toEqual({
       target: 'https://ChatGPT.com',
       origin: 'https://chatgpt.com',
+      type: 'directory',
     });
     expect(parseSignatureAgent('sig1="https://agent.example"', 'sig1').origin).toBe(
       'https://agent.example',
@@ -336,14 +356,49 @@ describe('web-bot-auth protocol primitives', () => {
     ).toBe('https://agent.example');
   });
 
-  it('rejects malformed, non-https, and unsupported-type Signature-Agent values', () => {
+  it('parses the §5.5 discovery type; default directory only when NO type param is present', () => {
+    expect(parseSignatureAgent('sig1="https://agent.example";type=jwks_uri', 'sig1').type).toBe(
+      'jwks_uri',
+    );
+    expect(parseSignatureAgent('sig1="https://agent.example";type=cimd', 'sig1').type).toBe('cimd');
+    // Quoted token form is tolerated.
+    expect(parseSignatureAgent('sig1="https://agent.example";type="cimd"', 'sig1').type).toBe(
+      'cimd',
+    );
+    // No type param at all → the default directory.
+    expect(parseSignatureAgent('sig1="https://agent.example"', 'sig1').type).toBe('directory');
+    // A path that looks like a jwks_uri does NOT change the type (never inferred).
+    expect(parseSignatureAgent('sig1="https://agent.example/jwks.json"', 'sig1').type).toBe(
+      'directory',
+    );
+  });
+
+  it('rejects a label-matched member with an unrecognized type (never upgraded to directory)', () => {
+    // The spec says to ignore an unrecognized type; granting it directory (and
+    // thus domain binding) would be exactly the misbinding to avoid. The
+    // authoritative label-matched member is therefore rejected, fail closed.
+    expect(() =>
+      parseSignatureAgent('sig1="https://agent.example";type=bogus', 'sig1'),
+    ).toThrow(WebBotAuthParseError);
+  });
+
+  it('skips an unrecognized-type member when choosing an unlabeled fallback', () => {
+    // First member has an unrecognized type and must be passed over; the
+    // second, well-typed member is chosen instead. Called without a label.
+    const parsed = parseSignatureAgent(
+      'sig1="https://skip.example";type=bogus, sig2="https://good.example"',
+    );
+    expect(parsed.origin).toBe('https://good.example');
+    expect(parsed.type).toBe('directory');
+  });
+
+  it('rejects malformed and non-https Signature-Agent values', () => {
     for (const bad of [
       '',
       '"',
       '"not a url"',
       '"http://agent.example"',
       '"https://user:pw@agent.example"',
-      'sig1="https://agent.example";type=jwks_uri',
     ]) {
       expect(() => parseSignatureAgent(bad, 'sig1')).toThrow(WebBotAuthParseError);
     }
@@ -372,8 +427,54 @@ describe('web-bot-auth protocol primitives', () => {
     }
   });
 
-  it('rejects a non-JWKS directory document', () => {
+  it('accepts a bare single JWK directory (www.shopify.com shape) as a one-key list', () => {
+    const keys = generateAgentKeyPair();
+    const jwk = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    // No "keys" wrapper: the whole document is one JWK, as Shopify serves it.
+    const parsed = parseKeyDirectory({ ...jwk, alg: 'EdDSA', use: 'sig' });
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.thumbprint).toBe(webBotAuthKeyId(keys.publicKey));
+  });
+
+  it('parses both live directory body shapes observed 2026-08-09', () => {
+    // chatgpt.com: JWKS wrapper with extra signature_agent/purpose metadata.
+    const chatgpt = {
+      keys: [
+        {
+          crv: 'Ed25519',
+          kty: 'OKP',
+          x: '7F_3jDlxaquwh291MiACkcS3Opq88NksyHiakzS-Y1g',
+          kid: 'otMqcjr17mGyruktGvJU8oojQTSMHlVm7uO-lrcqbdg',
+          use: 'sig',
+          nbf: 1735689600,
+          exp: 1786913274,
+        },
+      ],
+      signature_agent: 'https://chatgpt.com',
+      purpose: 'ai',
+    };
+    // www.shopify.com: bare single JWK.
+    const shopify = {
+      crv: 'Ed25519',
+      kty: 'OKP',
+      x: 'Mt6otbtH_mqWe1Qsm0cW9GVfknDvrGXXMpyXhiW0Dr4',
+      use: 'sig',
+      alg: 'EdDSA',
+      kid: 'SjjyXvQ2cGhsRXs9DXEaV6ClyCun0Pj5yxjV67dLGOk',
+      nbf: 1773401952,
+      exp: 1804937952,
+    };
+    expect(parseKeyDirectory(chatgpt).map((k) => k.thumbprint)).toEqual([
+      'otMqcjr17mGyruktGvJU8oojQTSMHlVm7uO-lrcqbdg',
+    ]);
+    expect(parseKeyDirectory(shopify).map((k) => k.thumbprint)).toEqual([
+      'SjjyXvQ2cGhsRXs9DXEaV6ClyCun0Pj5yxjV67dLGOk',
+    ]);
+  });
+
+  it('rejects a document that is neither a keys array nor a JWK', () => {
     expect(() => parseKeyDirectory({ nope: true })).toThrow(WebBotAuthParseError);
+    expect(() => parseKeyDirectory(42)).toThrow(WebBotAuthParseError);
   });
 });
 
@@ -444,6 +545,64 @@ describe('FetchingKeyDirectoryResolver', () => {
       fetchImpl: fakeFetch(() => new Response(huge)).impl,
     });
     expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
+  });
+
+  it('follows a redirect to an allowlisted https origin', async () => {
+    const ORIGIN2 = 'https://cdn.agent.example';
+    const { impl, calls } = fakeFetch((url) =>
+      url.startsWith(ORIGIN2)
+        ? new Response(directoryBody)
+        : new Response(null, {
+            status: 301,
+            headers: { location: `${ORIGIN2}/.well-known/http-message-signatures-directory` },
+          }),
+    );
+    const resolver = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [ORIGIN, ORIGIN2],
+      fetchImpl: impl,
+    });
+    expect((await resolver.resolve(ORIGIN)).status).toBe('ok');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('refuses a non-https redirect and never fetches it (no plaintext key hop)', async () => {
+    const { impl, calls } = fakeFetch((url) =>
+      url.startsWith('http://')
+        ? new Response(directoryBody) // a plaintext fetch here would be the bug
+        : new Response(null, {
+            status: 302,
+            headers: { location: 'http://agent.example/.well-known/http-message-signatures-directory' },
+          }),
+    );
+    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
+    expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
+    expect(calls).toHaveLength(1);
+    expect(calls.every((u) => u.startsWith('https://'))).toBe(true);
+  });
+
+  it('refuses a redirect to a non-allowlisted https origin (SSRF guard)', async () => {
+    const { impl } = fakeFetch(() =>
+      new Response(null, {
+        status: 301,
+        headers: { location: 'https://evil.example/.well-known/http-message-signatures-directory' },
+      }),
+    );
+    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
+    expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
+  });
+
+  it('gives up (fail closed) after too many redirects', async () => {
+    const { impl, calls } = fakeFetch(() =>
+      new Response(null, {
+        status: 301,
+        headers: { location: `${ORIGIN}/.well-known/http-message-signatures-directory` },
+      }),
+    );
+    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
+    expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
+    // Bounded: it terminates rather than following the loop forever.
+    expect(calls.length).toBeGreaterThan(1);
+    expect(calls.length).toBeLessThanOrEqual(4);
   });
 
   it('ships chatgpt.com as the only default trusted signature agent', () => {

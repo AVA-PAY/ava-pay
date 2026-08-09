@@ -205,8 +205,14 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
 
     let origin: string;
+    // Binding strength (D3) is declarative: it reflects the Signature-Agent
+    // discovery type the agent asserted, which is what a merchant prices. A
+    // `directory` type binds the key to the origin; jwks_uri/cimd do not.
+    let binding: 'domain' | 'url-only';
     try {
-      origin = parseSignatureAgent(sigAgentHeader, parsedInput.label).origin;
+      const parsedAgent = parseSignatureAgent(sigAgentHeader, parsedInput.label);
+      origin = parsedAgent.origin;
+      binding = parsedAgent.type === 'directory' ? 'domain' : 'url-only';
     } catch (err) {
       return fail(
         'malformed_signature_header',
@@ -315,7 +321,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
       trusted: true,
       conclusive: true,
       protocol: 'web-bot-auth',
-      agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: keyid },
+      agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: keyid, binding },
       ttlSeconds: DEFAULT_TTL_SECONDS,
     };
   }
@@ -388,9 +394,11 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * bounded and cached.
  *
  * Fetch discipline (the directory draft leaves these to implementations):
- * https only, redirects are errors, 5s timeout, 64 KiB response cap, and only
- * allowlisted origins are ever contacted. Success and failure are both cached
- * (10 min / 30 s) so a flood of requests cannot turn us into a fetch cannon.
+ * https only (a redirect to any non-https URL is refused, never followed),
+ * redirects honored only to allowlisted https origins and capped at 3, 5s
+ * timeout, 64 KiB response cap, and only allowlisted origins are ever
+ * contacted. Success and failure are both cached (10 min / 30 s) so a flood of
+ * requests cannot turn us into a fetch cannon.
  *
  * Directory responses are trusted on the strength of TLS to an allowlisted
  * origin. The draft's optional per-key response signatures
@@ -434,28 +442,68 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   }
 
   private async fetchDirectory(origin: string): Promise<KeyDirectoryResolution> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const res = await this.fetchImpl(`${origin}${KEY_DIRECTORY_PATH}`, {
-        redirect: 'error',
-        signal: controller.signal,
-        headers: { accept: 'application/http-message-signatures-directory+json, application/json' },
-      });
-      if (!res.ok) {
-        return { status: 'unavailable', detail: `HTTP ${res.status}` };
+    const MAX_REDIRECTS = 3;
+    let url = `${origin}${KEY_DIRECTORY_PATH}`;
+    for (let hop = 0; ; hop++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        // Redirects are handled manually so a hop to a non-https or
+        // non-allowlisted URL is refused rather than followed (see below).
+        const res = await this.fetchImpl(url, {
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: { accept: 'application/http-message-signatures-directory+json, application/json' },
+        });
+        if (res.status >= 300 && res.status < 400) {
+          if (hop >= MAX_REDIRECTS) return { status: 'unavailable', detail: 'too many redirects' };
+          const next = this.validateRedirect(res.headers.get('location'), url);
+          if (!next.ok) return { status: 'unavailable', detail: next.detail };
+          url = next.url;
+          continue;
+        }
+        if (!res.ok) {
+          return { status: 'unavailable', detail: `HTTP ${res.status}` };
+        }
+        const body = await readBounded(res, this.maxBytes);
+        const keys = parseKeyDirectory(JSON.parse(body));
+        return { status: 'ok', keys };
+      } catch (err) {
+        return {
+          status: 'unavailable',
+          detail: err instanceof Error ? err.message : 'fetch failed',
+        };
+      } finally {
+        clearTimeout(timer);
       }
-      const body = await readBounded(res, this.maxBytes);
-      const keys = parseKeyDirectory(JSON.parse(body));
-      return { status: 'ok', keys };
-    } catch (err) {
-      return {
-        status: 'unavailable',
-        detail: err instanceof Error ? err.message : 'fetch failed',
-      };
-    } finally {
-      clearTimeout(timer);
     }
+  }
+
+  /**
+   * Decide whether a directory redirect may be followed. A key-distribution
+   * path must never be downgraded, so a non-https Location is refused (fail
+   * closed to "unavailable", never fetched over plaintext). SSRF guard: the
+   * redirect target origin must itself be allowlisted, so a compromised or
+   * misconfigured directory cannot bounce us onto an unvetted host.
+   */
+  private validateRedirect(
+    location: string | null,
+    from: string,
+  ): { ok: true; url: string } | { ok: false; detail: string } {
+    if (!location) return { ok: false, detail: 'redirect without a Location header' };
+    let next: URL;
+    try {
+      next = new URL(location, from);
+    } catch {
+      return { ok: false, detail: 'redirect Location is not a valid URL' };
+    }
+    if (next.protocol !== 'https:') {
+      return { ok: false, detail: `refused non-https redirect (${next.protocol})` };
+    }
+    if (!this.allowed.has(next.origin.toLowerCase())) {
+      return { ok: false, detail: `refused redirect to non-allowlisted origin ${next.origin}` };
+    }
+    return { ok: true, url: next.toString() };
   }
 }
 
