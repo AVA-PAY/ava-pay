@@ -1,27 +1,27 @@
-# Shopify app config. Replace placeholder values with the ones from your Partners
-# dashboard the first time you run `shopify app config link`.
-name = "ava-pay"
-client_id = "REPLACE_WITH_YOUR_CLIENT_ID"
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+# Linked to "AVA Pay" (Agentic Verification Architecture LLC) 2026-08-09.
+# Webhooks, compliance topics, and app proxy merged from the original
+# shopify.app.toml, which is now superseded by this file.
+
+client_id = "a11383a35e184d1ca38fb0d1c7116a68"
+name = "AVA Pay"
 application_url = "https://example.com"
 embedded = true
 
 [build]
 include_config_on_deploy = true
+automatically_update_urls_on_dev = true
 
 [access_scopes]
-# What we need:
-#   read_orders, write_discounts: create one-time discount codes for verified agents
-#   write_checkouts: read checkout data via webhook for telemetry
-scopes = "read_orders,write_discounts,write_checkouts,read_customers"
+# read_orders, write_discounts: create one-time discount codes for verified agents
+# write_checkouts: read checkout data via webhook for telemetry
+scopes = "read_customers,read_orders,write_checkouts,write_discounts"
 
 [auth]
-redirect_urls = [
-  "https://example.com/auth/callback",
-  "https://example.com/auth/shopify/callback",
-  "https://example.com/api/auth/callback"
-]
+redirect_urls = [ "https://example.com/api/auth" ]
 
 [webhooks]
+# Pinned to match the app code's ApiVersion (January 2026, per the RR7 migration).
 api_version = "2026-01"
 
 [[webhooks.subscriptions]]
@@ -37,9 +37,7 @@ topics = [ "orders/create" ]
 uri = "/webhooks/orders/create"
 
 # Mandatory Shopify privacy / compliance webhooks (GDPR/CCPA).
-# Required for App Store approval. Per the 2025-07 app-config format these
-# subscribe via `compliance_topics`, not `topics`. See:
-# https://shopify.dev/docs/api/webhooks/2025-07
+# Required for App Store approval.
 [[webhooks.subscriptions]]
 compliance_topics = [ "customers/data_request" ]
 uri = "/webhooks/customers/data_request"

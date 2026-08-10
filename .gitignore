@@ -25,8 +25,9 @@ CLAUDE.md
 # WooCommerce plugin dev tooling
 woocommerce-plugin/vendor/
 
-# Shopify plugin local DB
+# Shopify plugin local DB (Prisma resolves file: URLs relative to prisma/)
 shopify-app/dev.sqlite*
+shopify-app/prisma/dev.sqlite*
 shopify-app/.shopify/
 
 # npm pack / publish artifacts
