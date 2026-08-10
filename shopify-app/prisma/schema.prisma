@@ -34,6 +34,10 @@ model Session {
   locale        String?
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
+  // Added 2026-08-10: newer @shopify session storage persists token-refresh
+  // fields; absent columns fail the session upsert after OAuth.
+  refreshToken        String?
+  refreshTokenExpires DateTime?
 }
 
 model ShopSettings {
