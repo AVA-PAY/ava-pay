@@ -5,12 +5,15 @@
 
 client_id = "a11383a35e184d1ca38fb0d1c7116a68"
 name = "AVA Pay"
-application_url = "https://example.com"
+application_url = "https://ava-pay-shopify-production.up.railway.app"
 embedded = true
 
 [build]
 include_config_on_deploy = true
-automatically_update_urls_on_dev = true
+# Production config: `shopify app dev` must never repoint these URLs at a
+# tunnel, which would break live installs. Day to day development runs against
+# the separate development app in shopify.app.dev.toml.
+automatically_update_urls_on_dev = false
 
 [access_scopes]
 # read_orders, write_discounts: create one-time discount codes for verified agents
@@ -18,7 +21,14 @@ automatically_update_urls_on_dev = true
 scopes = "read_customers,read_orders,write_checkouts,write_discounts"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+# authPathPrefix is '/auth' in app/shopify.server.ts. The library serves token
+# exchange first; these callbacks cover the OAuth fallback paths the
+# shopify-app-react-router package can use.
+redirect_urls = [
+  "https://ava-pay-shopify-production.up.railway.app/auth/callback",
+  "https://ava-pay-shopify-production.up.railway.app/auth/shopify/callback",
+  "https://ava-pay-shopify-production.up.railway.app/api/auth/callback"
+]
 
 [webhooks]
 # Pinned to match the app code's ApiVersion (January 2026, per the RR7 migration).
@@ -56,6 +66,6 @@ embedded = false
 # App proxy: storefront JS calls https://{shop}.myshopify.com/apps/ava-pay/...
 # and Shopify forwards to our /proxy/... routes (HMAC-signed by Shopify).
 [app_proxy]
-url = "https://example.com/proxy"
+url = "https://ava-pay-shopify-production.up.railway.app/proxy"
 subpath = "ava-pay"
 prefix = "apps"
