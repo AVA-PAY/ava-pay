@@ -24,6 +24,17 @@ const shopify = shopifyApp({
   authPathPrefix: '/auth',
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  future: {
+    // Public apps must use EXPIRING offline access tokens since 2026-04-01.
+    // Without this, token exchange mints a non-expiring token and Shopify
+    // rejects it with a bare 403 before the query even runs — every Admin API
+    // call fails identically, including ones that need no scopes at all, which
+    // is exactly what production did on 2026-08-11 once distribution was set
+    // to public. The Session model's refreshToken/refreshTokenExpires columns
+    // (added 2026-08-10) exist to persist what this flag produces; the library
+    // refreshes the token within five minutes of expiry.
+    expiringOfflineAccessTokens: true,
+  },
 });
 
 export default shopify;

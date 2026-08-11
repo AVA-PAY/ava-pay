@@ -13,8 +13,13 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Postgres in every environment (production on Railway, local via a
+// developer-run Postgres — see shopify-app/README.md "Local database").
+// The pre-2026-08-11 sqlite migrations are preserved in git history only;
+// prisma/migrations/ was rebaselined for postgres because a migration
+// directory can hold exactly one provider.
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
