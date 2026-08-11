@@ -34,6 +34,28 @@ async function probe(label: string, run: () => Promise<Response>): Promise<Probe
       detail: body.slice(0, 400),
     };
   } catch (error) {
+    // The library signals re-auth by THROWING a Response. Stringifying that
+    // yields "[object Response]", so unwrap it: its status and headers are the
+    // whole point of this probe.
+    if (error instanceof Response) {
+      let body = '';
+      try {
+        body = (await error.clone().text()).slice(0, 200);
+      } catch {
+        body = '(unreadable)';
+      }
+      const interesting = ['x-request-id', 'location', 'www-authenticate', 'x-shopify-api-request-failure-reauthorize-url'];
+      const headers = Object.fromEntries(
+        interesting.map((h) => [h, error.headers.get(h)]).filter(([, v]) => v),
+      );
+      return {
+        label,
+        ok: false,
+        status: error.status,
+        requestId: error.headers.get('x-request-id'),
+        detail: `threw Response ${error.status} ${JSON.stringify(headers)} ${body}`,
+      };
+    }
     const status = (error as { response?: { status?: number } })?.response?.status ?? null;
     return {
       label,
