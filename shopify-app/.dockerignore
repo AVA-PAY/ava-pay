@@ -1,0 +1,13 @@
+node_modules
+build
+.react-router
+.shopify
+.env
+.env.*
+*.log
+.DS_Store
+.vscode
+.idea
+prisma/dev.sqlite
+prisma/dev.sqlite-journal
+extensions
