@@ -112,10 +112,52 @@ export function buildSignedAgentRequest(shop, options = {}) {
   };
 }
 
-/** Collect Set-Cookie across Node versions (getSetCookie landed in Node 19.7). */
-function cookiesFrom(res) {
-  const all = res.headers.getSetCookie?.() ?? [res.headers.get('set-cookie')].filter(Boolean);
-  return all.map((c) => c.split(';')[0]).join('; ');
+/**
+ * Minimal cookie jar. Node's fetch does not keep cookies, and the storefront
+ * password gate needs a session cookie carried from the form GET through to
+ * the proxy request.
+ */
+function makeJar() {
+  const jar = new Map();
+  return {
+    absorb(res) {
+      // getSetCookie landed in Node 19.7; fall back for Node 18.
+      const all = res.headers.getSetCookie?.() ?? [res.headers.get('set-cookie')].filter(Boolean);
+      for (const raw of all) {
+        const [pair] = raw.split(';');
+        const eq = pair.indexOf('=');
+        if (eq > 0) jar.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+      }
+    },
+    header() {
+      return [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+    },
+  };
+}
+
+function decodeEntities(value) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+/**
+ * Every hidden field on the password form, submitted back verbatim. Shopify's
+ * form carries an `authenticity_token` CSRF field bound to the session cookie,
+ * and themes vary in what else they include, so this copies the form rather
+ * than hardcoding field names.
+ */
+function hiddenFields(html) {
+  const fields = {};
+  for (const [tag] of html.matchAll(/<input[^>]*type=["']hidden["'][^>]*>/gi)) {
+    const name = tag.match(/name=["']([^"']+)["']/i)?.[1];
+    if (!name) continue;
+    fields[name] = decodeEntities(tag.match(/value=["']([^"']*)["']/i)?.[1] ?? '');
+  }
+  return fields;
 }
 
 /**
@@ -138,24 +180,34 @@ async function promptSecret(label) {
 }
 
 /**
- * Clear the storefront password gate and return a Cookie header.
- * Development stores cannot switch this off, so a reviewer's store will
- * normally need it.
+ * Clear the storefront password gate, exactly as a browser does: fetch the
+ * form for its session cookie and CSRF token, post the form back with the
+ * password, and keep every cookie the store hands out along the way.
+ *
+ * Development stores cannot switch this gate off, so a reviewer's store will
+ * normally need it. Whether the password was right is not judged here: a wrong
+ * one re-renders the page with HTTP 200 rather than signalling failure, so the
+ * caller decides based on whether the proxy request still lands on /password.
  */
-async function clearStorefrontPassword(shop, password) {
-  const res = await fetch(`https://${shop}/password`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      form_type: 'storefront_password',
-      utf8: '✓',
-      password,
-    }).toString(),
+async function clearStorefrontPassword(shop, password, jar) {
+  const form = await fetch(`https://${shop}/password`, {
+    headers: { cookie: jar.header() },
     redirect: 'manual',
   });
-  const cookie = cookiesFrom(res);
-  if (!/storefront_digest/.test(cookie)) return null;
-  return cookie;
+  jar.absorb(form);
+  const html = await form.text();
+
+  const res = await fetch(`https://${shop}/password`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      cookie: jar.header(),
+      referer: `https://${shop}/password`,
+    },
+    body: new URLSearchParams({ ...hiddenFields(html), password }).toString(),
+    redirect: 'manual',
+  });
+  jar.absorb(res);
 }
 
 async function main() {
@@ -179,25 +231,31 @@ async function main() {
   const signed = buildSignedAgentRequest(shop);
   console.log(`Sending a signed agent request to ${signed.url}\n`);
 
-  const send = (cookie) =>
-    fetch(signed.url, {
+  const jar = makeJar();
+  const send = () => {
+    const cookie = jar.header();
+    return fetch(signed.url, {
       method: signed.method,
       headers: cookie ? { ...signed.headers, cookie } : signed.headers,
       body: signed.body,
       redirect: 'manual',
     });
+  };
+  const hitPasswordGate = (r) =>
+    r.status >= 300 && r.status < 400 && /\/password/.test(r.headers.get('location') ?? '');
 
   let res;
   try {
-    let cookie = password ? await clearStorefrontPassword(shop, password) : null;
-    if (password && !cookie) {
-      console.error('That storefront password was not accepted by the store.');
-      process.exit(1);
-    }
-    res = await send(cookie);
+    if (password) await clearStorefrontPassword(shop, password, jar);
+    res = await send();
 
-    // Hit the password gate without having been given one: ask, then retry.
-    if (res.status === 302 && /\/password/.test(res.headers.get('location') ?? '')) {
+    // Still gated: either no password was supplied, or the one supplied was
+    // wrong. Ask for it once and retry.
+    if (hitPasswordGate(res)) {
+      if (password) {
+        console.error('That storefront password was not accepted by the store.');
+        process.exit(1);
+      }
       console.log('This store is password protected, which development stores always are.');
       password = await promptSecret('Storefront password: ');
       if (!password) {
@@ -208,12 +266,12 @@ async function main() {
         );
         process.exit(1);
       }
-      cookie = await clearStorefrontPassword(shop, password);
-      if (!cookie) {
+      await clearStorefrontPassword(shop, password, jar);
+      res = await send();
+      if (hitPasswordGate(res)) {
         console.error('That storefront password was not accepted by the store.');
         process.exit(1);
       }
-      res = await send(cookie);
     }
   } catch (err) {
     console.error(`Could not reach ${shop}: ${err.message}`);
