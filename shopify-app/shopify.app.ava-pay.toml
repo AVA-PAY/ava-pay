@@ -17,7 +17,10 @@ automatically_update_urls_on_dev = false
 [access_scopes]
 # read_orders, write_discounts: create one-time discount codes for verified agents
 # write_checkouts: read checkout data via webhook for telemetry
-scopes = "read_customers,read_orders,write_checkouts,write_discounts"
+# read_customers was dropped 2026-08-11: nothing in the app ever read a
+# customer field, and requesting protected customer data we do not use
+# contradicts the data-minimisation posture the listing claims.
+scopes = "read_orders,write_checkouts,write_discounts"
 
 [auth]
 # authPathPrefix is '/auth' in app/shopify.server.ts. The library serves token
