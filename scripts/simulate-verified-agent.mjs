@@ -228,11 +228,16 @@ async function main() {
     process.env.AVA_STOREFRONT_PASSWORD ??
     '';
 
-  const signed = buildSignedAgentRequest(shop);
-  console.log(`Sending a signed agent request to ${signed.url}\n`);
+  console.log(`Sending a signed agent request to https://${shop}/apps/ava-pay/verify\n`);
 
   const jar = makeJar();
+  // Sign immediately before each send, never once up front. Signatures carry a
+  // created/expires window and the verifier enforces a maximum age, so a
+  // request signed before the password prompt would age out while the human
+  // types and come back signature_expired. Re-signing also gives each attempt
+  // a fresh nonce, which the single-use replay guard requires.
   const send = () => {
+    const signed = buildSignedAgentRequest(shop);
     const cookie = jar.header();
     return fetch(signed.url, {
       method: signed.method,

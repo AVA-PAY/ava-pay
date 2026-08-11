@@ -5,6 +5,7 @@ import { applyMerchantPolicy, getShopSettings } from '../lib/settings.server.js'
 import { createOneTimeDiscount } from '../lib/discount.server.js';
 import prisma from '../db.server.js';
 import type { IncomingRequest } from '../lib/ava-types.js';
+import { extractAgentIdHint, sniffProtocolHint } from '../lib/request-hints.js';
 
 /**
  * App Proxy endpoint:  https://{shop}.myshopify.com/apps/ava-pay/verify
@@ -112,12 +113,16 @@ async function handleVerify({ request }: ActionFunctionArgs) {
   const verifyCall = await ava.verify(incoming);
 
   const platformHint = extractAgentIdHint(headers);
+  // What the request was attempting. A rejected verdict carries no protocol of
+  // its own, so without this a failed row cannot be told apart from any other.
+  const protocolHint = sniffProtocolHint(headers);
 
   if (!verifyCall.ok) {
     await prisma.verificationEvent.create({
       data: {
         shop,
         platform: platformHint,
+        protocol: protocolHint,
         outcome: 'error',
         reason: `ava_${verifyCall.error}`,
       },
@@ -132,6 +137,7 @@ async function handleVerify({ request }: ActionFunctionArgs) {
       data: {
         shop,
         platform: platformHint,
+        protocol: protocolHint,
         outcome: 'failed',
         reason: result.reason,
       },
@@ -140,7 +146,7 @@ async function handleVerify({ request }: ActionFunctionArgs) {
   }
 
   const platform = result.agent?.id ?? platformHint;
-  const protocol = result.protocol ?? result.agent?.protocol ?? null;
+  const protocol = result.protocol ?? result.agent?.protocol ?? protocolHint;
 
   const decision = applyMerchantPolicy(settings, result, platform);
 
@@ -177,32 +183,4 @@ async function handleVerify({ request }: ActionFunctionArgs) {
     reason: 'verified',
     ...(discount ? { discount: { code: discount.code, percentage: discount.percentage } } : {}),
   });
-}
-
-/**
- * Best-effort agent ID for the verification log — telemetry only; the
- * signature verifier on the API side is the authority.
- *
- * Web Bot Auth requests carry the agent operator's origin in Signature-Agent
- * (e.g. "https://chatgpt.com") — a far better dashboard label than the key
- * thumbprint in keyid, which rotates and means nothing to a merchant. TAP
- * requests have no Signature-Agent, so they keep using keyid (the agent ID).
- */
-function extractAgentIdHint(headers: Record<string, string>): string | null {
-  const sigAgent = headers['signature-agent'];
-  if (sigAgent) {
-    // Matches both wire forms: "https://origin" and sig1="https://origin".
-    const m = sigAgent.match(/"(https:\/\/[^"]+)"/);
-    if (m?.[1]) {
-      try {
-        return new URL(m[1]).origin.toLowerCase();
-      } catch {
-        // fall through to keyid
-      }
-    }
-  }
-  const sigInput = headers['signature-input'];
-  if (!sigInput) return null;
-  const match = sigInput.match(/keyid="([^"]+)"/);
-  return match?.[1] ?? null;
 }

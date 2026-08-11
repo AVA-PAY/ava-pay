@@ -85,6 +85,29 @@ describe('simulate-verified-agent.mjs', () => {
     expect(result.trusted).toBe(false);
   });
 
+  // Why the script signs immediately before each send rather than once up
+  // front: a request signed before a password prompt ages past the verifier's
+  // maximum signature age while the human types, and comes back
+  // signature_expired. Production reproduced exactly this.
+  it('rejects a request signed several minutes before it is sent', async () => {
+    const stale = buildSignedAgentRequest(SHOP, {
+      created: Math.floor(Date.now() / 1000) - 600,
+    }) as IncomingRequest;
+    const result = await verifier().verify(stale);
+    expect(result.trusted).toBe(false);
+    if (result.trusted) return;
+    expect(result.reason).toBe('signature_expired');
+  });
+
+  it('gives every build a fresh nonce, so a retry is not seen as a replay', async () => {
+    const v = verifier();
+    const first = buildSignedAgentRequest(SHOP) as IncomingRequest;
+    const second = buildSignedAgentRequest(SHOP) as IncomingRequest;
+    expect(second.headers['signature-input']).not.toBe(first.headers['signature-input']);
+    expect((await v.verify(first)).trusted).toBe(true);
+    expect((await v.verify(second)).trusted).toBe(true);
+  });
+
   it('rejects a replayed request, since the nonce is single use', async () => {
     const v = verifier();
     const signed = buildSignedAgentRequest(SHOP) as IncomingRequest;
