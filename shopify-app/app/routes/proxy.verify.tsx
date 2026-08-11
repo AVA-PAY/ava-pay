@@ -45,7 +45,35 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return Response.json({ ok: true, service: 'ava-pay-proxy' });
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+/**
+ * Anything unexpected must still leave this route as fail-closed JSON. Without
+ * this boundary an unhandled throw returns React Router's HTML error page,
+ * which Shopify renders inside the merchant's theme as a storefront 500 — the
+ * opposite of "never block the customer", and unparseable by the storefront
+ * script that called us.
+ */
+export async function action(args: ActionFunctionArgs) {
+  try {
+    return await handleVerify(args);
+  } catch (error) {
+    // The Shopify library signals auth outcomes by throwing a Response (401s,
+    // redirects). Those are control flow, not failures: let them through
+    // untouched or app proxy authentication silently turns into "allow: false".
+    if (error instanceof Response) throw error;
+
+    // eslint-disable-next-line no-console
+    console.error(
+      JSON.stringify({
+        event: 'proxy.verify.unhandled',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      }),
+    );
+    return proxyJson({ allow: false, reason: 'internal_error' });
+  }
+}
+
+async function handleVerify({ request }: ActionFunctionArgs) {
   const { session, admin } = await authenticate.public.appProxy(request);
 
   if (!session || !admin) {
