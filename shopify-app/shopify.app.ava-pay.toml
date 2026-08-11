@@ -9,7 +9,6 @@ application_url = "https://ava-pay-shopify-production.up.railway.app"
 embedded = true
 
 [build]
-include_config_on_deploy = true
 # Production config: `shopify app dev` must never repoint these URLs at a
 # tunnel, which would break live installs. Day to day development runs against
 # the separate development app in shopify.app.dev.toml.
