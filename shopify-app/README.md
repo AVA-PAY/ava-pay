@@ -41,14 +41,48 @@ This assumes you already have a Shopify Partners account and a development store
 ```bash
 cd shopify-app
 cp .env.example .env
-# Fill in SHOPIFY_API_KEY/SECRET from https://partners.shopify.com → Apps → Your app
+# Fill in SHOPIFY_API_KEY/SECRET from the Shopify Dev Dashboard → your app → Settings
 # Set AVA_PAY_API_URL=http://localhost:3000 (or wherever your AVA Pay API runs)
 npm install
-npm run setup        # prisma generate + initial migration (creates dev.sqlite)
+npm run setup        # prisma generate + prisma migrate deploy
 npm run dev          # opens the app in your dev store via the Shopify CLI tunnel
 ```
 
+`npm run setup` needs a Postgres database to exist first — see **Local database** below.
+
 The Shopify CLI prints a tunneled URL and pops open a browser window for you to install the app on your dev store. After install you'll see the AVA Pay settings page in the Shopify admin.
+
+### Local database
+
+The app runs on Postgres in every environment (production is Railway Postgres).
+Prisma allows one provider per migration directory, so there is no sqlite path
+any more: `shopify app dev` needs a local Postgres too.
+
+On macOS with Homebrew:
+
+```bash
+brew install postgresql@17
+brew services start postgresql@17
+export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"   # add to your shell profile
+
+# One-time: a dev role and a database for this app.
+psql -d postgres -c "CREATE ROLE ava_pay LOGIN PASSWORD 'ava_pay' CREATEDB;"
+createdb -O ava_pay ava_pay_shopify
+```
+
+Then in `.env`:
+
+```
+DATABASE_URL=postgresql://ava_pay:ava_pay@localhost:5432/ava_pay_shopify
+```
+
+`ava_pay:ava_pay` is a local development credential on a database that listens
+on localhost only. Production credentials come from the Railway Postgres plugin
+and live only in Railway environment variables.
+
+Any other Postgres works as well (a Docker container, Postgres.app, a remote
+dev database) — only the `DATABASE_URL` changes. `prisma migrate dev` creates
+and drops its own shadow database, which is why the dev role carries `CREATEDB`.
 
 ### 2. Turn on the storefront integration
 
