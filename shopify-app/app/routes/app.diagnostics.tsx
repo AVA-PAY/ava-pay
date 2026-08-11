@@ -113,6 +113,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     shop,
     sessionScope: session.scope ?? null,
     sessionIsOnline: session.isOnline,
+    // With expiringOfflineAccessTokens on, a freshly minted offline token must
+    // carry an expiry and a refresh token. Both null means the app is still
+    // minting non-expiring tokens, which Shopify rejects with a bare 403.
+    sessionExpires: session.expires ? session.expires.toISOString() : null,
+    sessionHasRefreshToken: Boolean((session as { refreshToken?: string }).refreshToken),
     apiVersion: '2026-01',
     probes,
   };
