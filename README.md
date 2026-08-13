@@ -182,3 +182,11 @@ Or, instead of step 3, paste this single line into `theme.liquid`:
 ```
 
 Storefront pages now ping the App Proxy → AVA Pay `/verify` → mint a one-time discount code → redirect verified agents through `/discount/AVA-XXXXXXXX`. Merchant policy (toggle + max-cap) is configured in the embedded admin UI; full architecture diagram and dev walkthrough live in [`shopify-app/README.md`](./shopify-app/README.md).
+
+## License
+
+MIT. See [`LICENSE`](./LICENSE). The published SDK, [`@ava-pay/agent`](https://www.npmjs.com/package/@ava-pay/agent), carries the same license.
+
+A verifier nobody can read is a verifier nobody should trust, so the decision logic, the signature bases, and the test suite are all public. Read them before you rely on a verdict.
+
+AVA Pay™ and AVA Ready™ are trademarks of Agentic Verification Architecture LLC. The license above covers the code, not the names.

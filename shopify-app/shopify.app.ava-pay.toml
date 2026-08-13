@@ -5,7 +5,7 @@
 
 client_id = "a11383a35e184d1ca38fb0d1c7116a68"
 name = "AVA Pay"
-application_url = "https://ava-pay-shopify-production.up.railway.app"
+application_url = "https://app.avalayer.com"
 embedded = true
 
 [build]
@@ -27,9 +27,9 @@ scopes = "read_orders,write_checkouts,write_discounts"
 # exchange first; these callbacks cover the OAuth fallback paths the
 # shopify-app-react-router package can use.
 redirect_urls = [
-  "https://ava-pay-shopify-production.up.railway.app/auth/callback",
-  "https://ava-pay-shopify-production.up.railway.app/auth/shopify/callback",
-  "https://ava-pay-shopify-production.up.railway.app/api/auth/callback"
+  "https://app.avalayer.com/auth/callback",
+  "https://app.avalayer.com/auth/shopify/callback",
+  "https://app.avalayer.com/api/auth/callback"
 ]
 
 [webhooks]
@@ -68,6 +68,6 @@ embedded = false
 # App proxy: storefront JS calls https://{shop}.myshopify.com/apps/ava-pay/...
 # and Shopify forwards to our /proxy/... routes (HMAC-signed by Shopify).
 [app_proxy]
-url = "https://ava-pay-shopify-production.up.railway.app/proxy"
+url = "https://app.avalayer.com/proxy"
 subpath = "ava-pay"
 prefix = "apps"
