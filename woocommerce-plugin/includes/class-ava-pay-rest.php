@@ -74,10 +74,39 @@ class AVA_Pay_Rest {
 	}
 
 	/**
+	 * Anything unexpected must still leave this endpoint as fail-closed JSON.
+	 * WordPress does not catch Throwables inside a REST callback: a fatal here
+	 * ends the request as a PHP error page (or an empty 500 with display_errors
+	 * off), which the storefront script cannot parse, so the customer's page
+	 * hangs on a request that was supposed to degrade quietly. The Shopify twin
+	 * grew the same boundary for the same reason.
+	 *
+	 * No event row is written on this path: whatever threw may well be the
+	 * event writer, and a boundary that can itself fail is not a boundary.
+	 *
 	 * @param WP_REST_Request $request Incoming request.
 	 * @return WP_REST_Response
 	 */
 	public static function handle_verify( $request ) {
+		try {
+			return self::verify( $request );
+		} catch ( Throwable $e ) {
+			self::log_unhandled( $e );
+			return self::json(
+				array(
+					'allow'  => false,
+					'reason' => 'internal_error',
+				),
+				200
+			);
+		}
+	}
+
+	/**
+	 * @param WP_REST_Request $request Incoming request.
+	 * @return WP_REST_Response
+	 */
+	private static function verify( $request ) {
 		if ( ! self::rate_limiter()->allow( self::client_bucket() ) ) {
 			// Pre-verification flood guard: no event row (a flood would fill
 			// the table before the API's own rate limit ever engages).
@@ -190,6 +219,27 @@ class AVA_Pay_Rest {
 		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
 		$ip          = apply_filters( 'ava_pay_client_ip', $remote_addr );
 		return is_string( $ip ) && '' !== $ip ? $ip : $remote_addr;
+	}
+
+	/**
+	 * Record an unhandled throw somewhere the merchant's host can surface it.
+	 * The storefront response deliberately says only 'internal_error'; the
+	 * detail belongs in the log, not in a public JSON body.
+	 *
+	 * @param Throwable $e The thrown error.
+	 */
+	private static function log_unhandled( $e ) {
+		$message = sprintf(
+			'Unhandled error in verify-agent: %s in %s:%d',
+			$e->getMessage(),
+			$e->getFile(),
+			$e->getLine()
+		);
+		if ( function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->error( $message, array( 'source' => 'ava-pay' ) );
+		} elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		}
 	}
 
 	private static function json( array $body, $status ) {

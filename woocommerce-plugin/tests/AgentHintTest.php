@@ -1,7 +1,7 @@
 <?php
 /**
- * Agent-hint extraction parity with proxy.verify.tsx, including against the
- * real signed fixture headers.
+ * Request-hint parity with shopify-app/app/lib/request-hints.ts (agent id and
+ * protocol sniffing), including against the real signed fixture headers.
  *
  * @package AVA_Pay
  */
@@ -70,5 +70,106 @@ final class AgentHintTest extends TestCase {
 	public function test_no_usable_headers_is_null(): void {
 		$this->assertNull( AVA_Pay_Agent_Hint::extract( array() ) );
 		$this->assertNull( AVA_Pay_Agent_Hint::extract( array( 'signature-input' => 'sig1=();alg="ed25519"' ) ) );
+	}
+
+	public function test_protocol_sniff_over_real_signed_fixture_headers(): void {
+		$expected = array(
+			'ava_tap_mandate_backed'          => 'ava-tap',
+			'web_bot_auth_identity_only'      => 'web-bot-auth',
+			'web_bot_auth_tampered_signature' => 'web-bot-auth',
+			'no_credentials'                  => null,
+			'ava_tap_directory_unavailable'   => 'ava-tap',
+		);
+		$data     = ava_pay_load_fixture( 'verify-fixtures.json' );
+		$seen     = 0;
+		foreach ( $data['fixtures'] as $f ) {
+			if ( ! array_key_exists( $f['name'], $expected ) ) {
+				continue;
+			}
+			++$seen;
+			$this->assertSame(
+				$expected[ $f['name'] ],
+				AVA_Pay_Agent_Hint::sniff_protocol( $f['request']['headers'] ),
+				$f['name']
+			);
+		}
+		$this->assertSame( count( $expected ), $seen, 'every fixture was checked' );
+	}
+
+	public function test_protocol_sniff_rules(): void {
+		$sig = array(
+			'signature'       => ':abc:',
+			'signature-input' => 'sig1=("@authority");keyid="k";alg="ed25519"',
+		);
+
+		$this->assertSame(
+			'web-bot-auth',
+			AVA_Pay_Agent_Hint::sniff_protocol(
+				array_merge( $sig, array( 'signature-input' => 'sig1=("@authority");keyid="k";tag="web-bot-auth"' ) )
+			),
+			'tag wins'
+		);
+		$this->assertSame(
+			'web-bot-auth',
+			AVA_Pay_Agent_Hint::sniff_protocol( array_merge( $sig, array( 'signature-agent' => '"https://chatgpt.com"' ) ) ),
+			'Signature-Agent present is enough'
+		);
+		$this->assertSame(
+			'visa-tap',
+			AVA_Pay_Agent_Hint::sniff_protocol(
+				array_merge( $sig, array( 'signature-input' => 'sig1=("@authority");tag="agent-browser-auth"' ) )
+			)
+		);
+		$this->assertSame(
+			'visa-tap',
+			AVA_Pay_Agent_Hint::sniff_protocol(
+				array_merge( $sig, array( 'signature-input' => 'sig1=("@authority");tag="agent-payer-auth"' ) )
+			)
+		);
+		$this->assertSame( 'ava-tap', AVA_Pay_Agent_Hint::sniff_protocol( $sig ), 'no tag, no Signature-Agent' );
+		$this->assertSame(
+			'ap2',
+			AVA_Pay_Agent_Hint::sniff_protocol( array( 'ap2-checkout-mandate' => 'jws' ) )
+		);
+		$this->assertSame(
+			'ap2',
+			AVA_Pay_Agent_Hint::sniff_protocol( array( 'ap2-attestation' => 'jws' ) )
+		);
+	}
+
+	public function test_protocol_sniff_is_null_when_it_cannot_say(): void {
+		$this->assertNull( AVA_Pay_Agent_Hint::sniff_protocol( array() ) );
+		$this->assertNull(
+			AVA_Pay_Agent_Hint::sniff_protocol( array( 'signature-input' => 'sig1=("@authority")' ) ),
+			'Signature-Input without Signature is not a signed request'
+		);
+		$this->assertNull(
+			AVA_Pay_Agent_Hint::sniff_protocol( array( 'signature' => ':abc:' ) ),
+			'Signature without Signature-Input is not a signed request'
+		);
+		$this->assertNull(
+			AVA_Pay_Agent_Hint::sniff_protocol(
+				array(
+					'signature'            => ':abc:',
+					'signature-input'      => 'sig1=("@authority");tag="web-bot-auth"',
+					'ap2-checkout-mandate' => 'jws',
+				)
+			),
+			'two protocols at once is ambiguous, and the verifier rejects it rather than picking one'
+		);
+	}
+
+	public function test_tag_match_requires_a_parameter_boundary(): void {
+		// Guards the [;\s] prefix in the port: a keyid that merely contains the
+		// tag text must not be read as a tag.
+		$this->assertSame(
+			'ava-tap',
+			AVA_Pay_Agent_Hint::sniff_protocol(
+				array(
+					'signature'       => ':abc:',
+					'signature-input' => 'sig1=("@authority");keyid="not-a-tag="web-bot-auth""',
+				)
+			)
+		);
 	}
 }
