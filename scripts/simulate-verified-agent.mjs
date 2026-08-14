@@ -33,7 +33,7 @@
  * cannot drift from the SDK without a test failing.
  */
 
-import { createHash, createPrivateKey, randomUUID, sign as edSign } from 'node:crypto';
+import { createHash, createPrivateKey, randomBytes, randomUUID, sign as edSign } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -44,6 +44,13 @@ const DEMO_PRIVATE_JWK = {
   d: 'RfgxZQvu3WXbskCO0QZlhSOjguLIuTz8ANz0x3uCvRo',
   x: 'yKCkvxtkVtmYT1xK0FFuvQPFAQqQ_z6Zg9q6VKsJTU4',
 };
+
+/**
+ * The origin the --web-bot-auth probe claims to be. It deliberately publishes
+ * no key directory (the name does not resolve at all), which is the whole
+ * point: see buildWebBotAuthRequest.
+ */
+export const PROBE_SIGNATURE_AGENT = 'https://directory-test.avalayer.com';
 
 /** `sha-256=:<base64>:` over the exact request body. */
 export function contentDigest(body) {
@@ -107,6 +114,93 @@ export function buildSignedAgentRequest(shop, options = {}) {
       ...headers,
       'signature-input': `sig1=${sigInputValue}`,
       signature: `sig1=:${signature}:`,
+    },
+    body,
+  };
+}
+
+/**
+ * RFC 7638 JWK SHA-256 thumbprint of an Ed25519 public key, in the RFC 8037
+ * Appendix A.3 form. Web Bot Auth uses this as the signature `keyid`: the
+ * verifier looks the key up in the agent's published directory by thumbprint
+ * rather than by a name the agent chose for itself.
+ */
+export function ed25519JwkThumbprint(x) {
+  return createHash('sha256')
+    .update(`{"crv":"Ed25519","kty":"OKP","x":"${x}"}`, 'utf-8')
+    .digest('base64url');
+}
+
+/**
+ * Build a Web Bot Auth request (the IETF scheme real ChatGPT-style agents use)
+ * signed as an agent whose key directory cannot be reached.
+ *
+ * This exists to demonstrate the honest-failure path end to end. AVA Pay
+ * discovers a Web Bot Auth agent's keys at
+ * https://{signature-agent}/.well-known/http-message-signatures-directory, so
+ * naming an origin that publishes nothing means there is no key to verify
+ * against and the signature below is never checked either way. That is the
+ * state worth proving: the verdict has to come back "could not check"
+ * (verification_unavailable, recorded as Could not check on the Traffic page),
+ * never "checked and rejected". Both fail closed; only the claim differs, and
+ * telling a merchant we blocked an agent when we never reached a trust root is
+ * a claim we cannot support.
+ *
+ * Shape follows the deployed Web Bot Auth profile: tag="web-bot-auth", a
+ * Signature-Agent header in the dictionary form the draft tells signers to
+ * send, and covered components ("@method" "@authority" "@path"
+ * "signature-agent"), plus content-digest, since this request carries a cart
+ * body and a body that travels unsigned is a body anyone can swap.
+ */
+export function buildWebBotAuthRequest(shop, options = {}) {
+  const now = options.created ?? Math.floor(Date.now() / 1000);
+  const url = `https://${shop}/apps/ava-pay/verify`;
+  const target = new URL(url);
+  const body = options.body ?? JSON.stringify({
+    cart: [{ sku: 'DEMO-1234', qty: 1, price_minor: 4999 }],
+  });
+  const signatureAgent = options.signatureAgent ?? PROBE_SIGNATURE_AGENT;
+  const label = 'sig1';
+
+  // No x-ava-mandate: Web Bot Auth proves who the agent is, never what a buyer
+  // authorised it to spend. Identity only, by design.
+  const headers = {
+    host: shop,
+    'content-digest': contentDigest(body),
+    'signature-agent': `${label}="${signatureAgent}"`,
+    'content-type': 'application/json',
+  };
+
+  const components = ['@method', '@authority', '@path', 'signature-agent', 'content-digest'];
+  // base64url per the draft's nonce grammar, rather than the UUID the
+  // Visa-profile request above uses.
+  const nonce = options.nonce ?? randomBytes(16).toString('base64url');
+  const keyid = options.keyid ?? ed25519JwkThumbprint(DEMO_PRIVATE_JWK.x);
+  const params =
+    `;created=${now};expires=${now + 60};keyid="${keyid}"` +
+    `;alg="ed25519";nonce="${nonce}";tag="web-bot-auth"`;
+  const sigInputValue = `(${components.map((c) => `"${c}"`).join(' ')})${params}`;
+
+  const base = [
+    ...components.map((c) => {
+      if (c === '@method') return `"${c}": POST`;
+      if (c === '@authority') return `"${c}": ${target.host}`;
+      if (c === '@path') return `"${c}": ${target.pathname}`;
+      return `"${c}": ${headers[c]}`;
+    }),
+    `"@signature-params": ${sigInputValue}`,
+  ].join('\n');
+
+  const key = createPrivateKey({ key: DEMO_PRIVATE_JWK, format: 'jwk' });
+  const signature = edSign(null, Buffer.from(base), key).toString('base64');
+
+  return {
+    method: 'POST',
+    url,
+    headers: {
+      ...headers,
+      'signature-input': `${label}=${sigInputValue}`,
+      signature: `${label}=:${signature}:`,
     },
     body,
   };
@@ -210,8 +304,42 @@ async function clearStorefrontPassword(shop, password, jar) {
   jar.absorb(res);
 }
 
+const HELP = `Simulate one AI shopping agent visiting a store running AVA Pay.
+
+Usage: node simulate-verified-agent.mjs your-store.myshopify.com [options]
+
+Options:
+  --password <storefront password>
+        Clear the storefront password gate. Development stores always have
+        one and cannot turn it off. The script prompts for it if it hits the
+        gate without one, so it need never appear in shell history.
+        AVA_STOREFRONT_PASSWORD is read as a fallback.
+
+  --web-bot-auth
+        Send a Web Bot Auth request instead of the default Visa-profile one,
+        signed as an agent at
+        ${PROBE_SIGNATURE_AGENT}, an origin that publishes
+        no key directory. With no key to check the signature against, the
+        verifier cannot reach a verdict, and the expected answer is HTTP 200
+        with allow:false and reason verification_unavailable, listed on the
+        Traffic page as "Could not check" rather than as a rejection. Exits 0
+        on that outcome, 1 on any other.
+
+  --help, -h
+        Show this message.
+
+With no options the script sends AVA Pay's public demo credential as a
+verified Visa Trusted Agent Protocol agent, and the store should answer
+HTTP 200 with allow:true, reason verified, and a one-time discount code.
+`;
+
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(HELP);
+    return;
+  }
+  const probe = args.includes('--web-bot-auth');
   const input = args.find((a) => !a.startsWith('--'));
   if (!input) {
     console.error(
@@ -228,6 +356,11 @@ async function main() {
     process.env.AVA_STOREFRONT_PASSWORD ??
     '';
 
+  if (probe) {
+    console.log('Web Bot Auth probe: signing as an agent whose key directory does not');
+    console.log(`resolve (${PROBE_SIGNATURE_AGENT}), so the verifier`);
+    console.log('cannot reach a verdict either way.\n');
+  }
   console.log(`Sending a signed agent request to https://${shop}/apps/ava-pay/verify\n`);
 
   const jar = makeJar();
@@ -236,8 +369,9 @@ async function main() {
   // request signed before the password prompt would age out while the human
   // types and come back signature_expired. Re-signing also gives each attempt
   // a fresh nonce, which the single-use replay guard requires.
+  const build = probe ? buildWebBotAuthRequest : buildSignedAgentRequest;
   const send = () => {
-    const signed = buildSignedAgentRequest(shop);
+    const signed = build(shop);
     const cookie = jar.header();
     return fetch(signed.url, {
       method: signed.method,
@@ -294,6 +428,31 @@ async function main() {
   console.log(`HTTP ${res.status}`);
   console.log(parsed ? JSON.stringify(parsed, null, 2) : text.slice(0, 500));
   console.log();
+
+  // The probe is asking a different question, so it grades a different answer:
+  // an inconclusive verdict is the success condition, and anything else,
+  // including a verified one, means the path under test was not exercised.
+  if (probe) {
+    if (parsed?.allow === false && parsed.reason === 'verification_unavailable') {
+      console.log('Could not check, and said so. There was no reachable directory to');
+      console.log('resolve the agent key from, so nothing was proved either way. The');
+      console.log('request still failed closed, but AVA Pay did not claim to have');
+      console.log('blocked an agent it never managed to check.');
+      console.log('');
+      console.log('Open the AVA Pay app in the store admin and click Traffic: this');
+      console.log('visit is listed as "Could not check" and is counted apart from');
+      console.log('rejected requests.');
+      return;
+    }
+    console.error('Expected allow:false with reason verification_unavailable.');
+    if (parsed?.reason === 'agent_blocked') {
+      console.error('agent_blocked means the verdict came back conclusive: the request');
+      console.error('was rejected on its merits rather than left unchecked. Check that');
+      console.error(`${PROBE_SIGNATURE_AGENT} is still admitted by the`);
+      console.error('API allowlist, since an origin outside it is rejected, not fetched.');
+    }
+    process.exit(1);
+  }
 
   if (parsed?.allow === true) {
     console.log('Verified. Open the AVA Pay app in the store admin and click');

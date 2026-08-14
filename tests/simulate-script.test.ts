@@ -1,13 +1,22 @@
 import { createPublicKey } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-// @ts-expect-error — plain .mjs helper script, deliberately untyped and
-// dependency-free so app reviewers can run it with nothing but Node.
-import { buildSignedAgentRequest, contentDigest } from '../scripts/simulate-verified-agent.mjs';
+import {
+  buildSignedAgentRequest,
+  buildWebBotAuthRequest,
+  contentDigest,
+  ed25519JwkThumbprint,
+  PROBE_SIGNATURE_AGENT,
+  // @ts-expect-error: plain .mjs helper script, deliberately untyped and
+  // dependency-free so app reviewers can run it with nothing but Node.
+} from '../scripts/simulate-verified-agent.mjs';
 import { VisaAgentVerifier } from '../src/verifier/visa.js';
 import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
 import { InMemoryReplayGuard } from '../src/verifier/replay.js';
+import { MultiProtocolVerifier } from '../src/verifier/multi.js';
+import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../src/verifier/web-bot-auth.js';
 import { DEMO_AGENT_ID, DEMO_AGENT_PUBLIC_JWK } from '../src/directory/seed-demo.js';
-import type { IncomingRequest } from '../src/types.js';
+import type { AgentVerifier } from '../src/verifier/interface.js';
+import type { IncomingRequest, VerificationResult } from '../src/types.js';
 
 /**
  * scripts/simulate-verified-agent.mjs is the copy-paste command in the Shopify
@@ -114,5 +123,139 @@ describe('simulate-verified-agent.mjs', () => {
     expect((await v.verify(signed)).trusted).toBe(true);
     const replayed = await v.verify(signed);
     expect(replayed.trusted).toBe(false);
+  });
+});
+
+/**
+ * The --web-bot-auth probe. Its job in production is to reach one specific
+ * state: a Web Bot Auth agent whose key directory cannot be resolved, so the
+ * verifier returns an INCONCLUSIVE verdict rather than a rejection. Since the
+ * live probe never gets its signature checked (there is no key to check it
+ * against), these tests are the only thing proving the request is well formed
+ * at all, and they use the real WebBotAuthVerifier to do it.
+ */
+describe('simulate-verified-agent.mjs --web-bot-auth', () => {
+  /** The public half of the demo credential, as a key directory would serve it. */
+  const DEMO_DIRECTORY = { keys: [DEMO_AGENT_PUBLIC_JWK] };
+
+  function wbaVerifier(configure: (keys: StaticSignatureAgentKeys) => void) {
+    const resolver = new StaticSignatureAgentKeys();
+    configure(resolver);
+    return new WebBotAuthVerifier({ resolver, replayGuard: new InMemoryReplayGuard() });
+  }
+
+  it('is dispatched to the Web Bot Auth verifier, not the Visa-profile one', async () => {
+    const marker = (name: string): AgentVerifier => ({
+      verify: async () =>
+        ({ trusted: false, reason: 'unknown_agent', message: name, conclusive: true }) as
+          VerificationResult,
+    });
+    const dispatcher = new MultiProtocolVerifier({
+      visa: marker('visa'),
+      visaTap: marker('visa-tap'),
+      ap2: marker('ap2'),
+      webBotAuth: marker('web-bot-auth'),
+    });
+
+    const result = await dispatcher.verify(buildWebBotAuthRequest(SHOP) as IncomingRequest);
+    expect(result.trusted).toBe(false);
+    if (result.trusted) return;
+    expect(result.message).toBe('web-bot-auth');
+  });
+
+  // The point of the probe: an unreachable directory must read as could-not-
+  // check, never as a rejection. conclusive:false is what the Shopify app keys
+  // "Could not check" off, so this is the API half of that display contract.
+  it('produces an inconclusive verdict when the directory cannot be resolved', async () => {
+    const v = wbaVerifier((keys) => keys.markUnavailable(PROBE_SIGNATURE_AGENT));
+    const result = await v.verify(buildWebBotAuthRequest(SHOP) as IncomingRequest);
+
+    expect(result.trusted).toBe(false);
+    if (result.trusted) return;
+    expect(result.reason).toBe('key_directory_unavailable');
+    expect(result.conclusive).toBe(false);
+  });
+
+  // The signing itself has to be right even though production never checks it,
+  // or the probe would be proving the wrong thing: an unreachable directory has
+  // to be the ONLY reason the verdict is inconclusive. Stand the same directory
+  // up and the identical request verifies.
+  it('is a valid signature: the same request verifies once the directory resolves', async () => {
+    const v = wbaVerifier((keys) => keys.add(PROBE_SIGNATURE_AGENT, DEMO_DIRECTORY));
+    const result = await v.verify(buildWebBotAuthRequest(SHOP) as IncomingRequest);
+
+    expect(result.trusted).toBe(true);
+    if (!result.trusted) return;
+    expect(result.protocol).toBe('web-bot-auth');
+    expect(result.agent?.id).toBe(PROBE_SIGNATURE_AGENT);
+    // Identity only. Web Bot Auth carries no buyer mandate, so no spend authority.
+    expect(result.mandate).toBeUndefined();
+    // A well-known directory on the named origin binds the key to that domain.
+    expect(result.agent?.binding).toBe('domain');
+  });
+
+  it('uses the RFC 7638 thumbprint of the demo key as keyid', () => {
+    const signed = buildWebBotAuthRequest(SHOP);
+    const expected = ed25519JwkThumbprint(DEMO_AGENT_PUBLIC_JWK.x);
+    expect(signed.headers['signature-input']).toContain(`keyid="${expected}"`);
+    // Web Bot Auth pins the thumbprint shape: 32 bytes as unpadded base64url.
+    expect(expected).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it('sends the tag and Signature-Agent shape the profile requires', () => {
+    const signed = buildWebBotAuthRequest(SHOP);
+    expect(signed.headers['signature-input']).toContain('tag="web-bot-auth"');
+    // Dictionary form keyed by the signature label, which the draft tells
+    // signers to send (verifiers also accept the deployed bare-string form).
+    expect(signed.headers['signature-agent']).toBe(`sig1="${PROBE_SIGNATURE_AGENT}"`);
+    expect(signed.headers['x-ava-mandate']).toBeUndefined();
+  });
+
+  // Tamper checks, against a directory that DOES resolve, so a failure can only
+  // come from the signature itself.
+  it('fails verification when Signature-Agent is re-pointed after signing', async () => {
+    const other = 'https://directory-test-2.avalayer.com';
+    const v = wbaVerifier((keys) => {
+      keys.add(PROBE_SIGNATURE_AGENT, DEMO_DIRECTORY);
+      keys.add(other, DEMO_DIRECTORY);
+    });
+    const signed = buildWebBotAuthRequest(SHOP) as IncomingRequest;
+    const tampered = {
+      ...signed,
+      headers: { ...signed.headers, 'signature-agent': `sig1="${other}"` },
+    };
+
+    const result = await v.verify(tampered);
+    expect(result.trusted).toBe(false);
+    if (result.trusted) return;
+    expect(result.reason).toBe('invalid_signature');
+  });
+
+  it('fails verification when the cart body is altered after signing', async () => {
+    const v = wbaVerifier((keys) => keys.add(PROBE_SIGNATURE_AGENT, DEMO_DIRECTORY));
+    const signed = buildWebBotAuthRequest(SHOP) as IncomingRequest;
+    const tampered = { ...signed, body: '{"cart":[{"sku":"FREE","qty":99}]}' };
+
+    const result = await v.verify(tampered);
+    expect(result.trusted).toBe(false);
+    if (result.trusted) return;
+    expect(result.reason).toBe('content_digest_mismatch');
+  });
+
+  it('signs the store the caller named', () => {
+    const other = 'someone-elses-store.myshopify.com';
+    const signed = buildWebBotAuthRequest(other);
+    expect(signed.url).toBe(`https://${other}/apps/ava-pay/verify`);
+    expect(signed.headers.host).toBe(other);
+  });
+
+  it('gives every build a fresh nonce, so a retry is not seen as a replay', async () => {
+    const v = wbaVerifier((keys) => keys.add(PROBE_SIGNATURE_AGENT, DEMO_DIRECTORY));
+    const first = buildWebBotAuthRequest(SHOP) as IncomingRequest;
+    const second = buildWebBotAuthRequest(SHOP) as IncomingRequest;
+    expect(second.headers['signature-input']).not.toBe(first.headers['signature-input']);
+    expect((await v.verify(first)).trusted).toBe(true);
+    expect((await v.verify(second)).trusted).toBe(true);
+    expect((await v.verify(first)).trusted).toBe(false);
   });
 });
