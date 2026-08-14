@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTrafficView,
   formatMoney,
+  rejectedCount,
   TREND_DAYS,
+  uncheckedCount,
   type CommerceEventRow,
   type VerificationEventRow,
 } from './traffic.js';
@@ -170,6 +172,117 @@ describe('buildTrafficView', () => {
   it('picks the dominant currency for KPI display', () => {
     const commerce = [order(), order(), order({ currency: 'EUR' })];
     expect(buildTrafficView([], commerce, NOW).kpis30d.currency).toBe('USD');
+  });
+});
+
+/**
+ * A verdict the verifier could not complete is recorded as `unverifiable`. It
+ * failed closed, but nothing was proved about the agent, so no surface here may
+ * present it as a rejection.
+ */
+describe('unverifiable is never counted as a rejection', () => {
+  const unverifiable = () =>
+    event({ outcome: 'unverifiable', reason: 'directory_unavailable', identityOnly: false });
+
+  it('gets its own KPI instead of landing in failed, policyBlocked or errors', () => {
+    const k = buildTrafficView(
+      [
+        event(),
+        event({ outcome: 'failed', reason: 'invalid_signature' }),
+        unverifiable(),
+        unverifiable(),
+        event({ outcome: 'error', reason: 'ava_timeout' }),
+      ],
+      [],
+      NOW,
+    ).kpis30d;
+
+    expect(k.requests).toBe(5);
+    expect(k.verified).toBe(1);
+    expect(k.failed).toBe(1);
+    expect(k.unverified).toBe(0);
+    expect(k.policyBlocked).toBe(0);
+    expect(k.unverifiable).toBe(2);
+    expect(k.errors).toBe(1);
+  });
+
+  it('is excluded from the Rejected total the KPI tile shows', () => {
+    const k = buildTrafficView(
+      [
+        event({ outcome: 'failed', reason: 'invalid_signature' }),
+        event({ outcome: 'failed', reason: 'missing_agent_credentials' }),
+        event({ outcome: 'policy_blocked', reason: 'merchant_disabled' }),
+        unverifiable(),
+        event({ outcome: 'error', reason: 'ava_timeout' }),
+      ],
+      [],
+      NOW,
+    ).kpis30d;
+
+    expect(rejectedCount(k)).toBe(3);
+    expect(uncheckedCount(k)).toBe(2);
+    // Every request is accounted for, once.
+    expect(k.verified + rejectedCount(k) + uncheckedCount(k)).toBe(k.requests);
+  });
+
+  it('is excluded from a platform’s rejected column', () => {
+    const view = buildTrafficView(
+      [
+        event(),
+        event({ outcome: 'failed', reason: 'invalid_signature' }),
+        unverifiable(),
+        event({ outcome: 'error', reason: 'ava_network' }),
+      ],
+      [],
+      NOW,
+    );
+    const p = view.platforms[0]!;
+    expect(p.requests).toBe(4);
+    expect(p.verified).toBe(1);
+    expect(p.failed).toBe(1);
+    expect(p.unchecked).toBe(2);
+  });
+
+  it('is charted as its own series, out of the rejected bar', () => {
+    const view = buildTrafficView(
+      [
+        event({ createdAt: daysAgo(1) }),
+        event({ createdAt: daysAgo(1), outcome: 'failed', reason: 'invalid_signature' }),
+        event({ createdAt: daysAgo(1), outcome: 'unverifiable', reason: 'directory_unavailable' }),
+        event({ createdAt: daysAgo(1), outcome: 'error', reason: 'ava_timeout' }),
+      ],
+      [],
+      NOW,
+    );
+    const day = view.trend[TREND_DAYS - 2]!;
+    expect(day.verified).toBe(1);
+    expect(day.rejected).toBe(1);
+    expect(day.unchecked).toBe(2);
+  });
+
+  it('keeps could-not-check reasons out of the failure-reason breakdown', () => {
+    const view = buildTrafficView(
+      [
+        event({ outcome: 'failed', reason: 'invalid_signature' }),
+        unverifiable(),
+        event({ outcome: 'unverifiable', reason: 'key_directory_unavailable' }),
+        event({ outcome: 'error', reason: 'ava_timeout' }),
+      ],
+      [],
+      NOW,
+    );
+    expect(view.failureReasons).toEqual([{ reason: 'invalid_signature', count: 1 }]);
+    expect(view.unavailableReasons).toEqual([
+      { reason: 'directory_unavailable', count: 1 },
+      { reason: 'key_directory_unavailable', count: 1 },
+      { reason: 'ava_timeout', count: 1 },
+    ]);
+  });
+
+  it('passes the outcome through to the recent table for its own badge', () => {
+    const view = buildTrafficView([unverifiable()], [], NOW);
+    expect(view.recent[0]!.outcome).toBe('unverifiable');
+    expect(view.recent[0]!.reason).toBe('directory_unavailable');
   });
 });
 

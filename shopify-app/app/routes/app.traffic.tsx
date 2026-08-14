@@ -18,6 +18,9 @@ import { authenticate } from '../shopify.server.js';
 import { getTrafficIntelligence } from '../lib/traffic.server.js';
 import {
   formatMoney,
+  rejectedCount,
+  uncheckedCount,
+  type ReasonStat,
   type TrafficIntelView,
   type TrafficKpis,
   type TrendDay,
@@ -31,6 +34,12 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<TrafficIn
 /** Chart colors: verified is the story (accent), everything else recedes. */
 const SERIES_VERIFIED = '#2a78d6';
 const SERIES_REJECTED = '#818181';
+/**
+ * Could-not-check gets its own series rather than sitting inside rejections:
+ * amber reads as "look into this" (usually an agent directory having a bad
+ * day), which is what it is, and never as "these agents were turned away".
+ */
+const SERIES_UNCHECKED = '#b98900';
 
 export default function TrafficPage() {
   const view = useLoaderData<typeof loader>();
@@ -96,6 +105,7 @@ export default function TrafficPage() {
                     'numeric',
                     'numeric',
                     'numeric',
+                    'numeric',
                     'text',
                   ]}
                   headings={[
@@ -104,6 +114,7 @@ export default function TrafficPage() {
                     'Requests',
                     'Verified',
                     'Rejected',
+                    'Not checked',
                     'Orders',
                     'Revenue',
                     'Conversion',
@@ -114,6 +125,7 @@ export default function TrafficPage() {
                     p.requests,
                     p.verified,
                     p.failed,
+                    p.unchecked,
                     p.orders,
                     p.revenueMinor > 0 ? formatMoney(p.revenueMinor, view.kpis30d.currency) : '—',
                     p.conversionPct !== null ? `${p.conversionPct}%` : '—',
@@ -138,18 +150,21 @@ export default function TrafficPage() {
                     <Text as="h3" variant="headingSm">
                       Failure reasons
                     </Text>
-                    <BlockStack gap="100">
-                      {view.failureReasons.slice(0, 8).map((r) => (
-                        <InlineStack key={r.reason} align="space-between">
-                          <Text as="span" variant="bodySm">
-                            <code>{r.reason}</code>
-                          </Text>
-                          <Text as="span" variant="bodySm" fontWeight="semibold">
-                            {r.count}
-                          </Text>
-                        </InlineStack>
-                      ))}
-                    </BlockStack>
+                    <ReasonList reasons={view.failureReasons} />
+                  </>
+                ) : null}
+                {view.unavailableReasons.length > 0 ? (
+                  <>
+                    <Divider />
+                    <Text as="h3" variant="headingSm">
+                      Could not check
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      These say nothing about the agents. A trust root was
+                      unreachable, so the check never completed and the request
+                      was not admitted.
+                    </Text>
+                    <ReasonList reasons={view.unavailableReasons} />
                   </>
                 ) : null}
               </BlockStack>
@@ -218,8 +233,9 @@ export default function TrafficPage() {
 }
 
 function KpiRow({ kpis, title }: { kpis: TrafficKpis; title: string }) {
+  const unchecked = uncheckedCount(kpis);
   return (
-    <InlineGrid columns={{ xs: 2, md: 4 }} gap="400">
+    <InlineGrid columns={{ xs: 2, md: 5 }} gap="400">
       <KpiTile label={`Requests · ${title.toLowerCase()}`} value={String(kpis.requests)} />
       <KpiTile
         label="Verified"
@@ -228,8 +244,15 @@ function KpiRow({ kpis, title }: { kpis: TrafficKpis; title: string }) {
       />
       <KpiTile
         label="Rejected"
-        value={String(kpis.failed + kpis.unverified + kpis.policyBlocked + kpis.errors)}
+        value={String(rejectedCount(kpis))}
         detail={kpis.unverified > 0 ? `${kpis.unverified} without credentials` : undefined}
+      />
+      <KpiTile
+        label="Could not check"
+        value={String(unchecked)}
+        detail={
+          unchecked > 0 ? 'not admitted, and not a rejection' : undefined
+        }
       />
       <KpiTile
         label="Agent revenue"
@@ -266,6 +289,7 @@ function OutcomeList({ kpis }: { kpis: TrafficKpis }) {
     { label: 'Failed verification', value: kpis.failed },
     { label: 'No credentials presented', value: kpis.unverified },
     { label: 'Blocked by your settings', value: kpis.policyBlocked },
+    { label: 'Could not be checked (failed closed)', value: kpis.unverifiable },
     { label: 'AVA Pay unreachable (failed closed)', value: kpis.errors },
   ];
   return (
@@ -284,6 +308,23 @@ function OutcomeList({ kpis }: { kpis: TrafficKpis }) {
   );
 }
 
+function ReasonList({ reasons }: { reasons: ReasonStat[] }) {
+  return (
+    <BlockStack gap="100">
+      {reasons.slice(0, 8).map((r) => (
+        <InlineStack key={r.reason} align="space-between">
+          <Text as="span" variant="bodySm">
+            <code>{r.reason}</code>
+          </Text>
+          <Text as="span" variant="bodySm" fontWeight="semibold">
+            {r.count}
+          </Text>
+        </InlineStack>
+      ))}
+    </BlockStack>
+  );
+}
+
 function OutcomeBadge({ outcome }: { outcome: string }) {
   switch (outcome) {
     case 'verified':
@@ -292,19 +333,24 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
       return <Badge tone="critical">Failed</Badge>;
     case 'policy_blocked':
       return <Badge tone="attention">Policy blocked</Badge>;
+    // Deliberately not critical: this row is not a rejection. The agent may
+    // well have been legitimate; we could not reach a trust root to find out.
+    case 'unverifiable':
+      return <Badge tone="warning">Could not check</Badge>;
     default:
       return <Badge tone="warning">Error</Badge>;
   }
 }
 
 /**
- * 30-day stacked daily bars: verified (accent) on the baseline, rejected
- * (gray) above. HTML divs rather than SVG: no viewBox distortion, and the
- * whole column is the hover hit-target for the tooltip.
+ * 30-day stacked daily bars: verified (accent) on the baseline, then rejected
+ * (gray), then could-not-check (amber) on top. HTML divs rather than SVG: no
+ * viewBox distortion, and the whole column is the hover hit-target for the
+ * tooltip.
  */
 function TrendChart({ days, currency }: { days: TrendDay[]; currency: string | null }) {
   const [hovered, setHovered] = useState<number | null>(null);
-  const max = Math.max(1, ...days.map((d) => d.verified + d.rejected));
+  const max = Math.max(1, ...days.map((d) => d.verified + d.rejected + d.unchecked));
   const CHART_H = 140;
 
   const first = days[0];
@@ -316,6 +362,7 @@ function TrendChart({ days, currency }: { days: TrendDay[]; currency: string | n
       <InlineStack gap="400">
         <LegendItem color={SERIES_VERIFIED} label="Verified" />
         <LegendItem color={SERIES_REJECTED} label="Rejected" />
+        <LegendItem color={SERIES_UNCHECKED} label="Could not check" />
       </InlineStack>
 
       <Box position="relative">
@@ -341,6 +388,7 @@ function TrendChart({ days, currency }: { days: TrendDay[]; currency: string | n
             </Text>
             <Text as="p" variant="bodySm">
               {hoveredDay.verified} verified · {hoveredDay.rejected} rejected
+              {hoveredDay.unchecked > 0 ? ` · ${hoveredDay.unchecked} not checked` : ''}
               {hoveredDay.revenueMinor > 0
                 ? ` · ${formatMoney(hoveredDay.revenueMinor, currency)}`
                 : ''}
@@ -355,6 +403,7 @@ function TrendChart({ days, currency }: { days: TrendDay[]; currency: string | n
           {days.map((d, i) => {
             const vH = Math.round((d.verified / max) * (CHART_H - 8));
             const rH = Math.round((d.rejected / max) * (CHART_H - 8));
+            const uH = Math.round((d.unchecked / max) * (CHART_H - 8));
             const isHovered = hovered === i;
             return (
               <div
@@ -371,12 +420,22 @@ function TrendChart({ days, currency }: { days: TrendDay[]; currency: string | n
                   borderRadius: 4,
                 }}
               >
+                {uH > 0 ? (
+                  <div
+                    style={{
+                      height: uH,
+                      background: SERIES_UNCHECKED,
+                      borderRadius: '4px 4px 0 0',
+                      marginBottom: rH > 0 || vH > 0 ? 2 : 0,
+                    }}
+                  />
+                ) : null}
                 {rH > 0 ? (
                   <div
                     style={{
                       height: rH,
                       background: SERIES_REJECTED,
-                      borderRadius: '4px 4px 0 0',
+                      borderRadius: uH > 0 ? 0 : '4px 4px 0 0',
                       marginBottom: vH > 0 ? 2 : 0,
                     }}
                   />
@@ -386,11 +445,11 @@ function TrendChart({ days, currency }: { days: TrendDay[]; currency: string | n
                     style={{
                       height: vH,
                       background: SERIES_VERIFIED,
-                      borderRadius: rH > 0 ? 0 : '4px 4px 0 0',
+                      borderRadius: rH > 0 || uH > 0 ? 0 : '4px 4px 0 0',
                     }}
                   />
                 ) : null}
-                {vH === 0 && rH === 0 ? (
+                {vH === 0 && rH === 0 && uH === 0 ? (
                   <div style={{ height: 2, background: 'var(--p-color-border, #e3e3e3)' }} />
                 ) : null}
               </div>

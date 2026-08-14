@@ -1,11 +1,11 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
 import { authenticate } from '../shopify.server.js';
 import { getAvaPayClient } from '../lib/ava.server.js';
-import { applyMerchantPolicy, getShopSettings } from '../lib/settings.server.js';
+import { getShopSettings } from '../lib/settings.server.js';
 import { createOneTimeDiscount } from '../lib/discount.server.js';
 import prisma from '../db.server.js';
 import type { IncomingRequest } from '../lib/ava-types.js';
-import { extractAgentIdHint, sniffProtocolHint } from '../lib/request-hints.js';
+import { decideVerification, type ProxyResponseBody } from '../lib/verify-flow.js';
 
 /**
  * App Proxy endpoint:  https://{shop}.myshopify.com/apps/ava-pay/verify
@@ -25,16 +25,10 @@ import { extractAgentIdHint, sniffProtocolHint } from '../lib/request-hints.js';
  * Failure mode unchanged: if AVA Pay is unreachable or the agent fails
  * verification, we fail closed (`allow: false`). Storefront JS treats that as
  * "no discount, proceed normally" — never blocks the customer.
+ *
+ * Every branch of that decision lives in `lib/verify-flow.ts` so it can be
+ * tested without Shopify auth or a database; this route is I/O around it.
  */
-
-interface ProxyResponseBody {
-  allow: boolean;
-  discount?: {
-    code: string;
-    percentage: number;
-  };
-  reason: string;
-}
 
 /** Resource route: always emit a real JSON Response (no UI data serialization). */
 function proxyJson(body: ProxyResponseBody, status = 200): Response {
@@ -112,75 +106,25 @@ async function handleVerify({ request }: ActionFunctionArgs) {
   const ava = getAvaPayClient();
   const verifyCall = await ava.verify(incoming);
 
-  const platformHint = extractAgentIdHint(headers);
-  // What the request was attempting. A rejected verdict carries no protocol of
-  // its own, so without this a failed row cannot be told apart from any other.
-  const protocolHint = sniffProtocolHint(headers);
+  const { event, response, mintDiscountPct } = decideVerification(settings, verifyCall, headers);
 
-  if (!verifyCall.ok) {
-    await prisma.verificationEvent.create({
-      data: {
-        shop,
-        platform: platformHint,
-        protocol: protocolHint,
-        outcome: 'error',
-        reason: `ava_${verifyCall.error}`,
-      },
-    });
-    return proxyJson({ allow: false, reason: `ava_${verifyCall.error}` });
-  }
-
-  const result = verifyCall.result;
-
-  if (!result.trusted) {
-    await prisma.verificationEvent.create({
-      data: {
-        shop,
-        platform: platformHint,
-        protocol: protocolHint,
-        outcome: 'failed',
-        reason: result.reason,
-      },
-    });
-    return proxyJson({ allow: false, reason: 'agent_blocked' });
-  }
-
-  const platform = result.agent?.id ?? platformHint;
-  const protocol = result.protocol ?? result.agent?.protocol ?? protocolHint;
-
-  const decision = applyMerchantPolicy(settings, result, platform);
-
-  if (!decision.allow) {
-    await prisma.verificationEvent.create({
-      data: {
-        shop,
-        platform,
-        protocol,
-        outcome: 'policy_blocked',
-        reason: decision.reason,
-        identityOnly: !result.mandate,
-      },
-    });
-    return proxyJson({ allow: false, reason: decision.reason });
-  }
-
-  const discount = await createOneTimeDiscount(admin, decision.discountPct);
+  // The perk is separate from the verification: a code that cannot be minted
+  // leaves the verdict standing, it just comes back without a discount.
+  const discount =
+    response.allow && mintDiscountPct > 0
+      ? await createOneTimeDiscount(admin, mintDiscountPct)
+      : null;
 
   await prisma.verificationEvent.create({
     data: {
       shop,
-      platform,
-      protocol,
-      outcome: 'verified',
-      identityOnly: !result.mandate,
-      discountPct: decision.discountPct,
-      discountCode: discount?.code ?? null,
+      ...event,
+      ...(discount ? { discountCode: discount.code } : {}),
     },
   });
 
   return proxyJson({
-    allow: true,
-    reason: 'verified',
+    ...response,
     ...(discount ? { discount: { code: discount.code, percentage: discount.percentage } } : {}),
   });
 }

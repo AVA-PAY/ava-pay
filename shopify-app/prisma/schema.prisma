@@ -72,8 +72,12 @@ model VerificationEvent {
   /// (e.g. "https://chatgpt.com"), otherwise the signed keyid. Best-effort
   /// header sniff for failures; the verifier's identity when trusted.
   platform  String?
-  /// 'verified' | 'failed' | 'policy_blocked' | 'error'
+  /// 'verified' | 'failed' | 'unverifiable' | 'policy_blocked' | 'error'
   ///   failed         — the agent presented credentials that did not verify
+  ///   unverifiable   the verifier could not complete its checks (a trust
+  ///                  root was unreachable), so nothing was proved either way.
+  ///                  Fails closed like 'failed', but must never be counted or
+  ///                  shown as a rejection.
   ///   policy_blocked — verified, but merchant settings rejected it
   ///   error          — the AVA Pay API was unreachable (failed closed)
   outcome   String

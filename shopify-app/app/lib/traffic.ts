@@ -38,6 +38,12 @@ export interface TrafficKpis {
   unverified: number;
   /** Verified, but merchant settings rejected it. */
   policyBlocked: number;
+  /**
+   * The verifier could not complete its checks (a trust root was unreachable).
+   * Not admitted, and NOT a rejection: we never found out. Kept out of every
+   * rejection total on purpose.
+   */
+  unverifiable: number;
   /** AVA Pay API unreachable — failed closed. */
   errors: number;
   identityOnly: number;
@@ -52,7 +58,10 @@ export interface PlatformStat {
   protocols: string[];
   requests: number;
   verified: number;
+  /** Definitively not admitted: failed verification or merchant policy. */
   failed: number;
+  /** Never determined: unverifiable verdicts plus AVA Pay being unreachable. */
+  unchecked: number;
   orders: number;
   revenueMinor: number;
   /** orders / verified requests, percent with one decimal. Null when no verified traffic. */
@@ -68,8 +77,10 @@ export interface ReasonStat {
 export interface TrendDay {
   date: string; // YYYY-MM-DD (UTC)
   verified: number;
-  /** Everything that was not admitted: failed + unverified + policy_blocked + error. */
+  /** Definitively rejected: failed (incl. no credentials) + policy_blocked. */
   rejected: number;
+  /** Never determined: unverifiable + error. Charted apart from rejections. */
+  unchecked: number;
   revenueMinor: number;
 }
 
@@ -87,7 +98,14 @@ export interface TrafficIntelView {
   kpis7d: TrafficKpis;
   kpis30d: TrafficKpis;
   platforms: PlatformStat[];
+  /** Why agents were rejected. Could-not-check reasons are NOT in here. */
   failureReasons: ReasonStat[];
+  /**
+   * Why verifications could not be completed (unreachable directories, an
+   * unreachable API). Separate from failureReasons because these say nothing
+   * about the agents: they are a health signal about the trust roots.
+   */
+  unavailableReasons: ReasonStat[];
   trend: TrendDay[];
   recent: RecentVerification[];
   hasAnyData: boolean;
@@ -106,6 +124,16 @@ function isUnverified(e: VerificationEventRow): boolean {
   return e.outcome === 'failed' && e.reason === UNVERIFIED_REASON;
 }
 
+/**
+ * Rows where we never found out. `unverifiable` means the verifier could not
+ * complete its checks; `error` means we never reached the verifier at all.
+ * Neither is a statement about the agent, so neither may be counted as a
+ * rejection anywhere in this view. They still failed closed at request time.
+ */
+function isUnchecked(e: VerificationEventRow): boolean {
+  return e.outcome === 'unverifiable' || e.outcome === 'error';
+}
+
 function utcDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -119,6 +147,7 @@ function summarize(
   let failed = 0;
   let unverified = 0;
   let policyBlocked = 0;
+  let unverifiable = 0;
   let errors = 0;
   let identityOnly = 0;
   let discountsMinted = 0;
@@ -134,7 +163,11 @@ function summarize(
       failed += 1;
     } else if (e.outcome === 'policy_blocked') {
       policyBlocked += 1;
+    } else if (e.outcome === 'unverifiable') {
+      unverifiable += 1;
     } else {
+      // 'error', and any outcome a future writer adds: counted here rather
+      // than as a rejection, which is the conservative direction.
       errors += 1;
     }
   }
@@ -161,6 +194,7 @@ function summarize(
     failed,
     unverified,
     policyBlocked,
+    unverifiable,
     errors,
     identityOnly,
     discountsMinted,
@@ -181,18 +215,33 @@ export function buildTrafficView(
   // Per-platform rollup (full 30d window).
   const byPlatform = new Map<
     string,
-    { protocols: Set<string>; requests: number; verified: number; failed: number; lastSeen: Date }
+    {
+      protocols: Set<string>;
+      requests: number;
+      verified: number;
+      failed: number;
+      unchecked: number;
+      lastSeen: Date;
+    }
   >();
   for (const e of events) {
     const key = e.platform ?? 'unknown';
     let stat = byPlatform.get(key);
     if (!stat) {
-      stat = { protocols: new Set(), requests: 0, verified: 0, failed: 0, lastSeen: e.createdAt };
+      stat = {
+        protocols: new Set(),
+        requests: 0,
+        verified: 0,
+        failed: 0,
+        unchecked: 0,
+        lastSeen: e.createdAt,
+      };
       byPlatform.set(key, stat);
     }
     stat.requests += 1;
     if (e.protocol) stat.protocols.add(e.protocol);
     if (isVerified(e)) stat.verified += 1;
+    else if (isUnchecked(e)) stat.unchecked += 1;
     else stat.failed += 1;
     if (e.createdAt > stat.lastSeen) stat.lastSeen = e.createdAt;
   }
@@ -215,6 +264,7 @@ export function buildTrafficView(
         requests: s.requests,
         verified: s.verified,
         failed: s.failed,
+        unchecked: s.unchecked,
         orders: o.orders,
         revenueMinor: o.revenueMinor,
         conversionPct:
@@ -224,22 +274,30 @@ export function buildTrafficView(
     })
     .sort((a, b) => b.requests - a.requests);
 
-  // Failure-reason breakdown (every non-verified event with a reason).
+  // Reason breakdowns, kept apart. A directory we could not reach is not a
+  // reason an agent was rejected, and listing it under "failure reasons" is the
+  // same misreporting at the display layer that the verdict split removed at
+  // the source.
   const reasonCounts = new Map<string, number>();
+  const unavailableCounts = new Map<string, number>();
   for (const e of events) {
     if (isVerified(e) || !e.reason) continue;
-    reasonCounts.set(e.reason, (reasonCounts.get(e.reason) ?? 0) + 1);
+    const target = isUnchecked(e) ? unavailableCounts : reasonCounts;
+    target.set(e.reason, (target.get(e.reason) ?? 0) + 1);
   }
-  const failureReasons: ReasonStat[] = [...reasonCounts.entries()]
-    .map(([reason, count]) => ({ reason, count }))
-    .sort((a, b) => b.count - a.count);
+  const byCountDesc = (counts: Map<string, number>): ReasonStat[] =>
+    [...counts.entries()]
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count);
+  const failureReasons = byCountDesc(reasonCounts);
+  const unavailableReasons = byCountDesc(unavailableCounts);
 
   // Daily trend, zero-filled, oldest → newest, ending today (UTC).
   const trendIndex = new Map<string, TrendDay>();
   const trend: TrendDay[] = [];
   for (let i = TREND_DAYS - 1; i >= 0; i--) {
     const date = utcDay(new Date(now.getTime() - i * DAY_MS));
-    const day: TrendDay = { date, verified: 0, rejected: 0, revenueMinor: 0 };
+    const day: TrendDay = { date, verified: 0, rejected: 0, unchecked: 0, revenueMinor: 0 };
     trendIndex.set(date, day);
     trend.push(day);
   }
@@ -247,6 +305,7 @@ export function buildTrafficView(
     const day = trendIndex.get(utcDay(e.createdAt));
     if (!day) continue;
     if (isVerified(e)) day.verified += 1;
+    else if (isUnchecked(e)) day.unchecked += 1;
     else day.rejected += 1;
   }
   for (const o of orders) {
@@ -275,10 +334,29 @@ export function buildTrafficView(
     kpis30d: summarize(events, orders, 30),
     platforms,
     failureReasons,
+    unavailableReasons,
     trend,
     recent,
     hasAnyData: events.length > 0 || orders.length > 0,
   };
+}
+
+/**
+ * How many requests we actually turned away.
+ *
+ * Deliberately excludes `unverifiable` and `errors`: those failed closed, but
+ * nothing was proved about the agent behind them, and folding them in here
+ * would tell a merchant we blocked traffic we never managed to check. That is
+ * the display-layer half of the same honesty fix the verdict split makes at the
+ * source, so keep the two counts apart wherever a total is shown.
+ */
+export function rejectedCount(kpis: TrafficKpis): number {
+  return kpis.failed + kpis.unverified + kpis.policyBlocked;
+}
+
+/** Requests whose verdict was never determined. Not admitted, not rejected. */
+export function uncheckedCount(kpis: TrafficKpis): number {
+  return kpis.unverifiable + kpis.errors;
 }
 
 /** Format minor units as a currency string for display (e.g. 123456 → "$1,234.56"). */
