@@ -36,10 +36,14 @@ class AVA_Pay_Events {
 		$verification_table = self::verification_table();
 		$commerce_table     = self::commerce_table();
 
-		// outcome: 'verified' | 'failed' | 'policy_blocked' | 'error'
-		//   failed         — the agent presented credentials that did not verify
-		//   policy_blocked — verified, but merchant settings rejected it
-		//   error          — the AVA Pay API was unreachable (failed closed)
+		// outcome: 'verified' | 'failed' | 'unverifiable' | 'policy_blocked' | 'error'
+		//   failed         the agent presented credentials that did not verify
+		//   unverifiable   the verifier could not complete its checks (a trust
+		//                  root was unreachable), so nothing was proved either
+		//                  way. Fails closed like 'failed', but must never be
+		//                  counted or shown as a rejection.
+		//   policy_blocked verified, but merchant settings rejected it
+		//   error          the AVA Pay API was unreachable (failed closed)
 		// reason: typed VerificationFailureReason, policy reason, or ava_* client error.
 		dbDelta(
 			"CREATE TABLE {$verification_table} (

@@ -4,7 +4,7 @@ Tags: ai agents, agentic commerce, bot verification, coupons, security
 Requires at least: 6.5
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -27,6 +27,7 @@ This plugin connects your WooCommerce store to the AVA Pay verification API, whi
 
 * Verification proves *agent identity and request integrity*. A discount is only granted beyond your identity-only tier when the request carries a buyer mandate.
 * Everything fails closed: if the verification API is unreachable, agents are not admitted (and the outcome is recorded as an error).
+* We do not claim to have blocked an agent we never managed to check. When the verification API cannot reach an agent's trust root, the request is still not admitted, but it is recorded as `unverifiable` rather than as a rejection, and the storefront response says `verification_unavailable` instead of `agent_blocked`.
 * The plugin never blocks human shoppers. A failed agent verification means "no discount, proceed normally."
 
 == Installation ==
@@ -55,6 +56,11 @@ The verify endpoint is rate-limited per client IP (REMOTE_ADDR). If your host do
 No. Discounts are capped by your maximum, identity-only agents get 0% unless you explicitly raise the identity-only tier, and platform offers apply only to mandate-backed requests.
 
 == Changelog ==
+
+= 0.2.0 =
+* Honest verdicts: a verification the API could not complete (an unreachable agent directory or key source) is no longer reported as a blocked agent. It is recorded with the new `unverifiable` outcome and answers the storefront with `verification_unavailable`. Fail-closed behaviour is unchanged: such a request is still not admitted.
+* Verification events now record which protocol a request was attempting, so failed and unverifiable rows can be told apart.
+* The verify endpoint now returns fail-closed JSON instead of a PHP error page if anything unexpected throws.
 
 = 0.1.0 =
 * Initial release: verify endpoint, merchant policy engine (per-platform rules), single-use coupon minting, verification + commerce event recording.

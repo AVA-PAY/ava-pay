@@ -2,7 +2,7 @@
 /**
  * The verify orchestration — the trust boundary, minus I/O.
  *
- * Faithful PHP port of the action() branching in
+ * PHP port of the action() branching in
  * shopify-app/app/routes/proxy.verify.tsx: given the merchant settings, the
  * outcome of the AVA Pay /verify call, and the incoming request headers, it
  * decides (a) the VerificationEvent row to record, (b) the JSON response to
@@ -10,10 +10,16 @@
  * controller does the I/O; every decision lives here so it is unit-testable
  * without WordPress.
  *
- * Failure mode unchanged from the Shopify app: if AVA Pay is unreachable or
- * the agent fails verification, we fail closed (allow: false, outcome
- * 'error'/'failed'). Storefront JS treats that as "no discount, proceed
- * normally" — never blocks the customer.
+ * One deliberate divergence from that twin, as of plugin 0.2.0: the untrusted
+ * branch splits on the API's `conclusive` flag (see decide()). The Shopify
+ * route still collapses every untrusted verdict to 'agent_blocked'; this
+ * plugin leads on that fix and the Shopify app follows in its own pass.
+ *
+ * Failure mode unchanged: if AVA Pay is unreachable, or the agent fails
+ * verification, or the verifier could not complete its checks, we fail closed
+ * (allow: false, outcome 'error' / 'failed' / 'unverifiable'). Storefront JS
+ * treats any of those as "no discount, proceed normally" and never blocks the
+ * customer.
  *
  * @package AVA_Pay
  */
@@ -23,6 +29,12 @@ if ( ! defined( 'ABSPATH' ) && ! defined( 'AVA_PAY_TESTS' ) ) {
 }
 
 class AVA_Pay_Verify_Flow {
+
+	/**
+	 * Storefront reason for a verdict the verifier could not complete. Never
+	 * 'agent_blocked': we did not block this agent, we failed to check it.
+	 */
+	const REASON_UNVERIFIABLE = 'verification_unavailable';
 
 	/**
 	 * @param array $settings Merchant settings (see AVA_Pay_Policy).
@@ -39,6 +51,10 @@ class AVA_Pay_Verify_Flow {
 	 */
 	public static function decide( array $settings, array $call, array $headers ) {
 		$platform_hint = AVA_Pay_Agent_Hint::extract( $headers );
+		// What the request was attempting. A rejected or unverifiable verdict
+		// carries no protocol of its own, so without this a non-verified row
+		// cannot be told apart from any other.
+		$protocol_hint = AVA_Pay_Agent_Hint::sniff_protocol( $headers );
 
 		if ( empty( $call['ok'] ) ) {
 			$reason = 'ava_' . ( isset( $call['error'] ) ? $call['error'] : 'network' );
@@ -46,6 +62,7 @@ class AVA_Pay_Verify_Flow {
 				'event'             => array(
 					'outcome'  => 'error',
 					'platform' => $platform_hint,
+					'protocol' => $protocol_hint,
 					'reason'   => $reason,
 				),
 				'response'          => array(
@@ -59,11 +76,41 @@ class AVA_Pay_Verify_Flow {
 		$result = is_array( $call['result'] ) ? $call['result'] : array();
 
 		if ( empty( $result['trusted'] ) ) {
+			$typed_reason = ( isset( $result['reason'] ) && is_string( $result['reason'] ) ) ? $result['reason'] : null;
+
+			// An untrusted verdict is either "we checked and rejected it" or
+			// "we never managed to check", and telling a merchant we blocked an
+			// agent when we could not reach a trust root is a claim we cannot
+			// support. Both stay allow:false; only the story changes.
+			//
+			// A separate outcome value rather than an overloaded 'failed' with
+			// a distinguishing reason: the reason column already carries the
+			// typed API reason (which is what makes the row diagnosable), and
+			// the vocabulary of could-not-check reasons will grow, so any
+			// later reader counting real rejections would have to know the
+			// full list. The outcome answers it directly.
+			if ( ! self::is_conclusive( $result ) ) {
+				return array(
+					'event'             => array(
+						'outcome'  => 'unverifiable',
+						'platform' => $platform_hint,
+						'protocol' => $protocol_hint,
+						'reason'   => $typed_reason,
+					),
+					'response'          => array(
+						'allow'  => false,
+						'reason' => self::REASON_UNVERIFIABLE,
+					),
+					'mint_discount_pct' => 0,
+				);
+			}
+
 			return array(
 				'event'             => array(
 					'outcome'  => 'failed',
 					'platform' => $platform_hint,
-					'reason'   => ( isset( $result['reason'] ) && is_string( $result['reason'] ) ) ? $result['reason'] : null,
+					'protocol' => $protocol_hint,
+					'reason'   => $typed_reason,
 				),
 				'response'          => array(
 					'allow'  => false,
@@ -82,7 +129,7 @@ class AVA_Pay_Verify_Flow {
 		} elseif ( null !== $agent && isset( $agent['protocol'] ) && is_string( $agent['protocol'] ) ) {
 			$protocol = $agent['protocol'];
 		} else {
-			$protocol = null;
+			$protocol = $protocol_hint;
 		}
 
 		$identity_only = ! ( isset( $result['mandate'] ) && is_array( $result['mandate'] ) );
@@ -121,6 +168,31 @@ class AVA_Pay_Verify_Flow {
 			),
 			'mint_discount_pct' => (int) $decision['discountPct'],
 		);
+	}
+
+	/**
+	 * Did the verifier complete its checks?
+	 *
+	 * `conclusive` is additive on the API's VerificationResult: false ONLY on
+	 * could-not-check paths (a trust root was unreachable, e.g.
+	 * directory_unavailable or key_directory_unavailable), true when the
+	 * request was definitively rejected. Absent reads as true, matching the
+	 * API's own forward-compatibility rule, so verdicts minted or cached
+	 * before the field existed keep their old meaning instead of silently
+	 * becoming "could not check".
+	 *
+	 * A present but non-boolean value is malformed, not a signal, and is read
+	 * the same way as absent. Either way the caller still fails closed; this
+	 * only decides what we tell the merchant.
+	 *
+	 * @param array $result Decoded VerificationResult.
+	 * @return bool
+	 */
+	public static function is_conclusive( array $result ) {
+		if ( array_key_exists( 'conclusive', $result ) && is_bool( $result['conclusive'] ) ) {
+			return $result['conclusive'];
+		}
+		return true;
 	}
 
 	/**

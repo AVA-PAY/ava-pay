@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildServer } from '../../src/server.js';
 import { StaticAgentDirectory } from '../../src/verifier/agent-directory.js';
+import type { AgentDirectory, AgentRecord } from '../../src/verifier/agent-directory.js';
 import { VisaAgentVerifier } from '../../src/verifier/visa.js';
 import { Ap2AgentVerifier } from '../../src/verifier/ap2.js';
 import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../../src/verifier/web-bot-auth.js';
@@ -110,7 +111,7 @@ async function main(): Promise<void> {
     headers: { host: MERCHANT_HOST, 'user-agent': 'definitely-not-an-agent/1.0' },
   };
 
-  const cases: Array<{ name: string; note: string; request: SignedPayload }> = [
+  const cases: Array<{ name: string; note: string; request: SignedPayload; app?: 'unreachableDirectory' }> = [
     {
       name: 'ava_tap_mandate_backed',
       note: 'AVA TAP profile, Ed25519, buyer mandate — expects trusted with mandate',
@@ -131,11 +132,41 @@ async function main(): Promise<void> {
       note: 'Plain browser-ish request — expects missing_agent_credentials',
       request: noCredentials,
     },
+    {
+      // The §11 could-not-check case. Same cryptographically valid request as
+      // ava_tap_mandate_backed, verified against a directory backend that
+      // throws: the verifier never learns whether the agent is legitimate, so
+      // it fails closed with conclusive=false. The plugin must not report this
+      // to the merchant as a blocked agent.
+      name: 'ava_tap_directory_unavailable',
+      note: 'Valid TAP request, directory backend throwing: expects directory_unavailable with conclusive=false',
+      request: strip(mandateBacked),
+      app: 'unreachableDirectory',
+    },
   ];
+
+  // A second server whose only difference is a directory that cannot answer.
+  // Real signatures, real verifier, real could-not-check verdict.
+  const throwingDirectory: AgentDirectory = {
+    async resolve(): Promise<AgentRecord | null> {
+      throw new Error('directory backend unreachable');
+    },
+  };
+  const unreachableDirectoryApp = await buildServer({
+    verifier: new MultiProtocolVerifier({
+      visa: new VisaAgentVerifier({ directory: throwingDirectory }),
+      visaTap: new VisaTapVerifier({ directory: throwingDirectory }),
+      ap2: new Ap2AgentVerifier({ directory: throwingDirectory }),
+      webBotAuth: new WebBotAuthVerifier({ resolver: signatureAgentKeys }),
+    }),
+    logger: false,
+  });
+  await unreachableDirectoryApp.ready();
 
   const fixtures = [];
   for (const c of cases) {
-    const res = await app.inject({ method: 'POST', url: '/verify', payload: c.request });
+    const target = 'unreachableDirectory' === c.app ? unreachableDirectoryApp : app;
+    const res = await target.inject({ method: 'POST', url: '/verify', payload: c.request });
     fixtures.push({
       name: c.name,
       note: c.note,
@@ -146,6 +177,7 @@ async function main(): Promise<void> {
   }
 
   await app.close();
+  await unreachableDirectoryApp.close();
 
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(
