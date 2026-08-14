@@ -5,6 +5,7 @@ import {
   buildWebBotAuthRequest,
   contentDigest,
   ed25519JwkThumbprint,
+  parseArgs,
   PROBE_SIGNATURE_AGENT,
   // @ts-expect-error: plain .mjs helper script, deliberately untyped and
   // dependency-free so app reviewers can run it with nothing but Node.
@@ -257,5 +258,125 @@ describe('simulate-verified-agent.mjs --web-bot-auth', () => {
     expect((await v.verify(first)).trusted).toBe(true);
     expect((await v.verify(second)).trusted).toBe(true);
     expect((await v.verify(first)).trusted).toBe(false);
+  });
+});
+
+/**
+ * Argument parsing. The store used to be "the first token that is not a flag",
+ * which made `--password hunter2 store.myshopify.com` resolve the store to
+ * `hunter2` and then print it in "Sending a signed agent request to
+ * https://hunter2/...". REVIEWER-TESTING-INSTRUCTIONS.md tells the app reviewer
+ * that the storefront password is never echoed or stored, so that path had to
+ * go. These tests cover the parser directly: the two orders a reviewer might
+ * type, and the rule that a store which does not look like a hostname stops the
+ * run without repeating the value that was misread.
+ */
+describe('simulate-verified-agent.mjs argument parsing', () => {
+  /** Parse with a clean environment, so an ambient password cannot colour a result. */
+  const parse = (...argv: string[]) => parseArgs(argv, {});
+
+  it('takes the value after --password as the password, never as the store', () => {
+    const parsed = parse('--password', 'hunter2', SHOP);
+    expect(parsed.shop).toBe(SHOP);
+    expect(parsed.password).toBe('hunter2');
+    expect(parsed.error).toBeUndefined();
+  });
+
+  it('parses the documented store-then-password order unchanged', () => {
+    const parsed = parse(SHOP, '--password', 'hunter2');
+    expect(parsed.shop).toBe(SHOP);
+    expect(parsed.password).toBe('hunter2');
+  });
+
+  it('parses the default path, one bare store and nothing else', () => {
+    const parsed = parse(SHOP);
+    expect(parsed).toEqual({ shop: SHOP, probe: false, password: '' });
+  });
+
+  // The whole point of the fix: a misread argument fails without printing what
+  // it misread, because what it misread may be the password.
+  it('refuses a store that does not look like a hostname, without echoing it', () => {
+    const parsed = parse('hunter2');
+    expect(parsed.shop).toBeUndefined();
+    expect(parsed.error).toBeTruthy();
+    expect(parsed.error).not.toContain('hunter2');
+    expect(parsed.error).toContain('your-store.myshopify.com');
+  });
+
+  it('refuses every other shape a mis-parsed secret could take, without echoing it', () => {
+    for (const value of [
+      'hunter2',
+      's3cret with spaces',
+      'p@ssw0rd.example',
+      'https://user:s3cret@store.myshopify.com',
+      '.leading-dot.com',
+      'trailing-dot.com.',
+    ]) {
+      const parsed = parse(value);
+      expect(parsed.error, `expected ${value} to be refused`).toBeTruthy();
+      expect(parsed.error).not.toContain(value);
+    }
+  });
+
+  it('names the usage and exits when no store is given at all', () => {
+    const parsed = parse('--password', 'hunter2');
+    expect(parsed.shop).toBeUndefined();
+    expect(parsed.error).toContain('Usage:');
+    expect(parsed.error).not.toContain('hunter2');
+  });
+
+  it('leaves --web-bot-auth working in either position', () => {
+    expect(parse(SHOP, '--web-bot-auth').probe).toBe(true);
+    expect(parse('--web-bot-auth', SHOP).probe).toBe(true);
+    expect(parse('--web-bot-auth', '--password', 'hunter2', SHOP)).toEqual({
+      shop: SHOP,
+      probe: true,
+      password: 'hunter2',
+    });
+    expect(parse(SHOP).probe).toBe(false);
+  });
+
+  it('leaves --help and -h working, before or after everything else', () => {
+    for (const argv of [['--help'], ['-h'], [SHOP, '--help'], ['--password', 'hunter2', '-h']]) {
+      const parsed = parseArgs(argv, {});
+      expect(parsed.help).toBe(true);
+      expect(parsed.error).toBeUndefined();
+    }
+  });
+
+  it('normalizes a pasted URL back to the store domain', () => {
+    for (const pasted of [
+      `https://${SHOP}/`,
+      `https://${SHOP}`,
+      `http://${SHOP}/admin`,
+      `${SHOP}/`,
+      `https://${SHOP.toUpperCase()}/`,
+    ]) {
+      expect(parse(pasted).shop, pasted).toBe(SHOP);
+    }
+  });
+
+  it('accepts --password=value as well as a separate token', () => {
+    expect(parse(`--password=hunter2`, SHOP).password).toBe('hunter2');
+    // A password containing an = keeps everything after the first one.
+    expect(parse(`--password=a=b=c`, SHOP).password).toBe('a=b=c');
+  });
+
+  // --password consumes the next token whatever it looks like, so a password
+  // that happens to start with a dash is taken verbatim rather than re-read as
+  // a flag, and still cannot be mistaken for the store.
+  it('takes a flag-shaped password verbatim', () => {
+    const parsed = parse('--password', '--web-bot-auth', SHOP);
+    expect(parsed.password).toBe('--web-bot-auth');
+    expect(parsed.shop).toBe(SHOP);
+    expect(parsed.probe).toBe(false);
+  });
+
+  it('falls back to AVA_STOREFRONT_PASSWORD, and prefers the flag over it', () => {
+    const env = { AVA_STOREFRONT_PASSWORD: 'from-env' };
+    expect(parseArgs([SHOP], env).password).toBe('from-env');
+    expect(parseArgs([SHOP, '--password', 'from-flag'], env).password).toBe('from-flag');
+    // --password with nothing after it is the same as not passing it.
+    expect(parseArgs([SHOP, '--password'], env).password).toBe('from-env');
   });
 });

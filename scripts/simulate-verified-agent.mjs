@@ -308,6 +308,9 @@ const HELP = `Simulate one AI shopping agent visiting a store running AVA Pay.
 
 Usage: node simulate-verified-agent.mjs your-store.myshopify.com [options]
 
+The store may be given anywhere in the argument list, before or after the
+options.
+
 Options:
   --password <storefront password>
         Clear the storefront password gate. Development stores always have
@@ -333,28 +336,92 @@ verified Visa Trusted Agent Protocol agent, and the store should answer
 HTTP 200 with allow:true, reason verified, and a one-time discount code.
 `;
 
+const USAGE =
+  'Usage: node simulate-verified-agent.mjs your-store.myshopify.com [--password <storefront password>]';
+
+/**
+ * A store domain, after normalisation: labels separated by dots, at least one
+ * dot, nothing else. Anything carrying whitespace, a path, a port or
+ * user:pass@ credentials fails here.
+ */
+const STORE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+/** Accept a bare domain or a pasted URL. */
+function normalizeShop(input) {
+  return input.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
+}
+
+/**
+ * Resolve the command line. Returns { help }, { error }, or the settled
+ * { shop, probe, password }.
+ *
+ * Two rules earn their keep here. First, --password consumes the token after
+ * it unconditionally, so its value can never be mistaken for the store and a
+ * password that happens to look like a flag is still taken verbatim. Second,
+ * the resolved store must look like a hostname before anything is printed or
+ * fetched: a parser mistake then fails with a message that names the problem
+ * and never echoes the offending value, because the offending value may be the
+ * storefront password. REVIEWER-TESTING-INSTRUCTIONS.md promises that password
+ * is neither echoed nor stored, and this is what keeps the promise true even
+ * when the arguments come in an order nobody anticipated.
+ */
+export function parseArgs(argv, env = process.env) {
+  let help = false;
+  let probe = false;
+  let store;
+  let passwordFlag;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === '-h') {
+      help = true;
+    } else if (arg === '--web-bot-auth') {
+      probe = true;
+    } else if (arg === '--password') {
+      passwordFlag = argv[i + 1];
+      i++;
+    } else if (arg.startsWith('--password=')) {
+      passwordFlag = arg.slice('--password='.length);
+    } else if (arg.startsWith('--')) {
+      // Unrecognised long flag: ignored, and never treated as the store.
+    } else if (store === undefined) {
+      store = arg;
+    }
+  }
+
+  if (help) return { help: true };
+  if (store === undefined) return { error: USAGE };
+
+  const shop = normalizeShop(store);
+  if (!STORE_DOMAIN.test(shop)) {
+    return {
+      error:
+        'That does not look like a store domain. Expected something like\n' +
+        'your-store.myshopify.com. The value is not repeated here in case it was\n' +
+        'meant as the argument to another option.\n\n' +
+        USAGE,
+    };
+  }
+
+  // An empty --password value falls through to the environment, the same as no
+  // flag at all, so the script still reaches its prompt rather than sending an
+  // empty password to the gate.
+  const password = passwordFlag || env.AVA_STOREFRONT_PASSWORD || '';
+  return { shop, probe, password };
+}
+
 async function main() {
-  const args = process.argv.slice(2);
-  if (args.includes('--help') || args.includes('-h')) {
+  const cli = parseArgs(process.argv.slice(2));
+  if (cli.help) {
     console.log(HELP);
     return;
   }
-  const probe = args.includes('--web-bot-auth');
-  const input = args.find((a) => !a.startsWith('--'));
-  if (!input) {
-    console.error(
-      'Usage: node simulate-verified-agent.mjs your-store.myshopify.com [--password <storefront password>]',
-    );
+  if (cli.error) {
+    console.error(cli.error);
     process.exit(2);
   }
-  // Accept a bare domain or a pasted URL.
-  const shop = input.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
-
-  const flagIndex = args.indexOf('--password');
-  let password =
-    (flagIndex !== -1 ? args[flagIndex + 1] : undefined) ??
-    process.env.AVA_STOREFRONT_PASSWORD ??
-    '';
+  const { shop, probe } = cli;
+  let { password } = cli;
 
   if (probe) {
     console.log('Web Bot Auth probe: signing as an agent whose key directory does not');
