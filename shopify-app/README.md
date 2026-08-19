@@ -86,21 +86,28 @@ and drops its own shadow database, which is why the dev role carries `CREATEDB`.
 
 ### 2. Turn on the storefront integration
 
-There are two ways. Pick one:
-
-**Option A — Theme app extension (recommended, zero code).**
+**The theme app extension, which is the only path the app offers a merchant.**
 
 In your Shopify admin: **Online Store → Themes → Customize → App embeds → AVA Pay → toggle ON → Save**. That's it. Every storefront page now loads the embed script via the App Proxy.
 
-**Option B — Manual one-liner.**
+The app's Settings page has a button that deep-links straight into the theme
+editor with this embed ready to activate (`app/lib/theme-embed.ts`).
 
-In your Shopify theme editor, open `theme.liquid` and paste this single line into the `<head>`:
+**Developer path: the script tag the embed block emits.**
+
+For local experiments against a theme you control, or for a headless/custom
+storefront that has no app embeds to toggle, the block's entire payload is one
+line:
 
 ```liquid
 <script async src="{{ shop.url }}/apps/ava-pay/embed.js"></script>
 ```
 
-Save. Done.
+This is documentation for developers working on this repo, **not** an install
+instruction for merchants, and it must not reappear anywhere in the merchant
+UI. Shopify's App Store policy 2.1.1 prohibits an app asking a merchant to
+hand-edit theme code when a theme app extension exists, and ours does. The
+submission was paused on exactly that in August 2026.
 
 ### 3. Configure the policy
 
@@ -142,6 +149,24 @@ https://your-dev-store.myshopify.com/?signature=sig1%3D%3A...%3A&signature-input
 `/apps/ava-pay/embed.js` picks up those params, copies them into request headers (the browser sets `Host` automatically), and POSTs to the proxy. From there it's the same code path.
 
 For end-to-end testing today, generate a signed request with the API repo's `tests/sign-helper.ts` — same primitives a production agent SDK would use.
+
+### Test agent visit (in-app, no terminal)
+
+Settings has a **Send test agent visit** button. It signs a Visa Trusted Agent
+Protocol request server side with the public demo credential (`signWithVisa`
+from `@ava-pay/agent`), puts it through the same `/verify` call and the same
+`decideVerification()` the App Proxy path uses, and records the same
+VerificationEvent with `source='test'` so the Traffic page can label it.
+
+It never routes through the storefront, so a development store's password gate
+is irrelevant, and it never mints a discount code: the verdict reports the
+percentage your policy *would* apply. `app/lib/test-visit.ts` holds the
+verdict and its wording (browser safe), `test-visit-request.ts` the signing,
+`test-visit.server.ts` the I/O.
+
+The standalone `scripts/simulate-verified-agent.mjs` in the API repo remains
+the tool for exercising the real storefront path end to end. It is a developer
+tool, and it is deliberately not part of any merchant or reviewer instruction.
 
 ## Deploying to production
 
@@ -228,18 +253,22 @@ shopify-app/
 │   │   ├── ava-types.ts                      # mirror of API types
 │   │   ├── policy.ts                         # applyMerchantPolicy() — pure
 │   │   ├── settings.server.ts                # Prisma-backed merchant settings
-│   │   └── discount.server.ts                # discountCodeBasicCreate via Admin API
+│   │   ├── discount.server.ts                # discountCodeBasicCreate via Admin API
+│   │   ├── theme-embed.ts                    # theme editor app-embed deep link
+│   │   ├── test-visit.ts                     # test agent visit: verdict + wording
+│   │   ├── test-visit-request.ts             # test agent visit: signing (node:crypto)
+│   │   └── test-visit.server.ts              # test agent visit: settings, verify, record
 │   └── routes/
 │       ├── app.tsx                           # embedded admin shell (App Bridge)
-│       ├── app._index.tsx                    # Polaris settings page
+│       ├── app._index.tsx                    # Polaris settings page + test visit
 │       ├── proxy.verify.tsx                  # POST /apps/ava-pay/verify
 │       ├── proxy.embed[.js].tsx              # GET  /apps/ava-pay/embed.js
 │       ├── webhooks.checkouts.create.tsx     # telemetry
 │       ├── webhooks.orders.create.tsx        # telemetry (realized discounts)
 │       └── webhooks.app.uninstalled.tsx      # cleanup
-└── extensions/ava-pay-embed/                 # theme app extension (Option A)
+└── extensions/ava-pay-embed/                 # theme app extension (the only install path)
     ├── shopify.extension.toml
-    └── blocks/ava-pay-embed.liquid           # the block users toggle ON
+    └── blocks/ava-pay-embed.liquid           # the block merchants toggle ON
 ```
 
 ## Tests
@@ -248,7 +277,7 @@ shopify-app/
 npm test
 ```
 
-75 tests over the pure logic, no Prisma and no network:
+117 tests over the pure logic, no Prisma and no network:
 
 - `app/lib/ava.test.ts` — the AVA Pay client: request shape, 200/403 handling, network failure, timeout fail-closed.
 - `app/lib/settings.test.ts` — `applyMerchantPolicy()`: toggle off blocks, AVA's discount wins, merchant max caps, default applies when AVA omits.
@@ -257,6 +286,13 @@ npm test
 - `app/lib/commerce.test.ts` — checkout and order attribution.
 - `app/lib/discount.test.ts` — discount minting never throws at its caller, including on a 403 from the Admin API.
 - `app/lib/request-hints.test.ts` — protocol and agent labels sniffed from request headers.
+- `app/lib/test-visit.test.ts`: the test agent visit, a real Ed25519 signature verified over the recomputed RFC 9421 base, the demo key still deriving the seeded public half, and every verdict recorded in the same vocabulary as the proxy path.
+- `app/lib/theme-embed.test.ts`: the theme editor deep link, including the fallback when the API key is absent.
+- `app/routes/app._index.test.ts`: the Settings action's auth boundary, no test visit and no settings write without `authenticate.admin`, and the shop always taken from the session.
+
+Note that `app/routes.ts` must keep ignoring `*.test.ts`, or the flat-routes
+convention turns a test file next to a route into a route and the client build
+fails on its top-level await.
 
 Polaris UI and OAuth flow aren't covered here — those need a real Shopify dev store, and the official Shopify CLI handles them.
 

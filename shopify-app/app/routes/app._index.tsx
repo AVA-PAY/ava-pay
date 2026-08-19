@@ -2,6 +2,7 @@ import {
   data,
   useActionData,
   useLoaderData,
+  useNavigation,
   useSubmit,
   type ActionFunctionArgs,
   type LoaderFunctionArgs,
@@ -25,20 +26,25 @@ import {
   saveShopSettings,
   type ShopSettings,
 } from '../lib/settings.server.js';
+import { sendTestVisit } from '../lib/test-visit.server.js';
+import { describeTestVisit, type TestVisitResult } from '../lib/test-visit.js';
+import { themeAppEmbedDeepLink } from '../lib/theme-embed.js';
 
 interface LoaderData {
   settings: ShopSettings;
-  embedScriptUrl: string;
+  appEmbedUrl: string;
 }
 
 interface ActionData {
   ok: boolean;
+  intent: 'save' | 'test-visit';
   saved?: ShopSettings;
+  testVisit?: TestVisitResult;
   error?: string;
 }
 
 function badRequest(error: string) {
-  return data<ActionData>({ ok: false, error }, { status: 400 });
+  return data<ActionData>({ ok: false, intent: 'save', error }, { status: 400 });
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -46,13 +52,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const settings = await getShopSettings(session.shop);
   return {
     settings,
-    embedScriptUrl: `https://${session.shop}/apps/ava-pay/embed.js`,
+    appEmbedUrl: themeAppEmbedDeepLink(session.shop, process.env.SHOPIFY_API_KEY),
   } satisfies LoaderData;
 }
 
 export async function action({ request }: ActionFunctionArgs) {
+  // Admin auth first, for every intent. The test visit writes a row and calls
+  // the verifier on the shop's behalf, so it is exactly as privileged as saving
+  // settings and is gated by the same check; `session.shop` is Shopify's word
+  // for which store this is, never the form's.
   const { session } = await authenticate.admin(request);
   const form = await request.formData();
+  const intent = form.get('intent');
+
+  if (intent === 'test-visit') {
+    const testVisit = await sendTestVisit(session.shop);
+    return data<ActionData>({ ok: true, intent: 'test-visit', testVisit });
+  }
 
   const acceptVerifiedAgents = form.get('acceptVerifiedAgents') === 'on';
   const defaultDiscountPct = Number(form.get('defaultDiscountPct') ?? 0);
@@ -67,13 +83,13 @@ export async function action({ request }: ActionFunctionArgs) {
     return badRequest('Discount values must be numbers.');
   }
   if (defaultDiscountPct < 0 || defaultDiscountPct > 100) {
-    return badRequest('Default discount must be 0–100%.');
+    return badRequest('Default discount must be 0 to 100%.');
   }
   if (maxDiscountPct < 0 || maxDiscountPct > 100) {
-    return badRequest('Max discount must be 0–100%.');
+    return badRequest('Max discount must be 0 to 100%.');
   }
   if (identityOnlyDiscountPct < 0 || identityOnlyDiscountPct > 100) {
-    return badRequest('Identity-only discount must be 0–100%.');
+    return badRequest('Identity-only discount must be 0 to 100%.');
   }
   if (defaultDiscountPct > maxDiscountPct) {
     return badRequest('Default discount cannot exceed the max cap.');
@@ -88,12 +104,13 @@ export async function action({ request }: ActionFunctionArgs) {
     maxDiscountPct,
     identityOnlyDiscountPct,
   });
-  return data<ActionData>({ ok: true, saved });
+  return data<ActionData>({ ok: true, intent: 'save', saved });
 }
 
 export default function SettingsPage() {
-  const { settings, embedScriptUrl } = useLoaderData<typeof loader>();
+  const { settings, appEmbedUrl } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
   const submit = useSubmit();
 
   const current: ShopSettings = actionData?.saved ?? settings;
@@ -109,14 +126,28 @@ export default function SettingsPage() {
     String(current.identityOnlyDiscountPct),
   );
 
+  const pendingIntent = navigation.formData?.get('intent');
+
   const onSave = () => {
     const fd = new FormData();
+    fd.set('intent', 'save');
     if (acceptVerifiedAgents) fd.set('acceptVerifiedAgents', 'on');
     fd.set('defaultDiscountPct', defaultDiscountPct);
     fd.set('maxDiscountPct', maxDiscountPct);
     fd.set('identityOnlyDiscountPct', identityOnlyDiscountPct);
     submit(fd, { method: 'post' });
   };
+
+  const onTestVisit = () => {
+    const fd = new FormData();
+    fd.set('intent', 'test-visit');
+    submit(fd, { method: 'post' });
+  };
+
+  const testVisit =
+    actionData?.intent === 'test-visit' && actionData.testVisit
+      ? describeTestVisit(actionData.testVisit)
+      : null;
 
   return (
     <Page title="AVA Pay settings">
@@ -126,7 +157,7 @@ export default function SettingsPage() {
             <Banner tone="critical" title="Couldn't save">{actionData.error}</Banner>
           </Layout.Section>
         ) : null}
-        {actionData && actionData.ok ? (
+        {actionData && actionData.ok && actionData.intent === 'save' ? (
           <Layout.Section>
             <Banner tone="success" title="Settings saved" onDismiss={() => {}} />
           </Layout.Section>
@@ -184,7 +215,13 @@ export default function SettingsPage() {
                 autoComplete="off"
               />
               <InlineStack align="end">
-                <Button variant="primary" onClick={onSave}>Save</Button>
+                <Button
+                  variant="primary"
+                  onClick={onSave}
+                  loading={pendingIntent === 'save'}
+                >
+                  Save
+                </Button>
               </InlineStack>
             </BlockStack>
           </Card>
@@ -192,18 +229,50 @@ export default function SettingsPage() {
 
         <Layout.Section>
           <Card>
-            <BlockStack gap="200">
+            <BlockStack gap="300">
               <Text as="h2" variant="headingMd">Storefront install</Text>
               <Text as="p" tone="subdued">
-                The recommended install is the AVA Pay theme app extension (zero code).
-                If you'd rather install manually, paste this single line into your
-                <code> theme.liquid </code> &lt;head&gt;:
+                AVA Pay runs on your storefront through its theme app embed. Turn it on in
+                the theme editor and every page starts checking incoming agents. There is
+                no code to add and nothing in your theme to edit.
               </Text>
-              <Card background="bg-surface-secondary">
-                <Text as="p" variant="bodyMd" fontWeight="semibold">
-                  &lt;script async src="{embedScriptUrl}"&gt;&lt;/script&gt;
-                </Text>
-              </Card>
+              <InlineStack align="start">
+                <Button url={appEmbedUrl} target="_top">
+                  Turn on in theme editor
+                </Button>
+              </InlineStack>
+              <Text as="p" tone="subdued" variant="bodySm">
+                The editor opens on App embeds with AVA Pay ready to switch on. Remember to
+                Save in the theme editor.
+              </Text>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">Check your setup</Text>
+              <Text as="p" tone="subdued">
+                Send a test agent visit to see the whole path work without waiting for a
+                real AI shopping agent. AVA Pay signs a demo agent credential, verifies it
+                the same way it verifies live traffic, applies your settings, and records
+                the visit on the Traffic page marked as a test. No discount code is
+                created and your storefront is not touched.
+              </Text>
+              {testVisit ? (
+                <Banner tone={testVisit.tone} title={testVisit.title}>
+                  <p>{testVisit.body}</p>
+                </Banner>
+              ) : null}
+              <InlineStack align="start">
+                <Button
+                  onClick={onTestVisit}
+                  loading={pendingIntent === 'test-visit'}
+                >
+                  Send test agent visit
+                </Button>
+              </InlineStack>
             </BlockStack>
           </Card>
         </Layout.Section>

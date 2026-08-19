@@ -56,8 +56,9 @@ export default function TrafficPage() {
               >
                 <p>
                   As soon as an AI shopping agent hits your storefront, its verification shows up
-                  here — which platform it was, whether it verified, and what it bought. Make sure
-                  the AVA Pay theme extension (or the embed script from Settings) is installed.
+                  here: which platform it was, whether it verified, and what it bought. Turn on the
+                  AVA Pay app embed from Settings, then send a test agent visit from there to see
+                  the whole path work before real traffic arrives.
                 </p>
               </EmptyState>
             </Card>
@@ -213,10 +214,22 @@ export default function TrafficPage() {
                 Recent verifications
               </Text>
               <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'text']}
-                headings={['Time', 'Platform', 'Protocol', 'Outcome', 'Discount %', 'Reason']}
+                columnContentTypes={['text', 'text', 'text', 'text', 'text', 'numeric', 'text']}
+                headings={[
+                  'Time',
+                  'Source',
+                  'Platform',
+                  'Protocol',
+                  'Outcome',
+                  'Discount %',
+                  'Reason',
+                ]}
                 rows={view.recent.map((r) => [
                   new Date(r.createdAt).toLocaleString(),
+                  // A visit the merchant sent from Settings is real verification of a
+                  // real signature, but it is not organic agent traffic and must not
+                  // read as though it were.
+                  r.isTest ? <Badge key={`${r.id}-src`}>Test</Badge> : 'Agent',
                   r.platform ?? '—',
                   r.protocol ?? '—',
                   <OutcomeBadge key={r.id} outcome={r.outcome} />,

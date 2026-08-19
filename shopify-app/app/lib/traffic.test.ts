@@ -284,6 +284,22 @@ describe('unverifiable is never counted as a rejection', () => {
     expect(view.recent[0]!.outcome).toBe('unverifiable');
     expect(view.recent[0]!.reason).toBe('directory_unavailable');
   });
+
+  it('flags a merchant-sent test visit so it never reads as organic traffic', () => {
+    const view = buildTrafficView([event({ source: 'test' })], [], NOW);
+    expect(view.recent[0]!.isTest).toBe(true);
+  });
+
+  it('treats proxy-delivered and pre-column rows alike as not tests', () => {
+    // Rows written before the source column existed carry no value at all;
+    // reading those as tests would relabel a store's real history.
+    const view = buildTrafficView(
+      [event({ source: 'storefront' }), event({ source: null })],
+      [],
+      NOW,
+    );
+    expect(view.recent.map((r) => r.isTest)).toEqual([false, false]);
+  });
 });
 
 describe('formatMoney', () => {
