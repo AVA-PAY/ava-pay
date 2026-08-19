@@ -15,6 +15,12 @@ import type { SignedRequest } from './visa.js';
  * ("@authority" "@method" "@path" "signature-agent"), parameters
  * created/expires/keyid/alg/nonce/tag="web-bot-auth", Ed25519 signature,
  * keyid = RFC 7638 JWK thumbprint of the signing key.
+ *
+ * Draft -02 Section 5.2.1 requires signers to send the dictionary
+ * Signature-Agent form and to cover the member keyed to their own label, so
+ * `signatureAgentFormat: "dictionary"` covers `"signature-agent";key="<label>"`
+ * and puts that member's value in the base, matching the Appendix E vectors.
+ * The bare-string form stays available for reproducing deployed traffic.
  */
 
 export interface WebBotAuthSignInput {
@@ -56,6 +62,13 @@ export interface WebBotAuthSignInput {
    */
   signatureAgentFormat?: 'item' | 'dictionary';
   /**
+   * Cover `"signature-agent";key="<label>"` rather than the whole field.
+   * Defaults to true for the dictionary form (what -02 requires) and false for
+   * the bare-string form, which has no members to key. Set false with the
+   * dictionary form only to reproduce a pre--02 signer.
+   */
+  keyedSignatureAgentComponent?: boolean;
+  /**
    * §5.5 discovery type, emitted as a `;type=` parameter on the dictionary
    * member (only meaningful with signatureAgentFormat "dictionary", since a
    * bare string carries no parameters). Omit for the default `directory`.
@@ -76,10 +89,13 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
   const url = new URL(input.url);
   const typeParam =
     input.signatureAgentType !== undefined ? `;type=${input.signatureAgentType}` : '';
-  const signatureAgentHeader =
-    input.signatureAgentFormat === 'dictionary'
-      ? `${label}="${input.signatureAgent}"${typeParam}`
-      : `"${input.signatureAgent}"`;
+  const isDictionary = input.signatureAgentFormat === 'dictionary';
+  /** The dictionary member value on its own: what a keyed component covers. */
+  const signatureAgentMember = `"${input.signatureAgent}"${typeParam}`;
+  const signatureAgentHeader = isDictionary
+    ? `${label}=${signatureAgentMember}`
+    : `"${input.signatureAgent}"`;
+  const keyed = input.keyedSignatureAgentComponent ?? isDictionary;
 
   const headers: Record<string, string> = {
     host: url.host,
@@ -88,7 +104,10 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
     ...(input.extraHeaders ?? {}),
   };
 
-  const componentList = components.map((c) => `"${c}"`).join(' ');
+  /** Component identifier as it appears in Signature-Input and in the base. */
+  const identifier = (c: string): string =>
+    c === 'signature-agent' && keyed ? `"${c}";key="${label}"` : `"${c}"`;
+  const componentList = components.map(identifier).join(' ');
   const params = [
     `;created=${created}`,
     expires !== undefined ? `;expires=${expires}` : '',
@@ -109,12 +128,16 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
     else if (comp === '@query') v = url.search === '' ? '?' : url.search;
     else if (comp.startsWith('@')) {
       throw new Error(`unsupported derived component: ${comp}`);
+    } else if (comp === 'signature-agent' && keyed) {
+      // RFC 9421 Section 2.1: a keyed identifier covers the member's value, not
+      // the whole field.
+      v = signatureAgentMember;
     } else {
       const headerVal = headers[comp];
       if (headerVal === undefined) throw new Error(`covered component missing: ${comp}`);
       v = headerVal;
     }
-    lines.push(`"${comp}": ${v}`);
+    lines.push(`${identifier(comp)}: ${v}`);
   }
   lines.push(`"@signature-params": ${sigInputValue}`);
   const signatureBase = lines.join('\n');

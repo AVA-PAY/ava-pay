@@ -146,11 +146,13 @@ export function ed25519JwkThumbprint(x) {
  * telling a merchant we blocked an agent when we never reached a trust root is
  * a claim we cannot support.
  *
- * Shape follows the deployed Web Bot Auth profile: tag="web-bot-auth", a
- * Signature-Agent header in the dictionary form the draft tells signers to
- * send, and covered components ("@method" "@authority" "@path"
- * "signature-agent"), plus content-digest, since this request carries a cart
- * body and a body that travels unsigned is a body anyone can swap.
+ * Shape follows draft -02: tag="web-bot-auth", a Signature-Agent header in the
+ * dictionary form signers MUST send, and covered components ("@method"
+ * "@authority" "@path" "signature-agent";key="sig1"), plus content-digest,
+ * since this request carries a cart body and a body that travels unsigned is a
+ * body anyone can swap. Section 5.2.1 requires the keyed member rather than the
+ * whole field, so the base carries the member value alone, exactly as the
+ * Appendix E vectors show.
  */
 export function buildWebBotAuthRequest(shop, options = {}) {
   const now = options.created ?? Math.floor(Date.now() / 1000);
@@ -164,29 +166,35 @@ export function buildWebBotAuthRequest(shop, options = {}) {
 
   // No x-ava-mandate: Web Bot Auth proves who the agent is, never what a buyer
   // authorised it to spend. Identity only, by design.
+  // The dictionary member on its own: what a keyed component covers.
+  const signatureAgentMember = `"${signatureAgent}"`;
   const headers = {
     host: shop,
     'content-digest': contentDigest(body),
-    'signature-agent': `${label}="${signatureAgent}"`,
+    'signature-agent': `${label}=${signatureAgentMember}`,
     'content-type': 'application/json',
   };
 
   const components = ['@method', '@authority', '@path', 'signature-agent', 'content-digest'];
-  // base64url per the draft's nonce grammar, rather than the UUID the
-  // Visa-profile request above uses.
+  /** Component identifier as it appears in Signature-Input and in the base. */
+  const identifier = (c) => (c === 'signature-agent' ? `"${c}";key="${label}"` : `"${c}"`);
+  // base64url, which -02 no longer constrains: Section 5.2.3 defers nonce
+  // handling entirely to RFC 9421 Section 7.2.2.
   const nonce = options.nonce ?? randomBytes(16).toString('base64url');
   const keyid = options.keyid ?? ed25519JwkThumbprint(DEMO_PRIVATE_JWK.x);
   const params =
     `;created=${now};expires=${now + 60};keyid="${keyid}"` +
     `;alg="ed25519";nonce="${nonce}";tag="web-bot-auth"`;
-  const sigInputValue = `(${components.map((c) => `"${c}"`).join(' ')})${params}`;
+  const sigInputValue = `(${components.map(identifier).join(' ')})${params}`;
 
   const base = [
     ...components.map((c) => {
-      if (c === '@method') return `"${c}": POST`;
-      if (c === '@authority') return `"${c}": ${target.host}`;
-      if (c === '@path') return `"${c}": ${target.pathname}`;
-      return `"${c}": ${headers[c]}`;
+      if (c === '@method') return `${identifier(c)}: POST`;
+      if (c === '@authority') return `${identifier(c)}: ${target.host}`;
+      if (c === '@path') return `${identifier(c)}: ${target.pathname}`;
+      // A keyed identifier covers the member's value, not the whole field.
+      if (c === 'signature-agent') return `${identifier(c)}: ${signatureAgentMember}`;
+      return `${identifier(c)}: ${headers[c]}`;
     }),
     `"@signature-params": ${sigInputValue}`,
   ].join('\n');

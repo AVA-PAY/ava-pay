@@ -3,9 +3,9 @@ import { createHash } from 'node:crypto';
 /**
  * Web Bot Auth protocol primitives.
  *
- * Targets the restructured IETF drafts (2026-06-26):
- *   - draft-meunier-webbotauth-httpsig-protocol-00  (signed requests)
- *   - draft-meunier-webbotauth-httpsig-directory-00 (key discovery)
+ * Targets draft-meunier-webbotauth-httpsig-protocol-02 (2026-08-18), which
+ * folded the separate -httpsig-directory draft into itself at -01. Section
+ * numbers in this file are -02's.
  *
  * Deployed reality (verified against live traffic, 2026-07): OpenAI's agents
  * still emit the pre-restructure shape — `Signature-Agent: "https://chatgpt.com"`
@@ -70,7 +70,8 @@ export interface SignatureAgentValue {
 /**
  * Parse a Signature-Agent header value.
  *
- * Accepts both wire forms (accept-both tolerance, App E.1.3):
+ * Accepts both wire forms (accept-both tolerance; the legacy vectors moved to
+ * App E.1.2 / E.2.2 in -02, which dropped the Signature-Agent-absent ones):
  *   - bare SF string (deployed today, an explicit verifier-MAY): "https://chatgpt.com"
  *   - dictionary keyed by signature label (signers MUST send this): sig1="https://chatgpt.com"
  *
@@ -80,8 +81,19 @@ export interface SignatureAgentValue {
  * (that would grant domain binding to a member the spec says to ignore): the
  * label-matched member is rejected outright, and an unrecognized-type member
  * is never chosen as the unlabeled fallback.
+ *
+ * `strict` controls what happens when `label` names no member. Off (default),
+ * the first usable member is taken, which is the tolerance the deployed
+ * bare-string traffic needs. ON, the absence is an error: a caller that knows
+ * the signature covers one NAMED member must resolve that member or nothing,
+ * because falling back would attribute the signature to a member it never
+ * covered (-02 §5.2.2).
  */
-export function parseSignatureAgent(headerValue: string, label?: string): SignatureAgentValue {
+export function parseSignatureAgent(
+  headerValue: string,
+  label?: string,
+  options: { strict?: boolean } = {},
+): SignatureAgentValue {
   const value = headerValue.trim();
   if (value === '') throw new WebBotAuthParseError('Signature-Agent header is empty');
 
@@ -121,6 +133,10 @@ export function parseSignatureAgent(headerValue: string, label?: string): Signat
       }
       target = matched.target;
       type = matched.type;
+    } else if (options.strict === true) {
+      throw new WebBotAuthParseError(
+        `Signature-Agent has no member keyed "${label}", which is the member the signature covers`,
+      );
     } else if (fallback) {
       target = fallback.target;
       type = fallback.type;
@@ -190,9 +206,9 @@ export interface WebBotAuthKey {
  *
  * Accepts BOTH deployed shapes (accept-both interop tolerance, recorded as a
  * data point for the review reply):
- *   - the canonical JWKS wrapper `{ "keys": [ ...jwk ] }` (draft -01, served by
- *     chatgpt.com), possibly carrying extra metadata like `signature_agent` /
- *     `purpose`, which we ignore;
+ *   - the canonical JWKS wrapper `{ "keys": [ ...jwk ] }` (the §5.5.1 shape,
+ *     served by chatgpt.com), possibly carrying extra metadata like
+ *     `signature_agent` / `purpose`, which we ignore;
  *   - a BARE single JWK object (served by www.shopify.com as of 2026-08-09),
  *     which we treat as a one-key directory.
  *
@@ -202,7 +218,15 @@ export interface WebBotAuthKey {
  *   - a key whose `kid` is present but does not equal its computed RFC 7638
  *     thumbprint is dropped (the spec REQUIRES kid to be the thumbprint —
  *     a mismatch means a broken or lying directory entry);
- *   - a key declaring `use` other than "sig" or `alg` other than "ed25519" is dropped.
+ *   - a key declaring `use` other than "sig", or an `alg` that is not an
+ *     Ed25519 spelling, is dropped. -02 §5.5.1 restricts `alg` to the HTTP
+ *     Signature Algorithms registry, whose name is "ed25519", but the field is
+ *     optional and the JOSE spelling "EdDSA" is what JOSE tooling emits. Both
+ *     are accepted, and alg-absent is accepted, because stock WebCrypto
+ *     REJECTS `alg: "ed25519"` on import (Joshua Ashcroft's implementer report
+ *     to the list, 2026-08-18), so directories have good reason to omit it or
+ *     send the JOSE name. Dropping those keys would fail agents over a field
+ *     they were never required to send.
  *
  * Throws only when the overall document shape is neither a keys array nor a JWK.
  */
