@@ -59,10 +59,21 @@ export type VerificationFailureReason =
   | 'mandate_constraint_violation'
   | 'checkout_hash_mismatch'
   | 'unsupported_protocol_version'
-  // Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol)
+  // Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol-02)
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
+  // The Signature-Agent URL answered with a redirect. Section 5.5 of -02
+  // requires discovery to be served with 200 (OK) and forbids following
+  // redirects, so there is no key material and no identity to attribute. Kept
+  // distinct from key_directory_unavailable: reachable and misconfigured, not
+  // down. Could-not-check, so conclusive=false, and never unknown_agent.
+  | 'key_directory_redirected'
   | 'unknown_key'
+  // A signed request that carried no Signature-Agent header, required on every
+  // signed request by Section 5.2.1 of -02. Definitive rejection, not a prompt
+  // to guess identity from keyid. Distinct from missing_agent_credentials,
+  // which means no signature was offered at all.
+  | 'missing_signature_agent'
   // Appendix B directory proof-of-possession. unsigned_key is "no proof
   // offered" (tolerated under the per-source grace flag, dropped when it is
   // off); key_proof_invalid is "proof offered and failed verification", never

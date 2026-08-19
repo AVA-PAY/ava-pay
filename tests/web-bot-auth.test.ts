@@ -106,8 +106,12 @@ describe('WebBotAuthVerifier', () => {
     expect(result.agent?.binding).toBe('url-only');
   });
 
-  it('accepts a padded-base64 nonce (D5 tolerance; -01 grammar says base64url)', async () => {
-    // Shopify production sends a padded base64 nonce. It must not be rejected.
+  it('accepts a padded-base64 nonce, which -02 makes simply correct', async () => {
+    // Shopify production sends a padded base64 nonce, which the -01 grammar
+    // said should be base64url. -02 §5.2.3 removed that grammar and defers
+    // nonce handling entirely to RFC 9421 §7.2.2, so this stopped being a
+    // tolerance and became conformance. We never validated nonce shape anyway:
+    // it is only a replay key.
     const result = await verifier.verify(toIncoming(sign({ nonce: 'YWJjZGVarw==' })));
     expect(result.trusted).toBe(true);
   });
@@ -251,14 +255,193 @@ describe('WebBotAuthVerifier', () => {
     expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
   });
 
-  it('rejects missing credentials and missing Signature-Agent → missing_agent_credentials', async () => {
+  it('separates "no credentials at all" from "signed but no Signature-Agent"', async () => {
+    // Nothing offered: the request never claimed to be a signed agent request.
     const bare = await verifier.verify({ method: 'GET', url: MERCHANT_URL, headers: {} });
-    expect(bare).toMatchObject({ trusted: false, reason: 'missing_agent_credentials' });
+    expect(bare).toMatchObject({
+      trusted: false,
+      reason: 'missing_agent_credentials',
+      conclusive: true,
+    });
 
+    // Signed, but missing the header -02 Section 5.2.1 makes mandatory. This is
+    // its own story: the agent signed and left out the discovery root, so we
+    // reject conclusively rather than resolving the bare keyid against anything
+    // we happen to hold.
     const signed = sign();
     delete signed.headers['signature-agent'];
     const noAgent = await verifier.verify(toIncoming(signed));
-    expect(noAgent).toMatchObject({ trusted: false, reason: 'missing_agent_credentials' });
+    expect(noAgent).toMatchObject({
+      trusted: false,
+      reason: 'missing_signature_agent',
+      conclusive: true,
+    });
+  });
+
+  // ── draft -02 Section 5.2.1: the keyed Signature-Agent component ──────────
+
+  it('verifies the draft -02 Appendix E.2.1 vector byte for byte', async () => {
+    // The strongest oracle available: the working group's own published Ed25519
+    // request vector, signed with the RFC 9421 Appendix B.1.4 test key, in the
+    // keyed dictionary form -02 requires. Nothing here is produced by our own
+    // signer, so it cannot drift into agreeing with us.
+    const VECTOR_ORIGIN = 'https://signature-agent.test';
+    const CREATED = 1_735_689_600;
+    const vectorResolver = new StaticSignatureAgentKeys();
+    vectorResolver.add(VECTOR_ORIGIN, {
+      keys: [
+        {
+          kty: 'OKP',
+          crv: 'Ed25519',
+          x: 'JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs',
+          use: 'sig',
+        },
+      ],
+    });
+    const vectorVerifier = new WebBotAuthVerifier({
+      resolver: vectorResolver,
+      // The vector is dated 2025-01-01 with a century-long expires, so the
+      // server-side max-age cap has to be lifted to replay it at all.
+      now: () => CREATED + 60,
+      maxAgeSeconds: 3600,
+    });
+
+    const result = await vectorVerifier.verify({
+      method: 'POST',
+      url: 'https://example.com/foo?param=Value&Pet=dog',
+      headers: {
+        host: 'example.com',
+        'signature-agent': 'agent2="https://signature-agent.test"',
+        'signature-input':
+          'sig2=("@authority" "signature-agent";key="agent2");created=1735689600' +
+          ';keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519"' +
+          ';expires=4889289600' +
+          ';nonce="n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA=="' +
+          ';tag="web-bot-auth"',
+        signature:
+          'sig2=:RdNFx5Bj6au3YgAMQL/RzmUlZE8QZLIaXGRpw985hWnwPfMxT228NMk6ehRS1PSl4e8PhbNZACSanGdhEwYCCg==:',
+      },
+    });
+
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.agent?.id).toBe(VECTOR_ORIGIN);
+    expect(result.agent?.keyThumbprint).toBe('poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U');
+    expect(result.agent?.binding).toBe('domain');
+  });
+
+  it('verifies the keyed component form round-trip through the SDK signer', async () => {
+    const signed = sign({ signatureAgentFormat: 'dictionary' });
+    // The signer must be emitting the -02 shape, not just something we accept.
+    expect(signed.headers['signature-input']).toContain('"signature-agent";key="sig1"');
+    expect(signed.headers['signature-agent']).toBe(`sig1="${AGENT_ORIGIN}"`);
+    expect((await verifier.verify(toIncoming(signed))).trusted).toBe(true);
+  });
+
+  it('attributes a keyed signature to the member it covers, never to another member', async () => {
+    // Section 5.2.2: a verifier MUST NOT attribute a signature to a member that
+    // signature does not cover. The header carries a trusted member and an
+    // impostor's; the signature covers the impostor's. Resolving the trusted
+    // one because it matches the label would launder the impostor into an
+    // allowlisted identity, so the covered member is the one that counts.
+    const signed = sign({ signatureAgentFormat: 'dictionary' });
+    signed.headers['signature-input'] = signed.headers['signature-input']!.replace(
+      '"signature-agent";key="sig1"',
+      '"signature-agent";key="other"',
+    );
+    signed.headers['signature-agent'] =
+      `sig1="${AGENT_ORIGIN}", other="https://impostor.example"`;
+
+    const result = await verifier.verify(toIncoming(signed));
+    if (result.trusted) throw new Error('impostor member must not be admitted');
+    // Resolved as the impostor, which is not in the trust set. The one answer
+    // that would be a real failure is a trusted verdict naming AGENT_ORIGIN.
+    expect(result.reason).toBe('unknown_signature_agent');
+    expect(result.message).toContain('impostor.example');
+  });
+
+  it('refuses a keyed component whose member is absent rather than falling back', async () => {
+    // The signature says it covers member "absent". There is no such member, so
+    // there is nothing to attribute to; picking the only member present would
+    // be attributing the signature to something it never covered.
+    const signed = sign({ signatureAgentFormat: 'dictionary' });
+    signed.headers['signature-input'] = signed.headers['signature-input']!.replace(
+      '"signature-agent";key="sig1"',
+      '"signature-agent";key="absent"',
+    );
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('no member keyed "absent"');
+  });
+
+  it('still accepts the deployed unkeyed component with a dictionary header', async () => {
+    // chatgpt.com signs the whole field rather than a member. Covering the
+    // field covers every member, so the label-matched member is still what the
+    // signer committed to, and -02 Section 5.2.1 lets a verifier accept it.
+    const signed = sign({
+      signatureAgentFormat: 'dictionary',
+      keyedSignatureAgentComponent: false,
+    });
+    expect(signed.headers['signature-input']).toContain('"signature-agent")');
+    expect((await verifier.verify(toIncoming(signed))).trusted).toBe(true);
+  });
+
+  it('reports a redirected key directory apart from an unreachable one', async () => {
+    // -02 Section 5.5 turned our redirect tolerance into non-conformance. The
+    // merchant-facing story has to stay specific: this directory answered and
+    // is misconfigured, which is not the same as being down, and neither one is
+    // "we checked and this agent is unknown".
+    const redirecting = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [AGENT_ORIGIN],
+      fetchImpl: (async () =>
+        new Response(null, {
+          status: 301,
+          headers: { location: 'https://www.agent.example/.well-known/http-message-signatures-directory' },
+        })) as unknown as typeof fetch,
+    });
+    const redirectVerifier = new WebBotAuthVerifier({
+      resolver: redirecting,
+      now: () => FIXED_NOW,
+    });
+
+    const result = await redirectVerifier.verify(toIncoming(sign()));
+    expect(result).toMatchObject({
+      trusted: false,
+      reason: 'key_directory_redirected',
+      // Could-not-check: we never reached key material, so we do not claim to
+      // have rejected the agent.
+      conclusive: false,
+    });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.reason).not.toBe('unknown_agent');
+    expect(result.reason).not.toBe('key_directory_unavailable');
+  });
+
+  it('accepts directory keys whether alg is absent, JOSE, or the registry name', async () => {
+    // Joshua Ashcroft's implementer report (list, 2026-08-18): stock WebCrypto
+    // rejects alg "ed25519", so directories reasonably omit alg or send the
+    // JOSE spelling. Dropping those keys would fail agents for a field -02
+    // Section 5.5.1 never required them to send.
+    const jwk = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    for (const alg of [undefined, 'EdDSA', 'eddsa', 'ed25519']) {
+      const altResolver = new StaticSignatureAgentKeys();
+      altResolver.add(AGENT_ORIGIN, {
+        keys: [alg === undefined ? { ...jwk } : { ...jwk, alg }],
+      });
+      const altVerifier = new WebBotAuthVerifier({
+        resolver: altResolver,
+        now: () => FIXED_NOW,
+      });
+      const result = await altVerifier.verify(toIncoming(sign()));
+      expect(result.trusted, `alg=${String(alg)} should verify`).toBe(true);
+    }
+
+    // A genuinely different algorithm is still dropped: the key cannot have
+    // signed an ed25519 request.
+    const wrongAlg = new StaticSignatureAgentKeys();
+    wrongAlg.add(AGENT_ORIGIN, { keys: [{ ...jwk, alg: 'rsa-pss-sha512' }] });
+    const wrongVerifier = new WebBotAuthVerifier({ resolver: wrongAlg, now: () => FIXED_NOW });
+    expect((await wrongVerifier.verify(toIncoming(sign()))).trusted).toBe(false);
   });
 
   it('detects replay of a nonce-bearing request → replay_detected', async () => {
@@ -569,11 +752,14 @@ describe('FetchingKeyDirectoryResolver', () => {
     expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
   });
 
-  it('follows a redirect to an allowlisted https origin', async () => {
+  // -02 Section 5.5 requires 200 (OK) and forbids following redirects. These
+  // replace four tests that asserted the -01 era tolerance (up to three https,
+  // allowlisted hops), which the draft made non-conformant.
+  it('refuses a redirect instead of following it, and never fetches the target', async () => {
     const ORIGIN2 = 'https://cdn.agent.example';
     const { impl, calls } = fakeFetch((url) =>
       url.startsWith(ORIGIN2)
-        ? new Response(directoryBody)
+        ? new Response(directoryBody) // following this hop would be the bug
         : new Response(null, {
             status: 301,
             headers: { location: `${ORIGIN2}/.well-known/http-message-signatures-directory` },
@@ -583,37 +769,30 @@ describe('FetchingKeyDirectoryResolver', () => {
       allowedOrigins: [ORIGIN, ORIGIN2],
       fetchImpl: impl,
     });
-    expect((await resolver.resolve(ORIGIN)).status).toBe('ok');
-    expect(calls).toHaveLength(2);
+    // Even with the redirect target allowlisted, and serving a directory that
+    // would have parsed, the hop is not taken.
+    expect((await resolver.resolve(ORIGIN)).status).toBe('redirected');
+    expect(calls).toEqual([`${ORIGIN}/.well-known/http-message-signatures-directory`]);
   });
 
-  it('refuses a non-https redirect and never fetches it (no plaintext key hop)', async () => {
-    const { impl, calls } = fakeFetch((url) =>
-      url.startsWith('http://')
-        ? new Response(directoryBody) // a plaintext fetch here would be the bug
-        : new Response(null, {
-            status: 302,
-            headers: { location: 'http://agent.example/.well-known/http-message-signatures-directory' },
+  it('reports every redirect status as redirected, not unavailable', async () => {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const resolver = new FetchingKeyDirectoryResolver({
+        allowedOrigins: [ORIGIN],
+        fetchImpl: fakeFetch(() =>
+          new Response(null, {
+            status,
+            headers: { location: 'https://elsewhere.example/.well-known/http-message-signatures-directory' },
           }),
-    );
-    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
-    expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
-    expect(calls).toHaveLength(1);
-    expect(calls.every((u) => u.startsWith('https://'))).toBe(true);
+        ).impl,
+      });
+      const resolution = await resolver.resolve(ORIGIN);
+      expect(resolution.status).toBe('redirected');
+      expect(resolution.status === 'redirected' && resolution.detail).toBe(`HTTP ${status}`);
+    }
   });
 
-  it('refuses a redirect to a non-allowlisted https origin (SSRF guard)', async () => {
-    const { impl } = fakeFetch(() =>
-      new Response(null, {
-        status: 301,
-        headers: { location: 'https://evil.example/.well-known/http-message-signatures-directory' },
-      }),
-    );
-    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
-    expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
-  });
-
-  it('gives up (fail closed) after too many redirects', async () => {
+  it('refuses a same-origin redirect loop with a single fetch', async () => {
     const { impl, calls } = fakeFetch(() =>
       new Response(null, {
         status: 301,
@@ -621,10 +800,20 @@ describe('FetchingKeyDirectoryResolver', () => {
       }),
     );
     const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
-    expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
-    // Bounded: it terminates rather than following the loop forever.
-    expect(calls.length).toBeGreaterThan(1);
-    expect(calls.length).toBeLessThanOrEqual(4);
+    expect((await resolver.resolve(ORIGIN)).status).toBe('redirected');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('requires exactly 200, so a 2xx carrying no key set is unavailable', async () => {
+    for (const status of [201, 202, 204]) {
+      const resolver = new FetchingKeyDirectoryResolver({
+        allowedOrigins: [ORIGIN],
+        fetchImpl: fakeFetch(() => new Response(null, { status })).impl,
+      });
+      const resolution = await resolver.resolve(ORIGIN);
+      expect(resolution.status).toBe('unavailable');
+      expect(resolution.status === 'unavailable' && resolution.detail).toBe(`HTTP ${status}`);
+    }
   });
 
   it('ships chatgpt.com as the only default trusted signature agent', () => {

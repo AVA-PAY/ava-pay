@@ -213,7 +213,10 @@ export class WbaPublishedKeySource implements FederatedSource {
         sawOutage = true;
         continue;
       }
-      if (resolution.status === 'unavailable') {
+      if (resolution.status === 'unavailable' || resolution.status === 'redirected') {
+        // A redirected directory is as unresolvable as a down one for this
+        // chain's purposes (-02 Section 5.5), so it skips rather than counting
+        // as a definitive miss that would let a later root be shadowed.
         sawOutage = true;
         continue;
       }
@@ -278,8 +281,8 @@ export interface JwksUriKeySourceOptions {
  * URL (§5.5). Unlike a well-known directory, these give key continuity at an
  * ARBITRARY URL with no origin association, so a hit records url-only binding
  * and the (key, domain) pair records the URL itself. Discipline mirrors the WBA
- * directory fetcher: https only, allowlisted URLs, a redirect is an error (no
- * plaintext or off-list hop), bounded, honoring the published key window.
+ * directory fetcher: https only, allowlisted URLs, a redirect is an error (-02
+ * Section 5.5 forbids following one), bounded, honoring the published key window.
  */
 export class JwksUriKeySource implements FederatedSource {
   readonly name: string;
@@ -358,7 +361,10 @@ export class JwksUriKeySource implements FederatedSource {
         signal: controller.signal,
         headers: { accept: 'application/jwk-set+json, application/json' },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // -02 Section 5.5: discovery MUST be served with 200 (OK). `redirect:
+      // 'error'` above already refuses a hop; this refuses every other status,
+      // including a 2xx that carries no key set.
+      if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
       const body = await readBounded(res, this.maxBytes);
       return parseKeyDirectory(JSON.parse(body));
     } finally {
