@@ -23,7 +23,7 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
 
 /**
  * WebBotAuthVerifier — verifies IETF Web Bot Auth signed agent traffic
- * (draft-meunier-webbotauth-httpsig-protocol / -httpsig-directory), the
+ * (draft-meunier-webbotauth-httpsig-protocol-02, 2026-08-18), the
  * scheme real ChatGPT / Claude / Perplexity crawler+agent requests use.
  *
  * Identity, not payment authority: a passing request proves "this really is
@@ -62,6 +62,12 @@ export interface ResolvedDirectoryKey extends WebBotAuthKey {
 export type KeyDirectoryResolution =
   | { status: 'ok'; keys: ResolvedDirectoryKey[] }
   | { status: 'not_allowed' }
+  /**
+   * The directory URL answered with a redirect. Separate from `unavailable`
+   * because -02 Section 5.5 makes it a configuration fault the operator can
+   * fix, not an outage, and the merchant-facing reason says so.
+   */
+  | { status: 'redirected'; detail?: string }
   | { status: 'unavailable'; detail?: string };
 
 /** Resolves a Signature-Agent origin to its published signing keys. */
@@ -142,9 +148,13 @@ export class WebBotAuthVerifier implements AgentVerifier {
       );
     }
     if (!sigAgentHeader) {
+      // -02 Section 5.2.1: a signed request MUST carry Signature-Agent. We do
+      // not fall back to resolving the bare keyid against every directory we
+      // know: that is the (URL, key) confusion Section 5.4 forbids. Conclusive,
+      // because nothing about this request is in doubt.
       return fail(
-        'missing_agent_credentials',
-        'Web Bot Auth requires a Signature-Agent header for key discovery.',
+        'missing_signature_agent',
+        'Web Bot Auth requires a Signature-Agent header (draft -02 Section 5.2.1); none was sent.',
       );
     }
 
@@ -208,7 +218,26 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
 
     // ── 4/5. Covered-component requirements ───────────────────────────────
-    if (!parsedInput.components.includes('signature-agent')) {
+    // -02 Section 5.2.1 requires the Signature-Agent member to be covered. Two
+    // shapes reach us:
+    //   keyed     ("signature-agent";key="agent2") the -02 form. We resolve THE
+    //             MEMBER THE SIGNATURE COVERS, which is the invariant that
+    //             matters: Section 5.2.2 forbids attributing a signature to a
+    //             member it does not cover. We deliberately do NOT additionally
+    //             require key == signature label. Section 5.2.1 says "the
+    //             member keyed to the signature label", but the draft's own
+    //             Appendix E.1.1 / E.2.1 vectors label the signature sig2 and
+    //             key the member agent2, and -02 deleted the -01 sentence that
+    //             made matching a RECOMMENDED. Enforcing it would reject the
+    //             working group's published vectors while adding no security
+    //             over resolving the covered member. Raised for the IETF reply.
+    //   unkeyed   the deployed form (chatgpt.com sends the bare sf-string
+    //             header with an unkeyed component). Covering the field covers
+    //             every member, so the label-matched member is still what the
+    //             signer committed to, and Section 5.2.1 explicitly lets a
+    //             verifier accept the legacy form.
+    const sigAgentComponent = parsedInput.componentIds.find((c) => c.name === 'signature-agent');
+    if (!sigAgentComponent) {
       return fail(
         'malformed_signature_header',
         'signature-agent must be a covered component when the header is sent.',
@@ -230,7 +259,14 @@ export class WebBotAuthVerifier implements AgentVerifier {
     // `directory` type binds the key to the origin; jwks_uri/cimd do not.
     let binding: 'domain' | 'url-only';
     try {
-      const parsedAgent = parseSignatureAgent(sigAgentHeader, parsedInput.label);
+      // Keyed: resolve exactly the covered member, strictly (no fallback to
+      // another member, which would be the attribution the spec forbids).
+      // Unkeyed: the whole field is covered, so the label-matched member with
+      // the legacy fallback is sound.
+      const parsedAgent =
+        sigAgentComponent.key !== undefined
+          ? parseSignatureAgent(sigAgentHeader, sigAgentComponent.key, { strict: true })
+          : parseSignatureAgent(sigAgentHeader, parsedInput.label);
       origin = parsedAgent.origin;
       binding = parsedAgent.type === 'directory' ? 'domain' : 'url-only';
     } catch (err) {
@@ -265,6 +301,16 @@ export class WebBotAuthVerifier implements AgentVerifier {
       return fail(
         'unknown_signature_agent',
         `Signature agent "${origin}" is not in this merchant's trust set.`,
+      );
+    }
+    if (resolution.status === 'redirected') {
+      // Could-not-check, so inconclusive and fail closed, exactly like an
+      // outage. Kept as its own reason because the operator fix differs and
+      // reporting "unreachable" for a directory that answered would be untrue.
+      return fail(
+        'key_directory_redirected',
+        `Key directory for "${origin}" answered with a redirect; draft -02 Section 5.5 requires 200 (OK) and forbids following it.`,
+        false,
       );
     }
     if (resolution.status === 'unavailable') {
@@ -432,12 +478,15 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * Fetches https://{origin}/.well-known/http-message-signatures-directory,
  * bounded and cached.
  *
- * Fetch discipline (the directory draft leaves these to implementations):
- * https only (a redirect to any non-https URL is refused, never followed),
- * redirects honored only to allowlisted https origins and capped at 3, 5s
- * timeout, 64 KiB response cap, and only allowlisted origins are ever
- * contacted. Success and failure are both cached (10 min / 30 s) so a flood of
+ * Fetch discipline: the response MUST be 200 (OK) and redirects are never
+ * followed, both required by -02 Section 5.5; https only; 5s timeout; 64 KiB
+ * response cap; and only allowlisted origins are ever contacted (the SSRF
+ * guard). Success and failure are both cached (10 min / 30 s) so a flood of
  * requests cannot turn us into a fetch cannon.
+ *
+ * A 3xx resolves to `redirected` rather than `unavailable` so the verifier can
+ * tell a merchant which of the two happened: a directory that is up and
+ * misconfigured is an operator fix, an unreachable one is an outage.
  *
  * Directory responses are trusted on the strength of TLS to an allowlisted
  * origin, plus Appendix B proof-of-possession when the directory serves it:
@@ -483,84 +532,59 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   }
 
   private async fetchDirectory(origin: string): Promise<KeyDirectoryResolution> {
-    const MAX_REDIRECTS = 3;
-    let url = `${origin}${KEY_DIRECTORY_PATH}`;
-    for (let hop = 0; ; hop++) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-      try {
-        // Redirects are handled manually so a hop to a non-https or
-        // non-allowlisted URL is refused rather than followed (see below).
-        const res = await this.fetchImpl(url, {
-          redirect: 'manual',
-          signal: controller.signal,
-          headers: { accept: 'application/http-message-signatures-directory+json, application/json' },
-        });
-        if (res.status >= 300 && res.status < 400) {
-          if (hop >= MAX_REDIRECTS) return { status: 'unavailable', detail: 'too many redirects' };
-          const next = this.validateRedirect(res.headers.get('location'), url);
-          if (!next.ok) return { status: 'unavailable', detail: next.detail };
-          url = next.url;
-          continue;
-        }
-        if (!res.ok) {
-          return { status: 'unavailable', detail: `HTTP ${res.status}` };
-        }
-        const body = await readBounded(res, this.maxBytes);
-        const keys = parseKeyDirectory(JSON.parse(body));
-        // Appendix B: classify each key by its response proof-of-possession.
-        // The request authority is the host we actually fetched (post-redirect),
-        // which is what the directory operator signs over (@authority;req).
-        const proofByThumbprint = verifyDirectoryProofs({
-          authority: new URL(url).host,
-          body,
-          signatureInput: res.headers.get('signature-input') ?? undefined,
-          signature: res.headers.get('signature') ?? undefined,
-          now: Math.floor(this.nowMs() / 1000),
-          skewSeconds: PROOF_SKEW_SECONDS,
-          keys,
-        });
-        const resolved: ResolvedDirectoryKey[] = keys.map((k) => ({
-          ...k,
-          proof: proofByThumbprint.get(k.thumbprint) ?? 'absent',
-        }));
-        return { status: 'ok', keys: resolved };
-      } catch (err) {
-        return {
-          status: 'unavailable',
-          detail: err instanceof Error ? err.message : 'fetch failed',
-        };
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-  }
-
-  /**
-   * Decide whether a directory redirect may be followed. A key-distribution
-   * path must never be downgraded, so a non-https Location is refused (fail
-   * closed to "unavailable", never fetched over plaintext). SSRF guard: the
-   * redirect target origin must itself be allowlisted, so a compromised or
-   * misconfigured directory cannot bounce us onto an unvetted host.
-   */
-  private validateRedirect(
-    location: string | null,
-    from: string,
-  ): { ok: true; url: string } | { ok: false; detail: string } {
-    if (!location) return { ok: false, detail: 'redirect without a Location header' };
-    let next: URL;
+    const url = `${origin}${KEY_DIRECTORY_PATH}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      next = new URL(location, from);
-    } catch {
-      return { ok: false, detail: 'redirect Location is not a valid URL' };
+      // `manual` so a 3xx is observed and refused rather than followed by the
+      // fetch implementation. -02 Section 5.5: discovery MUST be served with
+      // 200 (OK), and a verifier MUST NOT automatically follow redirects.
+      const res = await this.fetchImpl(url, {
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { accept: 'application/http-message-signatures-directory+json, application/json' },
+      });
+      if (res.status >= 300 && res.status < 400) {
+        // Until -02 we followed up to three https, allowlisted hops, because
+        // shopify.com's apex 301 to www was the deployed reality (built
+        // 2026-08-11). -02 makes that non-conformant, so the tolerance is
+        // gone and accept-deployed-reality yields to a published MUST that we
+        // reported the issue for. CONSEQUENCE: the shopify.com APEX directory
+        // no longer resolves for identity purposes. Their www host serves the
+        // directory directly and is unaffected.
+        return { status: 'redirected', detail: `HTTP ${res.status}` };
+      }
+      if (res.status !== 200) {
+        // Exactly 200, not any 2xx: a 204 carries no key set to parse.
+        return { status: 'unavailable', detail: `HTTP ${res.status}` };
+      }
+      const body = await readBounded(res, this.maxBytes);
+      const keys = parseKeyDirectory(JSON.parse(body));
+      // Appendix B: classify each key by its response proof-of-possession.
+      // The request authority is the host we actually fetched (post-redirect),
+      // which is what the directory operator signs over (@authority;req).
+      const proofByThumbprint = verifyDirectoryProofs({
+        authority: new URL(url).host,
+        body,
+        signatureInput: res.headers.get('signature-input') ?? undefined,
+        signature: res.headers.get('signature') ?? undefined,
+        now: Math.floor(this.nowMs() / 1000),
+        skewSeconds: PROOF_SKEW_SECONDS,
+        keys,
+      });
+      const resolved: ResolvedDirectoryKey[] = keys.map((k) => ({
+        ...k,
+        proof: proofByThumbprint.get(k.thumbprint) ?? 'absent',
+      }));
+      return { status: 'ok', keys: resolved };
+    } catch (err) {
+      return {
+        status: 'unavailable',
+        detail: err instanceof Error ? err.message : 'fetch failed',
+      };
+    } finally {
+      clearTimeout(timer);
     }
-    if (next.protocol !== 'https:') {
-      return { ok: false, detail: `refused non-https redirect (${next.protocol})` };
-    }
-    if (!this.allowed.has(next.origin.toLowerCase())) {
-      return { ok: false, detail: `refused redirect to non-allowlisted origin ${next.origin}` };
-    }
-    return { ok: true, url: next.toString() };
   }
 }
 
