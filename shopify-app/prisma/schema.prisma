@@ -90,6 +90,14 @@ model VerificationEvent {
   /// One-time discount code minted for this request — the join key that
   /// attributes later checkouts/orders back to an agent platform.
   discountCode String?
+  /// How the request reached us.
+  ///   'storefront': delivered through Shopify's App Proxy by a real visitor
+  ///   'test':       the merchant pressed "Send test agent visit" in Settings,
+  ///                 which signs a demo credential server-side and runs the
+  ///                 same verify pipeline. Recorded rather than hidden so the
+  ///                 Traffic page never presents a self-made request as
+  ///                 organic agent traffic.
+  source       String @default("storefront")
 
   @@index([shop, createdAt])
   @@index([shop, discountCode])

@@ -17,6 +17,12 @@ export interface VerificationEventRow {
   identityOnly: boolean;
   discountPct: number | null;
   discountCode: string | null;
+  /**
+   * 'storefront' for a proxy-delivered request, 'test' for one the merchant
+   * sent from Settings. Optional so rows read before the column existed keep
+   * their meaning instead of becoming untyped.
+   */
+  source?: string | null;
 }
 
 /** Subset of prisma AgentCommerceEvent the aggregation needs. */
@@ -92,6 +98,8 @@ export interface RecentVerification {
   outcome: string;
   reason: string | null;
   discountPct: number | null;
+  /** True when the merchant sent this from Settings rather than an agent arriving. */
+  isTest: boolean;
 }
 
 export interface TrafficIntelView {
@@ -324,6 +332,7 @@ export function buildTrafficView(
       outcome: e.outcome,
       reason: e.reason,
       discountPct: e.discountPct,
+      isTest: e.source === 'test',
     }));
 
   const events7d = events.filter((e) => e.createdAt >= since7d);
