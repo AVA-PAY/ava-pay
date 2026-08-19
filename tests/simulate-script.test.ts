@@ -372,6 +372,34 @@ describe('simulate-verified-agent.mjs argument parsing', () => {
     expect(parsed.probe).toBe(false);
   });
 
+  // An option the parser does not know may or may not take a value, so the
+  // token after it cannot be classified. Guessing is how a mistyped --passwrod
+  // leaves its value standing where the store belongs, and a password shaped
+  // like a hostname would pass the check above and be printed.
+  it('refuses an option it does not know, naming the option and not its value', () => {
+    const parsed = parse('--passwrod', 'hunter2', SHOP);
+    expect(parsed.shop).toBeUndefined();
+    expect(parsed.error).toContain('--passwrod');
+    expect(parsed.error).not.toContain('hunter2');
+  });
+
+  it('names only the option when an unknown one carries its value inline', () => {
+    const parsed = parse('--passwrod=hunter2', SHOP);
+    expect(parsed.error).toContain('--passwrod');
+    expect(parsed.error).not.toContain('hunter2');
+  });
+
+  it('refuses a single-dash option too, since -p is not --password', () => {
+    const parsed = parse('-p', 'hunter2', SHOP);
+    expect(parsed.error).toContain('-p');
+    expect(parsed.error).not.toContain('hunter2');
+  });
+
+  it('still shows help when an unknown option is typed alongside it', () => {
+    expect(parse('--bogus', '--help').help).toBe(true);
+    expect(parse('--help', '--bogus').error).toBeUndefined();
+  });
+
   it('falls back to AVA_STOREFRONT_PASSWORD, and prefers the flag over it', () => {
     const env = { AVA_STOREFRONT_PASSWORD: 'from-env' };
     expect(parseArgs([SHOP], env).password).toBe('from-env');

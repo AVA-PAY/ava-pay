@@ -372,12 +372,18 @@ function normalizeShop(input) {
  * storefront password. REVIEWER-TESTING-INSTRUCTIONS.md promises that password
  * is neither echoed nor stored, and this is what keeps the promise true even
  * when the arguments come in an order nobody anticipated.
+ *
+ * An option this parser does not know is refused for the same reason. A
+ * mistyped `--passwrod` would otherwise leave its value standing where the
+ * store belongs, and a password that happens to look like a hostname would
+ * survive the check below and be printed.
  */
 export function parseArgs(argv, env = process.env) {
   let help = false;
   let probe = false;
   let store;
   let passwordFlag;
+  let unknownOption;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -390,14 +396,22 @@ export function parseArgs(argv, env = process.env) {
       i++;
     } else if (arg.startsWith('--password=')) {
       passwordFlag = arg.slice('--password='.length);
-    } else if (arg.startsWith('--')) {
-      // Unrecognised long flag: ignored, and never treated as the store.
+    } else if (arg.startsWith('-')) {
+      // Unrecognised option. Whether it takes a value is unknowable, so the
+      // token after it cannot be classified: refuse rather than guess. Only the
+      // option itself is named, never anything after the first `=`, which may
+      // be a value.
+      unknownOption = unknownOption ?? arg.split('=')[0];
     } else if (store === undefined) {
       store = arg;
     }
   }
 
+  // --help anywhere still wins, exactly as it did before.
   if (help) return { help: true };
+  if (unknownOption !== undefined) {
+    return { error: `Unrecognised option ${unknownOption}.\n\n${USAGE}` };
+  }
   if (store === undefined) return { error: USAGE };
 
   const shop = normalizeShop(store);
