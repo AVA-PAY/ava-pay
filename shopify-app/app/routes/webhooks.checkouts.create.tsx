@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs } from 'react-router';
-import { authenticate } from '../shopify.server.js';
+import { authenticateWebhookRequest } from '../lib/webhook-auth.server.js';
 import { recordCommerceEvent } from '../lib/commerce.server.js';
 import {
   findAvaDiscountCode,
@@ -17,7 +17,7 @@ import {
  * verified→checkout→order funnel without querying Shopify.
  */
 export async function action({ request }: ActionFunctionArgs) {
-  const { shop, payload } = await authenticate.webhook(request);
+  const { shop, payload } = await authenticateWebhookRequest(request);
 
   const checkout = (payload ?? {}) as {
     id?: number | string;

@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs } from 'react-router';
-import { authenticate } from '../shopify.server.js';
+import { authenticateWebhookRequest } from '../lib/webhook-auth.server.js';
 import prisma from '../db.server.js';
 
 /**
@@ -20,11 +20,13 @@ import prisma from '../db.server.js';
  * formally invokes shop/redact 48h later we delete everything, fulfilling
  * the right-to-erasure window.
  *
- * Order of operations matters: delete sessions LAST so we still have
- * access to authenticate this exact webhook request.
+ * There is no ordering constraint between these deletes: this webhook is
+ * authenticated by HMAC, not by the stored session (an earlier comment said
+ * sessions had to be deleted last, but the session plays no part in
+ * authenticating the request, and the deletes below run concurrently).
  */
 export async function action({ request }: ActionFunctionArgs) {
-  const { shop, topic } = await authenticate.webhook(request);
+  const { shop, topic } = await authenticateWebhookRequest(request);
 
   const [events, commerce, settings, sessions] = await Promise.all([
     prisma.verificationEvent.deleteMany({ where: { shop } }),

@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs } from 'react-router';
-import { authenticate } from '../shopify.server.js';
+import { authenticateWebhookRequest } from '../lib/webhook-auth.server.js';
 
 /**
  * customers/redact — Shopify mandatory compliance webhook.
@@ -15,7 +15,7 @@ import { authenticate } from '../shopify.server.js';
  * We log the request so we have an audit trail of compliance handling.
  */
 export async function action({ request }: ActionFunctionArgs) {
-  const { shop, topic } = await authenticate.webhook(request);
+  const { shop, topic } = await authenticateWebhookRequest(request);
 
   // Intentionally do NOT log customer identifiers. If we logged customerId
   // here, that log line would itself be customer data, contradicting the
