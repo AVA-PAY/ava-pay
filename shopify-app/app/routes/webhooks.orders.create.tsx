@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs } from 'react-router';
-import { authenticate } from '../shopify.server.js';
+import { authenticateWebhookRequest } from '../lib/webhook-auth.server.js';
 import { recordCommerceEvent } from '../lib/commerce.server.js';
 import {
   findAvaDiscountCode,
@@ -18,7 +18,7 @@ import {
  * action here — discounts were applied at the App Proxy step.
  */
 export async function action({ request }: ActionFunctionArgs) {
-  const { shop, payload } = await authenticate.webhook(request);
+  const { shop, payload } = await authenticateWebhookRequest(request);
 
   const order = (payload ?? {}) as {
     id?: number | string;
