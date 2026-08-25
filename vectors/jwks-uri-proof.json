@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/tenants/acme/jwks.json",
+    "authority": "keys.example.net"
+  },
+  "body": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\",\"x\":\"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs\",\"use\":\"sig\"}]}",
+  "contentDigest": "sha-256=:CADMT2aBdV/rqQr/NIru64ERQkCobVvllA4V0fLFDu0=:",
+  "created": 1735689600,
+  "expires": 4889289600,
+  "keyid": "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U",
+  "label": "binding",
+  "signatureInput": "binding=(\"@authority\";req \"content-digest\");created=1735689600;expires=4889289600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";tag=\"http-message-signatures-directory\"",
+  "signature": "binding=:XYYlmY6I95bBZaXIzgVqs+Fg9nZCi8oyVVpeqoGG40RhL1TmqkZKI8yttwVZdkw3mJ2pzn/Rqb0UBVrID0iRCQ==:",
+  "id": "jwks-uri",
+  "mediaType": "application/jwk-set+json",
+  "negatives": [
+    {
+      "id": "jwks-uri-tampered-body",
+      "expect": "content-digest mismatch",
+      "note": "the signed key set with a top-level member added after signing",
+      "authority": "keys.example.net",
+      "body": "{\"signature_agent\":\"https://attacker.example\",\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\",\"x\":\"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs\",\"use\":\"sig\"}]}",
+      "contentDigest": "sha-256=:jFX2Gs7FlITbX8/gz+p0WY/1Dfg28SzAIQbEV2IaaZY=:"
+    },
+    {
+      "id": "jwks-uri-wrong-authority",
+      "expect": "@authority mismatch",
+      "note": "the same response re-served under signature-agent.test",
+      "authority": "signature-agent.test",
+      "body": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\",\"x\":\"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs\",\"use\":\"sig\"}]}",
+      "contentDigest": "sha-256=:CADMT2aBdV/rqQr/NIru64ERQkCobVvllA4V0fLFDu0=:"
+    }
+  ]
+}

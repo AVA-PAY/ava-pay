@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/.well-known/http-message-signatures-directory",
+    "authority": "signature-agent.test"
+  },
+  "body": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\",\"x\":\"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs\",\"use\":\"sig\"}]}",
+  "contentDigest": "sha-256=:CADMT2aBdV/rqQr/NIru64ERQkCobVvllA4V0fLFDu0=:",
+  "created": 1735689600,
+  "expires": 4889289600,
+  "keyid": "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U",
+  "label": "binding",
+  "signatureInput": "binding=(\"@authority\";req \"content-digest\");created=1735689600;expires=4889289600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";tag=\"http-message-signatures-directory\"",
+  "signature": "binding=:l6P8R67tm3kujAxbHWio7ll01qrEZ0dKD/WWlGhNYEmTnFZM8Wt0VQ9zqGfvo7T/UMkBxsigzChM1Gpz7gOVBg==:",
+  "id": "directory",
+  "mediaType": "application/http-message-signatures-directory+json",
+  "negatives": [
+    {
+      "id": "directory-tampered-body",
+      "expect": "content-digest mismatch",
+      "note": "the signed key set with a top-level member added after signing",
+      "authority": "signature-agent.test",
+      "body": "{\"signature_agent\":\"https://attacker.example\",\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\",\"x\":\"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs\",\"use\":\"sig\"}]}",
+      "contentDigest": "sha-256=:jFX2Gs7FlITbX8/gz+p0WY/1Dfg28SzAIQbEV2IaaZY=:"
+    },
+    {
+      "id": "directory-wrong-authority",
+      "expect": "@authority mismatch",
+      "note": "the same response re-served under keys.example.net",
+      "authority": "keys.example.net",
+      "body": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\",\"x\":\"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs\",\"use\":\"sig\"}]}",
+      "contentDigest": "sha-256=:CADMT2aBdV/rqQr/NIru64ERQkCobVvllA4V0fLFDu0=:"
+    }
+  ]
+}

@@ -24,7 +24,9 @@
     "demo:wba": "tsx examples/agent-demo.ts --wba",
     "demo:tap": "tsx examples/agent-demo.ts --tap",
     "demo:http": "tsx examples/agent-demo.ts --http",
-    "check:type-sync": "tsx scripts/check-type-sync.ts"
+    "check:type-sync": "tsx scripts/check-type-sync.ts",
+    "vectors": "node scripts/generate-directory-proof-vectors.mjs --write",
+    "vectors:verify": "node scripts/verify-directory-proof-vectors.mjs --all"
   },
   "dependencies": {
     "@ava-pay/agent": "*",
