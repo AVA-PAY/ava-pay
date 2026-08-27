@@ -1,26 +1,67 @@
 {% comment %}
-  AVA Pay theme app extension — App Embed Block.
+  App embed block for the AVA Pay app.
 
-  Once a merchant installs the AVA Pay app, this block appears in the
-  Shopify theme editor under "App embeds". They click the toggle and AVA Pay
-  is live on every page of their storefront — no code changes, no copy/paste.
+  A merchant installs the app, opens the theme editor, and switches this on
+  under App embeds. From then on every storefront page checks incoming AI
+  shopping agents. There is no code to add and nothing in the theme to edit.
 
-  The single line below loads our app proxy embed script. The script:
-    1. Detects AVA agent fingerprints on storefront page loads.
-    2. Calls /apps/ava-pay/verify (HMAC-signed by Shopify on the way to us).
-    3. Applies a one-time discount code if the agent is trusted.
+  Two things render here.
+
+  1. The proxy embed script, on every storefront page. It detects a signed
+     agent request, calls /apps/ava-pay/verify (HMAC-signed by Shopify on the
+     way to us), and on a trusted verdict applies the one-time discount code
+     the merchant's policy grants, then shows the shopper a short confirmation.
+     The banner is reachable from that state alone: a failed check, a check that
+     could not be completed, and a verified visit that earned no code all stay
+     silent to visitors.
+
+  2. In the theme editor only, a static preview of that banner, so a merchant
+     can see what switching this on puts in front of shoppers before they
+     publish. request.design_mode is false on every live storefront page, so
+     this markup cannot reach a shopper.
+
+  The block targets body rather than head because it renders visible markup.
+  A head-targeted block that emits an element would close the document head
+  early and push the theme's own head content into the body.
 {% endcomment %}
 
-<script async src="{{ shop.url }}/apps/ava-pay/embed.js"></script>
+<script
+  async
+  src="{{ shop.url }}/apps/ava-pay/embed.js"
+  data-agent-banner="{% if block.settings.banner_enabled %}true{% else %}false{% endif %}"
+></script>
+
+{% if request.design_mode %}
+  <div
+    style="position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483000;box-sizing:border-box;width:max-content;max-width:calc(100vw - 32px);display:flex;flex-direction:column;gap:8px;margin:0;padding:12px 16px;border:1px solid #d9d9d9;border-radius:10px;background:#ffffff;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:400;line-height:1.4;text-align:left;box-shadow:0 4px 16px rgba(0,0,0,0.14);"
+  >
+    {% if block.settings.banner_enabled %}
+      <div style="display:flex;align-items:center;gap:16px;">
+        <span>This AI agent visit was verified. Discount code SAMPLE-1234 was applied by this store's policy.</span>
+        <span style="flex:none;color:#4a4a4a;text-decoration:underline;">Dismiss</span>
+      </div>
+      <span style="color:#616161;font-size:12px;">Preview: this banner appears on the storefront when a verified AI agent visit results in an applied discount.</span>
+    {% else %}
+      <span style="color:#616161;font-size:12px;">Preview: the storefront banner is switched off in this block's settings, so shoppers are shown nothing. Agents are still verified and discounts are still applied.</span>
+    {% endif %}
+  </div>
+{% endif %}
 
 {% schema %}
 {
   "name": "AVA Pay",
-  "target": "head",
+  "target": "body",
   "settings": [
     {
       "type": "paragraph",
-      "content": "AVA Pay verifies AI shopping agents and applies a one-time discount to verified orders. Configure the discount percentage in the AVA Pay app's Settings page."
+      "content": "Verifies AI shopping agents on every storefront page and applies the one-time discount your policy grants. Discount percentages and per-platform rules live in the app's Settings and Policies pages."
+    },
+    {
+      "type": "checkbox",
+      "id": "banner_enabled",
+      "label": "Show shoppers a confirmation when a verified agent visit gets a discount",
+      "default": true,
+      "info": "Turn this off to verify agents and apply discounts without displaying anything on the storefront."
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_EMBED_HANDLE, themeAppEmbedDeepLink } from './theme-embed.js';
+import { APP_EMBED_HANDLE, themeAppEmbedDeepLink, themeListUrl } from './theme-embed.js';
 
 const SHOP = 'ava-pay-test-store.myshopify.com';
 
@@ -34,5 +34,11 @@ describe('themeAppEmbedDeepLink', () => {
     const url = themeAppEmbedDeepLink(SHOP, 'key');
     expect(url).not.toContain('theme.liquid');
     expect(url).not.toContain('code');
+  });
+});
+
+describe('themeListUrl', () => {
+  it('opens the theme list, for a merchant setting this up off the published theme', () => {
+    expect(themeListUrl(SHOP)).toBe(`https://${SHOP}/admin/themes`);
   });
 });

@@ -90,6 +90,14 @@ export interface TrendDay {
   revenueMinor: number;
 }
 
+/**
+ * One row of the Recent verifications table.
+ *
+ * Every column VerificationEvent stores about a visit is here, so a merchant
+ * can see the record rather than a summary of it. `shop` is the merchant
+ * themselves and `id` is our own primary key; everything else the row holds is
+ * carried across.
+ */
 export interface RecentVerification {
   id: string;
   createdAt: string; // ISO
@@ -98,6 +106,15 @@ export interface RecentVerification {
   outcome: string;
   reason: string | null;
   discountPct: number | null;
+  /** The one-time code minted for this visit, when the policy granted one. */
+  discountCode: string | null;
+  /**
+   * Verified on identity alone, with no buyer mandate behind it. Only means
+   * anything once a verdict was actually reached, so the table shows it for
+   * verified and policy-blocked rows and leaves it blank elsewhere rather than
+   * reading a default `false` as "mandate-backed".
+   */
+  identityOnly: boolean;
   /** True when the merchant sent this from Settings rather than an agent arriving. */
   isTest: boolean;
 }
@@ -332,6 +349,8 @@ export function buildTrafficView(
       outcome: e.outcome,
       reason: e.reason,
       discountPct: e.discountPct,
+      discountCode: e.discountCode,
+      identityOnly: e.identityOnly,
       isTest: e.source === 'test',
     }));
 

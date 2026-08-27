@@ -290,7 +290,7 @@ describe('simulate-verified-agent.mjs argument parsing', () => {
 
   it('parses the default path, one bare store and nothing else', () => {
     const parsed = parse(SHOP);
-    expect(parsed).toEqual({ shop: SHOP, probe: false, password: '' });
+    expect(parsed).toEqual({ shop: SHOP, probe: false, emitUrl: false, password: '' });
   });
 
   // The whole point of the fix: a misread argument fails without printing what
@@ -331,6 +331,7 @@ describe('simulate-verified-agent.mjs argument parsing', () => {
     expect(parse('--web-bot-auth', '--password', 'hunter2', SHOP)).toEqual({
       shop: SHOP,
       probe: true,
+      emitUrl: false,
       password: 'hunter2',
     });
     expect(parse(SHOP).probe).toBe(false);
@@ -398,6 +399,18 @@ describe('simulate-verified-agent.mjs argument parsing', () => {
   it('still shows help when an unknown option is typed alongside it', () => {
     expect(parse('--bogus', '--help').help).toBe(true);
     expect(parse('--help', '--bogus').error).toBeUndefined();
+  });
+
+  it('leaves --emit-url working in either position, and alongside the probe', () => {
+    expect(parse(SHOP, '--emit-url').emitUrl).toBe(true);
+    expect(parse('--emit-url', SHOP).emitUrl).toBe(true);
+    expect(parse('--emit-url', '--web-bot-auth', SHOP)).toEqual({
+      shop: SHOP,
+      probe: true,
+      emitUrl: true,
+      password: '',
+    });
+    expect(parse(SHOP).emitUrl).toBe(false);
   });
 
   it('falls back to AVA_STOREFRONT_PASSWORD, and prefers the flag over it', () => {

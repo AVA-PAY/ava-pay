@@ -215,6 +215,40 @@ export function buildWebBotAuthRequest(shop, options = {}) {
 }
 
 /**
+ * Headers AVA Pay's storefront embed lifts out of the URL and sends on as real
+ * request headers. Anything starting with `x-` travels too, which is how the
+ * buyer mandate gets across. Mirrors FORWARDED_HEADERS in the app's
+ * shopify-app/app/lib/storefront-visit.ts.
+ */
+const FORWARDED_HEADERS = [
+  'signature',
+  'signature-input',
+  'content-digest',
+  'signature-agent',
+  'x-ava-mandate',
+];
+
+/**
+ * The storefront URL that carries a signed agent visit.
+ *
+ * Opening it in a browser is the second way an agent request reaches AVA Pay:
+ * the theme app embed reads these parameters off the page URL and posts them
+ * back to /apps/ava-pay/verify as headers. `host` is left out because the
+ * browser sets it from the URL, which is the same storefront origin the
+ * signature covers.
+ */
+export function storefrontVisitUrl(shop, headers, path = '/') {
+  const url = new URL(path, `https://${shop}`);
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (FORWARDED_HEADERS.includes(lower) || lower.startsWith('x-')) {
+      url.searchParams.set(lower, value);
+    }
+  }
+  return url.toString();
+}
+
+/**
  * Minimal cookie jar. Node's fetch does not keep cookies, and the storefront
  * password gate needs a session cookie carried from the form GET through to
  * the proxy request.
@@ -326,6 +360,15 @@ Options:
         gate without one, so it need never appear in shell history.
         AVA_STOREFRONT_PASSWORD is read as a fallback.
 
+  --emit-url
+        Print the storefront URL that carries this signed request and send
+        nothing. Opening it in a browser on a store with the AVA Pay app embed
+        switched on runs the same verification the direct request does: the
+        embed forwards the signed parameters to /apps/ava-pay/verify, and a
+        trusted verdict that earns a discount shows the storefront banner.
+        Combines with --web-bot-auth. The request is signed over an empty body,
+        since that is what the embed sends.
+
   --web-bot-auth
         Send a Web Bot Auth request instead of the default Visa-profile one,
         signed as an agent at
@@ -345,7 +388,8 @@ HTTP 200 with allow:true, reason verified, and a one-time discount code.
 `;
 
 const USAGE =
-  'Usage: node simulate-verified-agent.mjs your-store.myshopify.com [--password <storefront password>]';
+  'Usage: node simulate-verified-agent.mjs your-store.myshopify.com [--password <storefront password>]\n' +
+  '       node simulate-verified-agent.mjs your-store.myshopify.com --emit-url';
 
 /**
  * A store domain, after normalisation: labels separated by dots, at least one
@@ -361,7 +405,7 @@ function normalizeShop(input) {
 
 /**
  * Resolve the command line. Returns { help }, { error }, or the settled
- * { shop, probe, password }.
+ * { shop, probe, emitUrl, password }.
  *
  * Two rules earn their keep here. First, --password consumes the token after
  * it unconditionally, so its value can never be mistaken for the store and a
@@ -381,6 +425,7 @@ function normalizeShop(input) {
 export function parseArgs(argv, env = process.env) {
   let help = false;
   let probe = false;
+  let emitUrl = false;
   let store;
   let passwordFlag;
   let unknownOption;
@@ -391,6 +436,8 @@ export function parseArgs(argv, env = process.env) {
       help = true;
     } else if (arg === '--web-bot-auth') {
       probe = true;
+    } else if (arg === '--emit-url') {
+      emitUrl = true;
     } else if (arg === '--password') {
       passwordFlag = argv[i + 1];
       i++;
@@ -429,7 +476,7 @@ export function parseArgs(argv, env = process.env) {
   // flag at all, so the script still reaches its prompt rather than sending an
   // empty password to the gate.
   const password = passwordFlag || env.AVA_STOREFRONT_PASSWORD || '';
-  return { shop, probe, password };
+  return { shop, probe, emitUrl, password };
 }
 
 async function main() {
@@ -442,8 +489,19 @@ async function main() {
     console.error(cli.error);
     process.exit(2);
   }
-  const { shop, probe } = cli;
+  const { shop, probe, emitUrl } = cli;
   let { password } = cli;
+
+  // Printing a URL sends nothing: no request, no password gate, no cookies.
+  // Only the URL goes to stdout, so it can be piped straight into a browser.
+  if (emitUrl) {
+    const build = probe ? buildWebBotAuthRequest : buildSignedAgentRequest;
+    // Empty body, because that is what the embed posts once it has lifted the
+    // parameters back out of the URL. Signing over the cart body instead would
+    // put a Content-Digest on the wire that describes a body nobody sent.
+    console.log(storefrontVisitUrl(shop, build(shop, { body: '' }).headers));
+    return;
+  }
 
   if (probe) {
     console.log('Web Bot Auth probe: signing as an agent whose key directory does not');
