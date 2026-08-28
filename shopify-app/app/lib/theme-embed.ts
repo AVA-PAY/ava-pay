@@ -27,3 +27,13 @@ export function themeAppEmbedDeepLink(shop: string, apiKey: string | undefined):
   const activate = `${encodeURIComponent(apiKey)}/${APP_EMBED_HANDLE}`;
   return `${base}&template=index&activateAppId=${activate}`;
 }
+
+/**
+ * The store's theme list, for a merchant who wants the embed on a theme other
+ * than the published one. The deep link above always opens `themes/current`,
+ * which is the published theme; from this page they press Customize on any
+ * other theme and reach the same App embeds panel.
+ */
+export function themeListUrl(shop: string): string {
+  return `https://${shop}/admin/themes`;
+}

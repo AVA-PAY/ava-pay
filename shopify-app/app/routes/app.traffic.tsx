@@ -21,6 +21,7 @@ import {
   rejectedCount,
   uncheckedCount,
   type ReasonStat,
+  type RecentVerification,
   type TrafficIntelView,
   type TrafficKpis,
   type TrendDay,
@@ -213,15 +214,30 @@ export default function TrafficPage() {
               <Text as="h2" variant="headingMd">
                 Recent verifications
               </Text>
+              <Text as="p" variant="bodySm" tone="subdued">
+                Every field recorded about a visit, as it was recorded.
+              </Text>
               <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'text', 'numeric', 'text']}
+                columnContentTypes={[
+                  'text',
+                  'text',
+                  'text',
+                  'text',
+                  'text',
+                  'text',
+                  'numeric',
+                  'text',
+                  'text',
+                ]}
                 headings={[
                   'Time',
                   'Source',
                   'Platform',
                   'Protocol',
                   'Outcome',
+                  'Credential',
                   'Discount %',
+                  'Discount code',
                   'Reason',
                 ]}
                 rows={view.recent.map((r) => [
@@ -233,7 +249,9 @@ export default function TrafficPage() {
                   r.platform ?? '—',
                   r.protocol ?? '—',
                   <OutcomeBadge key={r.id} outcome={r.outcome} />,
+                  credentialLabel(r),
                   r.discountPct ?? '—',
+                  r.discountCode ?? '—',
                   r.reason ?? '—',
                 ])}
               />
@@ -336,6 +354,19 @@ function ReasonList({ reasons }: { reasons: ReasonStat[] }) {
       ))}
     </BlockStack>
   );
+}
+
+/**
+ * What the agent proved. Identity-only means a verified identity with no buyer
+ * mandate behind it, which is why it never earns the mandate-backed discount.
+ *
+ * Blank on any row where no verdict was reached: the stored flag defaults to
+ * false there, and printing "Mandate-backed" for a request that was never
+ * verified would state something we never established.
+ */
+function credentialLabel(row: RecentVerification): string {
+  if (row.outcome !== 'verified' && row.outcome !== 'policy_blocked') return '—';
+  return row.identityOnly ? 'Identity only' : 'Mandate-backed';
 }
 
 function OutcomeBadge({ outcome }: { outcome: string }) {

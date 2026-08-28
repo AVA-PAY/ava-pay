@@ -42,6 +42,25 @@ const MANDATE_TTL_SECONDS = 600;
 const MANDATE_MAX_AMOUNT_MINOR = 50_000;
 const MANDATE_CURRENCY = 'USD';
 
+/**
+ * The buyer mandate the demo credential carries: what a shopper would have
+ * authorised this agent to spend, scoped to this store and expiring shortly.
+ *
+ * Shared with the storefront test visit (storefront-visit.server.ts) so the two
+ * merchant-initiated paths cannot drift into authorising different things.
+ */
+export function demoAgentMandate(shop: string, created: number): Mandate {
+  return {
+    id: `mandate_test_visit_${created}`,
+    iat: created - 5,
+    exp: created + MANDATE_TTL_SECONDS,
+    maxAmountMinor: MANDATE_MAX_AMOUNT_MINOR,
+    currency: MANDATE_CURRENCY,
+    allowedMerchants: [shop],
+    buyer: { buyerId: 'buyer_demo_001', country: 'US', displayName: 'Demo Shopper' },
+  };
+}
+
 export interface BuildTestVisitOptions {
   /** Unix seconds. Defaults to now. Tests pin it. */
   created?: number;
@@ -67,23 +86,13 @@ export function buildTestVisitRequest(
     cart: [{ sku: 'DEMO-1234', qty: 1, price_minor: 4999 }],
   });
 
-  const mandate: Mandate = {
-    id: `mandate_test_visit_${created}`,
-    iat: created - 5,
-    exp: created + MANDATE_TTL_SECONDS,
-    maxAmountMinor: MANDATE_MAX_AMOUNT_MINOR,
-    currency: MANDATE_CURRENCY,
-    allowedMerchants: [shop],
-    buyer: { buyerId: 'buyer_demo_001', country: 'US', displayName: 'Demo Shopper' },
-  };
-
   const signed = signWithVisa({
     method: 'POST',
     url,
     body,
     agentId: DEMO_AGENT_ID,
     privateKey: createPrivateKey({ key: DEMO_AGENT_PRIVATE_JWK, format: 'jwk' }),
-    mandate,
+    mandate: demoAgentMandate(shop, created),
     created,
     ...(options.nonce !== undefined ? { nonce: options.nonce } : {}),
     extraHeaders: { 'content-type': 'application/json' },

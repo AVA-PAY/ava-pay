@@ -290,6 +290,41 @@ describe('unverifiable is never counted as a rejection', () => {
     expect(view.recent[0]!.isTest).toBe(true);
   });
 
+  // 5.1.5: what the app stores about a merchant's traffic, the merchant can
+  // see. `shop` is the merchant themselves and `id` is our own primary key;
+  // every other column of the stored row reaches the table.
+  it('carries every recorded field of a visit through to the table', () => {
+    const stored = event({
+      source: 'test',
+      outcome: 'verified',
+      identityOnly: true,
+      discountPct: 15,
+      discountCode: 'AVA-7Q2M4X',
+      protocol: 'ava-tap',
+      platform: 'agent_demo_public',
+      reason: null,
+    });
+    const [row] = buildTrafficView([stored], [], NOW).recent;
+
+    expect(row).toEqual({
+      id: stored.id,
+      createdAt: stored.createdAt.toISOString(),
+      platform: 'agent_demo_public',
+      protocol: 'ava-tap',
+      outcome: 'verified',
+      reason: null,
+      discountPct: 15,
+      discountCode: 'AVA-7Q2M4X',
+      identityOnly: true,
+      isTest: true,
+    });
+  });
+
+  it('reports a mandate-backed verification apart from an identity-only one', () => {
+    const view = buildTrafficView([event({ identityOnly: false })], [], NOW);
+    expect(view.recent[0]!.identityOnly).toBe(false);
+  });
+
   it('treats proxy-delivered and pre-column rows alike as not tests', () => {
     // Rows written before the source column existed carry no value at all;
     // reading those as tests would relabel a store's real history.

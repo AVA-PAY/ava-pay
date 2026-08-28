@@ -6,6 +6,7 @@ import { createOneTimeDiscount } from '../lib/discount.server.js';
 import prisma from '../db.server.js';
 import type { IncomingRequest } from '../lib/ava-types.js';
 import { decideVerification, type ProxyResponseBody } from '../lib/verify-flow.js';
+import { resolveVisitSource } from '../lib/storefront-visit.js';
 
 /**
  * App Proxy endpoint:  https://{shop}.myshopify.com/apps/ava-pay/verify
@@ -115,10 +116,16 @@ async function handleVerify({ request }: ActionFunctionArgs) {
       ? await createOneTimeDiscount(admin, mintDiscountPct)
       : null;
 
+  // Whether the merchant sent this themselves from Settings. Honoured only for
+  // a marker that was inside a signature the verifier accepted, so a passing
+  // visitor cannot label their own request a test; see resolveVisitSource.
+  const source = resolveVisitSource(headers, verifyCall.ok && verifyCall.result.trusted);
+
   await prisma.verificationEvent.create({
     data: {
       shop,
       ...event,
+      source,
       ...(discount ? { discountCode: discount.code } : {}),
     },
   });
