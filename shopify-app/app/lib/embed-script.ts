@@ -37,6 +37,23 @@ export const BANNER_SETTING_ATTRIBUTE = 'data-agent-banner';
 /** Container id, so a second load can tell the banner is already on the page. */
 export const BANNER_ELEMENT_ID = 'ava-pay-agent-banner';
 
+/**
+ * How the banner survives a theme that re-renders the page underneath it.
+ *
+ * Observed live on a test store: the banner appears and is gone a fraction of a
+ * second later. Themes that morph the DOM after hydration diff the server's
+ * markup against the live document and sweep out anything they did not put
+ * there, which is exactly what our container is. Nothing is wrong with the
+ * verdict; the element is simply removed by someone else.
+ *
+ * So after appending, watch for a short while and put it back if it goes. Short
+ * on purpose: hydration settles in the first second or two, and a guard that
+ * ran forever would be a script fighting the theme for control of the page
+ * rather than one recovering from its first render.
+ */
+export const BANNER_GUARD_INTERVAL_MS = 300;
+export const BANNER_GUARD_WINDOW_MS = 10_000;
+
 const BANNER_STYLE = [
   'position:fixed',
   'left:50%',
@@ -142,8 +159,45 @@ export const EMBED_SCRIPT = `(() => {
     return window.location.pathname + (query ? '?' + query : '');
   };
 
+  // What the banner is showing, once it has shown. Held here rather than read
+  // back out of the pending key, which is cleared the moment it is used: this
+  // is the code from the one verdict that produced it, and putting the same
+  // element back is not a second claim about anything.
+  let bannerCode = null;
+  let bannerElement = null;
+  let bannerDismissed = false;
+  let bannerGuard = null;
+
+  const stopBannerGuard = () => {
+    if (bannerGuard !== null) {
+      clearInterval(bannerGuard);
+      bannerGuard = null;
+    }
+  };
+
+  // Put the element back if the theme took it out. Never a second banner: an
+  // element already carrying our id, ours or a copy the theme made of it, is
+  // left alone.
+  const restoreBanner = () => {
+    if (bannerDismissed || !bannerElement || !document.body) return;
+    if (bannerElement.isConnected || document.getElementById(BANNER_ID)) return;
+    document.body.appendChild(bannerElement);
+  };
+
+  const startBannerGuard = () => {
+    stopBannerGuard();
+    let ticks = Math.ceil(${BANNER_GUARD_WINDOW_MS} / ${BANNER_GUARD_INTERVAL_MS});
+    bannerGuard = setInterval(() => {
+      if (bannerDismissed) { stopBannerGuard(); return; }
+      restoreBanner();
+      ticks -= 1;
+      if (ticks <= 0) stopBannerGuard();
+    }, ${BANNER_GUARD_INTERVAL_MS});
+  };
+
   const showBanner = (code) => {
-    if (!code || !document.body || document.getElementById(BANNER_ID)) return;
+    if (!code || bannerDismissed || !document.body) return;
+    if (document.getElementById(BANNER_ID)) return;
 
     const banner = document.createElement('div');
     banner.id = BANNER_ID;
@@ -159,12 +213,31 @@ export const EMBED_SCRIPT = `(() => {
     dismiss.textContent = 'Dismiss';
     dismiss.setAttribute('aria-label', 'Dismiss this message');
     dismiss.style.cssText = '${DISMISS_STYLE}';
-    dismiss.addEventListener('click', () => { banner.remove(); });
+    // Dismissed is final. The guard stops, and nothing puts it back on this
+    // page load or on a restore of it.
+    dismiss.addEventListener('click', () => {
+      bannerDismissed = true;
+      stopBannerGuard();
+      banner.remove();
+    });
 
     banner.appendChild(message);
     banner.appendChild(dismiss);
     document.body.appendChild(banner);
+
+    bannerCode = code;
+    bannerElement = banner;
+    startBannerGuard();
   };
+
+  // A bfcache restore replays the page from a snapshot instead of loading it,
+  // so nothing in this script runs again and any guard that was running is
+  // gone. Re-show from the held code, which showBanner will decline if the
+  // restored snapshot still has the banner in it.
+  window.addEventListener('pageshow', () => {
+    if (bannerDismissed || !bannerCode) return;
+    showBanner(bannerCode);
+  });
 
   const apply = async () => {
     // Second half of a discount redirect. The verdict already happened, on the
