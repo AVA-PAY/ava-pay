@@ -41,18 +41,29 @@ export const BANNER_ELEMENT_ID = 'ava-pay-agent-banner';
  * How the banner survives a theme that re-renders the page underneath it.
  *
  * Observed live on a test store: the banner appears and is gone a fraction of a
- * second later. Themes that morph the DOM after hydration diff the server's
- * markup against the live document and sweep out anything they did not put
- * there, which is exactly what our container is. Nothing is wrong with the
- * verdict; the element is simply removed by someone else.
+ * second later. The theme runs a morphing hot-reload runtime that re-renders
+ * continuously, diffing its own markup against the live document and sweeping
+ * out whatever it did not put there, which is exactly what our container is.
+ * Nothing is wrong with the verdict; the element is removed by someone else.
  *
- * So after appending, watch for a short while and put it back if it goes. Short
- * on purpose: hydration settles in the first second or two, and a guard that
- * ran forever would be a script fighting the theme for control of the page
- * rather than one recovering from its first render.
+ * Two structural answers, in place of the timed guard that came before. A time
+ * window loses to that runtime by design: it re-renders for as long as the page
+ * is open, so any window eventually ends while the sweeping carries on.
+ *
+ *   1. The banner is appended to document.documentElement, not to the body.
+ *      Morph runtimes diff the body and the section markup inside it, so an
+ *      element parented outside the body is outside their scope entirely.
+ *      A fixed-position element lays out identically from there.
+ *   2. Whatever removals still reach it are answered by a MutationObserver
+ *      rather than by polling. It watches childList on both the document
+ *      element and the body, for the life of the page rather than for a window
+ *      of it, and puts our held element back whenever it finds it disconnected.
+ *
+ * The cap is the stop against a theme that removes the banner as fast as we can
+ * put it back: far more restores than a settling re-render needs, and far short
+ * of a loop worth leaving running. Past it we concede the page.
  */
-export const BANNER_GUARD_INTERVAL_MS = 300;
-export const BANNER_GUARD_WINDOW_MS = 10_000;
+export const BANNER_RESTORE_LIMIT = 50;
 
 const BANNER_STYLE = [
   'position:fixed',
@@ -166,37 +177,47 @@ export const EMBED_SCRIPT = `(() => {
   let bannerCode = null;
   let bannerElement = null;
   let bannerDismissed = false;
-  let bannerGuard = null;
+  let bannerObserver = null;
+  let bannerRestores = 0;
 
   const stopBannerGuard = () => {
-    if (bannerGuard !== null) {
-      clearInterval(bannerGuard);
-      bannerGuard = null;
+    if (bannerObserver !== null) {
+      bannerObserver.disconnect();
+      bannerObserver = null;
     }
   };
 
-  // Put the element back if the theme took it out. Never a second banner: an
-  // element already carrying our id, ours or a copy the theme made of it, is
-  // left alone.
+  // Put the element back if the theme took it out, at the document element so
+  // a re-render of the body cannot carry it away again. Never a second banner:
+  // an element already carrying our id, ours or a copy the theme made of it, is
+  // left alone. At the cap we stop watching rather than keep trading removals
+  // with a theme that has made its position clear.
+  //
+  // The observer is the only caller, and dismissing disconnects it for good, so
+  // there is no second flag to keep in step here: a dismissed banner is never a
+  // candidate to restore because nothing is left watching for its removal.
   const restoreBanner = () => {
-    if (bannerDismissed || !bannerElement || !document.body) return;
+    if (!bannerElement) return;
     if (bannerElement.isConnected || document.getElementById(BANNER_ID)) return;
-    document.body.appendChild(bannerElement);
+    if (bannerRestores >= ${BANNER_RESTORE_LIMIT}) { stopBannerGuard(); return; }
+    bannerRestores += 1;
+    document.documentElement.appendChild(bannerElement);
   };
 
+  // Watch for the removal instead of polling for one. childList on the two
+  // parents our element can be taken out of is the whole of what we need to
+  // see, and it costs nothing on a page that never removes it. A browser
+  // without MutationObserver simply gets the banner without the guard.
   const startBannerGuard = () => {
     stopBannerGuard();
-    let ticks = Math.ceil(${BANNER_GUARD_WINDOW_MS} / ${BANNER_GUARD_INTERVAL_MS});
-    bannerGuard = setInterval(() => {
-      if (bannerDismissed) { stopBannerGuard(); return; }
-      restoreBanner();
-      ticks -= 1;
-      if (ticks <= 0) stopBannerGuard();
-    }, ${BANNER_GUARD_INTERVAL_MS});
+    if (typeof MutationObserver !== 'function') return;
+    bannerObserver = new MutationObserver(restoreBanner);
+    bannerObserver.observe(document.documentElement, { childList: true });
+    if (document.body) bannerObserver.observe(document.body, { childList: true });
   };
 
   const showBanner = (code) => {
-    if (!code || bannerDismissed || !document.body) return;
+    if (!code || bannerDismissed) return;
     if (document.getElementById(BANNER_ID)) return;
 
     const banner = document.createElement('div');
@@ -213,8 +234,8 @@ export const EMBED_SCRIPT = `(() => {
     dismiss.textContent = 'Dismiss';
     dismiss.setAttribute('aria-label', 'Dismiss this message');
     dismiss.style.cssText = '${DISMISS_STYLE}';
-    // Dismissed is final. The guard stops, and nothing puts it back on this
-    // page load or on a restore of it.
+    // Dismissed is final. The observer disconnects there and then, and nothing
+    // puts the banner back on this page load or on a restore of it.
     dismiss.addEventListener('click', () => {
       bannerDismissed = true;
       stopBannerGuard();
@@ -223,7 +244,7 @@ export const EMBED_SCRIPT = `(() => {
 
     banner.appendChild(message);
     banner.appendChild(dismiss);
-    document.body.appendChild(banner);
+    document.documentElement.appendChild(banner);
 
     bannerCode = code;
     bannerElement = banner;

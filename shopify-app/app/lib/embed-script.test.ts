@@ -2,9 +2,8 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import {
   BANNER_ELEMENT_ID,
-  BANNER_GUARD_INTERVAL_MS,
-  BANNER_GUARD_WINDOW_MS,
   BANNER_PREFIX,
+  BANNER_RESTORE_LIMIT,
   BANNER_SETTING_ATTRIBUTE,
   BANNER_SUFFIX,
   EMBED_SCRIPT,
@@ -94,8 +93,10 @@ describe('how the banner behaves on the page', () => {
     expect(EMBED_SCRIPT).toContain('position:fixed');
     expect(EMBED_SCRIPT).toContain('z-index:2147483000');
     expect(EMBED_SCRIPT).toContain('-apple-system,BlinkMacSystemFont');
-    // Its own element, appended to the body: it never reaches into the theme.
-    expect(EMBED_SCRIPT).toContain('document.body.appendChild(banner)');
+    // Its own element, parented above the body: it never reaches into the
+    // theme, and the theme's own re-render of the body never reaches it.
+    expect(EMBED_SCRIPT).toContain('document.documentElement.appendChild(banner)');
+    expect(EMBED_SCRIPT).not.toContain('document.body.appendChild');
     expect(EMBED_SCRIPT).not.toContain('innerHTML');
   });
 
@@ -130,11 +131,13 @@ describe('the discount redirect', () => {
 
 // ── A DOM to run the script in ────────────────────────────────────────────
 //
-// Small enough to read, and faithful in the two places the guard depends on:
-// what `isConnected` means, and when an interval fires. The script runs in a
-// node:vm context whose only globals are the ones below, so anything it
-// reaches for that is not modelled here fails loudly instead of silently, and
-// `console` genuinely does not exist in it.
+// Small enough to read, and faithful in the four places the guard depends on:
+// what `isConnected` means, where an element is parented, which childList
+// changes an observer is told about, and that those callbacks arrive after the
+// change rather than during it. The script runs in a node:vm context whose only
+// globals are the ones below, so anything it reaches for that is not modelled
+// here fails loudly instead of silently, `console` genuinely does not exist in
+// it, and neither does any timer: the guard cannot quietly go back to polling.
 
 type Listener = () => void;
 
@@ -146,8 +149,10 @@ class FakeNode {
   style = { cssText: '' };
   children: FakeNode[] = [];
   parent: FakeNode | null = null;
-  /** True for the body, which is what "in the document" means here. */
+  /** True for the document element, which is what "in the document" means. */
   attached = false;
+  /** Observers watching this node's own child list. */
+  readonly watchers = new Set<{ record: () => void }>();
 
   private readonly attrs: Record<string, string> = {};
   private readonly listeners: Record<string, Listener[]> = {};
@@ -166,13 +171,21 @@ class FakeNode {
     child.remove();
     child.parent = this;
     this.children.push(child);
+    this.notify();
     return child;
   }
 
   remove(): void {
-    if (!this.parent) return;
-    this.parent.children = this.parent.children.filter((c) => c !== this);
+    const parent = this.parent;
+    if (!parent) return;
+    parent.children = parent.children.filter((c) => c !== this);
     this.parent = null;
+    parent.notify();
+  }
+
+  /** A childList change is reported to whoever is watching this parent. */
+  private notify(): void {
+    for (const watcher of Array.from(this.watchers)) watcher.record();
   }
 
   setAttribute(name: string, value: string): void {
@@ -196,13 +209,66 @@ class FakeNode {
   }
 }
 
-interface Timer {
-  fn: () => void;
-  every: number;
-  due: number;
+/**
+ * A MutationObserver with childList and nothing else, and with the delivery
+ * order that matters here: callbacks are queued and run after the change that
+ * queued them, never inside it, and a disconnected observer's queued callback
+ * never runs. Mutations made from a callback queue further callbacks, which is
+ * how a theme and this script can trade removals, so the drain counts its own
+ * rounds and fails the test rather than hanging if nothing ever stops.
+ */
+function createObserverRuntime() {
+  const queue: FakeObserver[] = [];
+  const connected = new Set<FakeObserver>();
+
+  class FakeObserver {
+    private readonly targets: FakeNode[] = [];
+    private live = false;
+    private queued = false;
+
+    constructor(private readonly callback: () => void) {}
+
+    observe(target: FakeNode, options: { childList?: boolean; subtree?: boolean }): void {
+      expect(options.childList, 'only childList is modelled').toBe(true);
+      expect(options.subtree, 'a subtree observer would be a different guard').toBeUndefined();
+      this.live = true;
+      connected.add(this);
+      this.targets.push(target);
+      target.watchers.add(this);
+    }
+
+    disconnect(): void {
+      this.live = false;
+      this.queued = false;
+      connected.delete(this);
+      for (const target of this.targets) target.watchers.delete(this);
+      this.targets.length = 0;
+    }
+
+    record(): void {
+      if (!this.live || this.queued) return;
+      this.queued = true;
+      queue.push(this);
+    }
+
+    run(): void {
+      this.queued = false;
+      if (this.live) this.callback();
+    }
+  }
+
+  const flush = () => {
+    for (let round = 0; queue.length > 0; round++) {
+      expect(round, 'the observers never stopped trading removals').toBeLessThan(1000);
+      queue.shift()?.run();
+    }
+  };
+
+  return { FakeObserver, flush, running: () => connected.size };
 }
 
 interface Harness {
+  documentElement: FakeNode;
   body: FakeNode;
   /** Every element on the page carrying the banner id. */
   banners: () => FakeNode[];
@@ -210,16 +276,26 @@ interface Harness {
   dismiss: () => void;
   /** What a DOM-morphing theme does to an element it did not render. */
   themeSweep: () => void;
+  /** What that theme does to the body: everything inside it is replaced. */
+  bodySweep: () => void;
+  /** Morphing can re-parent as well as remove. */
+  moveBannerIntoBody: () => void;
+  /** A theme runtime of the test's own, watching the document element. */
+  watchDocument: (fn: () => void) => void;
   pageshow: () => void;
-  advance: (ms: number) => void;
-  timersRunning: () => number;
+  /** Deliver whatever the test's own DOM changes queued. */
+  flush: () => void;
+  guardsRunning: () => number;
   fetch: ReturnType<typeof vi.fn>;
   session: Map<string, string>;
 }
 
-function runEmbed(options: { pending?: string; bannerSetting?: string } = {}): Harness {
-  const body = new FakeNode('body');
-  body.attached = true;
+function runEmbed(
+  options: { pending?: string; bannerSetting?: string; mutationObserver?: boolean } = {},
+): Harness {
+  const documentElement = new FakeNode('html');
+  documentElement.attached = true;
+  const body = documentElement.appendChild(new FakeNode('body'));
 
   const scriptTag = new FakeNode('script');
   scriptTag.setAttribute(BANNER_SETTING_ATTRIBUTE, options.bannerSetting ?? 'true');
@@ -227,16 +303,14 @@ function runEmbed(options: { pending?: string; bannerSetting?: string } = {}): H
   const session = new Map<string, string>();
   if (options.pending !== undefined) session.set('ava_pay_banner_pending', options.pending);
 
-  let clock = 0;
-  let nextId = 1;
-  const timers = new Map<number, Timer>();
+  const observers = createObserverRuntime();
 
   const fetchMock = vi.fn(() => {
     throw new Error('the banner path must not call the verifier');
   });
 
   const windowListeners: Record<string, Listener[]> = {};
-  const sandbox = {
+  const sandbox: Record<string, unknown> = {
     window: {
       location: { search: '', pathname: '/', href: '/' },
       addEventListener: (type: string, fn: Listener) => {
@@ -244,10 +318,12 @@ function runEmbed(options: { pending?: string; bannerSetting?: string } = {}): H
       },
     },
     document: {
+      documentElement,
       body,
       readyState: 'complete',
       createElement: (tag: string) => new FakeNode(tag),
-      getElementById: (id: string) => body.descendants().find((n) => n.id === id) ?? null,
+      getElementById: (id: string) =>
+        documentElement.descendants().find((n) => n.id === id) ?? null,
       querySelector: (selector: string) =>
         selector === `script[${BANNER_SETTING_ATTRIBUTE}]` ? scriptTag : null,
       addEventListener: () => {},
@@ -257,53 +333,63 @@ function runEmbed(options: { pending?: string; bannerSetting?: string } = {}): H
       setItem: (key: string, value: string) => void session.set(key, String(value)),
       removeItem: (key: string) => void session.delete(key),
     },
-    setInterval: (fn: () => void, every: number) => {
-      const id = nextId++;
-      timers.set(id, { fn, every, due: clock + every });
-      return id;
-    },
-    clearInterval: (id: number) => void timers.delete(id),
     URLSearchParams,
     encodeURIComponent,
     fetch: fetchMock,
   };
+  // A browser too old for the guard still has to get the banner itself.
+  if (options.mutationObserver !== false) sandbox.MutationObserver = observers.FakeObserver;
 
   runInNewContext(EMBED_SCRIPT, sandbox);
+  observers.flush();
 
-  const banners = () => body.descendants().filter((n) => n.id === BANNER_ELEMENT_ID);
+  const banners = () => documentElement.descendants().filter((n) => n.id === BANNER_ELEMENT_ID);
+  const act = (change: () => void) => {
+    change();
+    observers.flush();
+  };
 
   return {
+    documentElement,
     body,
     banners,
     banner: () => banners()[0],
     session,
     fetch: fetchMock,
+    flush: observers.flush,
+    guardsRunning: observers.running,
+    // No flush: a click is its own task, and what the click itself does is
+    // exactly what these tests are about.
     dismiss: () => {
       const control = banners()[0]?.children.find((c) => c.tagName === 'button');
       expect(control, 'no dismiss control on the banner').toBeDefined();
       control?.dispatch('click');
     },
-    // Morphing themes diff the server's markup against the live document and
-    // drop what they did not render. Ours goes; the theme's own nodes stay.
-    themeSweep: () => {
-      for (const node of banners()) node.remove();
+    // Morphing themes diff their own markup against the live document and drop
+    // what they did not render. Ours goes; the theme's own nodes stay.
+    themeSweep: () =>
+      act(() => {
+        for (const node of banners()) node.remove();
+      }),
+    bodySweep: () =>
+      act(() => {
+        for (const node of Array.from(body.children)) node.remove();
+        body.appendChild(new FakeNode('main'));
+      }),
+    moveBannerIntoBody: () =>
+      act(() => {
+        const ours = banners()[0];
+        expect(ours, 'no banner to move').toBeDefined();
+        if (ours) body.appendChild(ours);
+      }),
+    watchDocument: (fn: () => void) => {
+      const observer = new observers.FakeObserver(fn);
+      observer.observe(documentElement, { childList: true });
     },
-    pageshow: () => {
-      for (const fn of windowListeners['pageshow'] ?? []) fn();
-    },
-    timersRunning: () => timers.size,
-    advance: (ms: number) => {
-      const target = clock + ms;
-      for (;;) {
-        let due: [number, Timer] | undefined;
-        for (const entry of timers) if (!due || entry[1].due < due[1].due) due = entry;
-        if (!due || due[1].due > target) break;
-        clock = due[1].due;
-        due[1].due = clock + due[1].every;
-        due[1].fn();
-      }
-      clock = target;
-    },
+    pageshow: () =>
+      act(() => {
+        for (const fn of windowListeners['pageshow'] ?? []) fn();
+      }),
   };
 }
 
@@ -320,38 +406,71 @@ describe('surviving a theme that re-renders the page', () => {
     expect(page.session.has('ava_pay_banner_pending')).toBe(false);
   });
 
-  it('puts the banner back when the theme sweeps it out', () => {
-    // The bug this fixes: banner appears, theme hydrates, banner gone.
+  it('sits outside the body, where a morphing diff never looks', () => {
+    const page = runEmbed({ pending: CODE });
+
+    expect(page.banner()?.parent).toBe(page.documentElement);
+  });
+
+  it('is left alone when the theme replaces everything in the body', () => {
+    // No guard at all in this browser, so nothing can put the banner back: it
+    // survives because of where it is parented, not because it was restored.
+    const page = runEmbed({ pending: CODE, mutationObserver: false });
+    const original = page.banner();
+    expect(page.guardsRunning()).toBe(0);
+
+    page.bodySweep();
+    expect(page.banner()).toBe(original);
+  });
+
+  it('puts the banner back when the theme reaches it anyway', () => {
+    // The bug this fixes: banner appears, theme re-renders, banner gone.
     const page = runEmbed({ pending: CODE });
     const original = page.banner();
 
     page.themeSweep();
-    expect(page.banner()).toBeUndefined();
-
-    page.advance(BANNER_GUARD_INTERVAL_MS);
     expect(page.banner()).toBe(original);
   });
 
-  it('keeps putting it back for as long as the guard runs', () => {
-    // A theme can re-render more than once while it settles.
+  it('keeps putting it back for as long as the page lives', () => {
+    // A hot-reload runtime re-renders continuously, not only while it settles.
+    // Nothing here advances a clock, because the guard no longer has one: it is
+    // still watching at the tenth sweep for the same reason it was at the first.
     const page = runEmbed({ pending: CODE });
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       page.themeSweep();
-      page.advance(BANNER_GUARD_INTERVAL_MS);
       expect(page.banner(), `sweep ${i + 1}`).toBeDefined();
     }
+    expect(page.guardsRunning()).toBe(1);
+  });
+
+  it('sees a removal from the body after the theme moved our element into it', () => {
+    // Morphing re-parents as well as removes. Once our element is inside the
+    // body, only the body's own child list reports it going: the document
+    // element saw it leave already, with the element still connected.
+    const page = runEmbed({ pending: CODE });
+    const ours = page.banner();
+
+    page.moveBannerIntoBody();
+    expect(page.banner()).toBe(ours);
+    expect(ours?.parent).toBe(page.body);
+
+    page.bodySweep();
+    expect(page.banner()).toBe(ours);
+    expect(ours?.parent).toBe(page.documentElement);
   });
 
   it('never leaves two banners on the page', () => {
     const page = runEmbed({ pending: CODE });
 
-    page.advance(BANNER_GUARD_INTERVAL_MS * 4);
+    page.themeSweep();
+    page.themeSweep();
     expect(page.banners()).toHaveLength(1);
   });
 
   it('leaves a copy the theme made of it alone', () => {
-    // Morphing can also clone a node rather than drop it. One banner carrying
+    // Morphing can also clone a node rather than drop it. One element carrying
     // the id is a banner on the page, whoever put it there.
     const page = runEmbed({ pending: CODE });
     const ours = page.banner();
@@ -360,9 +479,29 @@ describe('surviving a theme that re-renders the page', () => {
     copy.id = BANNER_ELEMENT_ID;
     page.body.appendChild(copy);
     ours?.remove();
+    page.flush();
 
-    page.advance(BANNER_GUARD_INTERVAL_MS);
     expect(page.banners()).toEqual([copy]);
+  });
+
+  it('stops trading removals with a theme that will not have it', () => {
+    // The pathological case the cap exists for: a runtime that removes the
+    // banner every time it appears. We answer a bounded number of times and
+    // then concede the page rather than loop on it for as long as it is open.
+    const page = runEmbed({ pending: CODE });
+    let removals = 0;
+    page.watchDocument(() => {
+      for (const node of page.banners()) {
+        node.remove();
+        removals += 1;
+      }
+    });
+
+    page.themeSweep();
+
+    expect(removals).toBe(BANNER_RESTORE_LIMIT);
+    expect(page.banner()).toBeUndefined();
+    expect(page.guardsRunning()).toBe(1); // the test's runtime, not ours
   });
 });
 
@@ -374,23 +513,24 @@ describe('dismissing the banner', () => {
     expect(page.banner()).toBeUndefined();
   });
 
-  it('stops the guard there and then, not on its next tick', () => {
-    // No clock advance between the click and the assertion: dismissing leaves
-    // nothing of ours running on the page at all.
+  it('disconnects the guard in the click itself, not on some later delivery', () => {
+    // Nothing is delivered between the click and the assertion: dismissing
+    // leaves nothing of ours watching the page at all.
     const page = runEmbed({ pending: CODE });
-    expect(page.timersRunning()).toBe(1);
+    expect(page.guardsRunning()).toBe(1);
 
     page.dismiss();
-    expect(page.timersRunning()).toBe(0);
+    expect(page.guardsRunning()).toBe(0);
   });
 
-  it('stops the guard putting it back', () => {
+  it('stops the guard putting it back, however long the page stays open', () => {
     const page = runEmbed({ pending: CODE });
     page.dismiss();
 
-    page.advance(BANNER_GUARD_WINDOW_MS * 2);
+    page.themeSweep();
+    page.bodySweep();
     expect(page.banner()).toBeUndefined();
-    expect(page.timersRunning()).toBe(0);
+    expect(page.guardsRunning()).toBe(0);
   });
 
   it('survives a page restore, which must not resurrect it', () => {
@@ -399,43 +539,22 @@ describe('dismissing the banner', () => {
 
     page.pageshow();
     expect(page.banner()).toBeUndefined();
-  });
-});
-
-describe('the guard window', () => {
-  it('stops on its own, and leaves the page alone afterwards', () => {
-    // Hydration settles in the first second or two. A guard that ran forever
-    // would be a script fighting the theme rather than recovering from it.
-    const page = runEmbed({ pending: CODE });
-
-    page.advance(BANNER_GUARD_WINDOW_MS + BANNER_GUARD_INTERVAL_MS);
-    expect(page.timersRunning()).toBe(0);
-
-    page.themeSweep();
-    page.advance(BANNER_GUARD_WINDOW_MS);
-    expect(page.banner()).toBeUndefined();
-  });
-
-  it('is still watching part way through', () => {
-    const page = runEmbed({ pending: CODE });
-
-    page.advance(BANNER_GUARD_WINDOW_MS / 2);
-    page.themeSweep();
-    page.advance(BANNER_GUARD_INTERVAL_MS);
-    expect(page.banner()).toBeDefined();
+    expect(page.guardsRunning()).toBe(0);
   });
 });
 
 describe('a page restored from the back/forward cache', () => {
   it('shows the banner again from the code it was already holding', () => {
     // Nothing in the script runs again on a restore, and the pending key was
-    // cleared when it was used, so the held code is the only thing left.
-    const page = runEmbed({ pending: CODE });
-    page.advance(BANNER_GUARD_WINDOW_MS + BANNER_GUARD_INTERVAL_MS);
+    // cleared when it was used, so the held code is the only thing left. The
+    // browser here has no observer, so the restore is doing all of the work.
+    const page = runEmbed({ pending: CODE, mutationObserver: false });
     page.themeSweep();
+    expect(page.banner()).toBeUndefined();
 
     page.pageshow();
     expect(page.banner()?.children[0]?.textContent).toBe(BANNER_PREFIX + CODE + BANNER_SUFFIX);
+    expect(page.banner()?.parent).toBe(page.documentElement);
     expect(page.fetch).not.toHaveBeenCalled();
   });
 
@@ -444,6 +563,7 @@ describe('a page restored from the back/forward cache', () => {
 
     page.pageshow();
     expect(page.banners()).toHaveLength(1);
+    expect(page.guardsRunning()).toBe(1);
   });
 });
 
@@ -452,7 +572,7 @@ describe('a page with no verdict to report', () => {
     const page = runEmbed();
 
     expect(page.banner()).toBeUndefined();
-    expect(page.timersRunning()).toBe(0);
+    expect(page.guardsRunning()).toBe(0);
     expect(page.fetch).not.toHaveBeenCalled();
   });
 
@@ -460,6 +580,6 @@ describe('a page with no verdict to report', () => {
     const page = runEmbed({ pending: CODE, bannerSetting: 'false' });
 
     expect(page.banner()).toBeUndefined();
-    expect(page.timersRunning()).toBe(0);
+    expect(page.guardsRunning()).toBe(0);
   });
 });
