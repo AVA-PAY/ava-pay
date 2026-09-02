@@ -11,10 +11,9 @@
  *      This path serves agents redirected through a normal page load, and the
  *      merchant's own "View a test agent visit on your storefront" link.
  *
- *   2. Show the shopper what happened, once, when it is worth saying. The
- *      banner is reachable from exactly one state: a trusted verdict that
- *      minted a discount code, carried across the /discount redirect that
- *      applied it. Every failure, every could-not-check verdict and every
+ *   2. Show the shopper what happened, when it is worth saying. The banner is
+ *      reachable from exactly one state: a trusted verdict that minted a
+ *      discount code. Every failure, every could-not-check verdict and every
  *      verified visit that earned no code stays silent on the storefront, so
  *      nothing the buyer reads can outrun what was actually proved.
  *
@@ -38,17 +37,48 @@ export const BANNER_SETTING_ATTRIBUTE = 'data-agent-banner';
 export const BANNER_ELEMENT_ID = 'ava-pay-agent-banner';
 
 /**
- * How the banner survives a theme that re-renders the page underneath it.
+ * How the banner survives an unknown number of documents.
  *
- * Observed live on a test store: the banner appears and is gone a fraction of a
- * second later. The theme runs a morphing hot-reload runtime that re-renders
- * continuously, diffing its own markup against the live document and sweeping
- * out whatever it did not put there, which is exactly what our container is.
- * Nothing is wrong with the verdict; the element is removed by someone else.
+ * Observed live on a test store, and still true after the banner was moved out
+ * of the body and given a MutationObserver: it appears and is gone a fraction
+ * of a second later. That combination rules out removal. An observer that
+ * re-appends on removal cannot lose to a removal, and the element is parented
+ * where a body diff does not reach. So the banner is not being taken off the
+ * page; the page is being replaced under it. Something navigates the document
+ * again after the discount redirect lands, market or locale redirection being
+ * the ordinary cause and the preview environment re-attaching another. The
+ * banner went with the document that was discarded, and the state it was drawn
+ * from had already been consumed by the load that drew it, so the document that
+ * arrived next had nothing to draw.
  *
- * Two structural answers, in place of the timed guard that came before. A time
- * window loses to that runtime by design: it re-renders for as long as the page
- * is open, so any window eventually ends while the sweeping carries on.
+ * The state is therefore a window rather than a one-shot key. A trusted verdict
+ * that mints a code opens it; every document loaded while it is open shows the
+ * banner; showing does not close it. It closes when the shopper dismisses the
+ * banner, or when it expires. That survives one redirect or five without
+ * knowing in advance how many there will be.
+ *
+ * Sixty seconds is sized for a redirect chain and nothing longer: several
+ * server round trips have room, and a shopper who is still browsing a minute
+ * later has left the visit that earned the code well behind.
+ */
+export const BANNER_WINDOW_MS = 60_000;
+
+/**
+ * sessionStorage keys the window lives in. Exported so the tests and a
+ * merchant reading their own session can name the same things this does.
+ *
+ * The state entry is JSON: the minted `code`, the `expires` timestamp, and
+ * `navigations`, a count of the documents that have shown the banner. The
+ * count is the cheap diagnostic for exactly the failure above. If this comes
+ * back again, that number says how many documents the banner had to survive,
+ * which is the fact nobody could read off the page while it was flickering.
+ */
+export const BANNER_STATE_KEY = 'ava_pay_banner';
+export const BANNER_DISMISSED_KEY = 'ava_pay_banner_dismissed';
+
+/**
+ * Belt and braces from the load before this one, kept because the diagnosis
+ * changed rather than because it was wrong.
  *
  *   1. The banner is appended to document.documentElement, not to the body.
  *      Morph runtimes diff the body and the section markup inside it, so an
@@ -111,7 +141,7 @@ const DISMISS_STYLE = [
  * at run time, so nothing merchant-supplied can end up inside the source.
  */
 export const EMBED_SCRIPT = `(() => {
-  // AVA Pay embed v0.3 - Visa TAP / RFC 9421, plus the verification banner.
+  // AVA Pay embed v0.4 - Visa TAP / RFC 9421, plus the verification banner.
   if (window.__avaPayLoaded) return;
   window.__avaPayLoaded = true;
 
@@ -122,8 +152,10 @@ export const EMBED_SCRIPT = `(() => {
   // merchant's test marker get across. Host is set by the browser.
   const SIG_PARAMS = ['signature', 'signature-input', 'content-digest', 'signature-agent', 'x-ava-mandate'];
   const BANNER_ID = '${BANNER_ELEMENT_ID}';
-  const PENDING_KEY = 'ava_pay_banner_pending';
+  const STATE_KEY = '${BANNER_STATE_KEY}';
+  const DISMISSED_KEY = '${BANNER_DISMISSED_KEY}';
   const APPLIED_KEY = 'ava_pay_applied';
+  const WINDOW_MS = ${BANNER_WINDOW_MS};
 
   // sessionStorage throws outright under some privacy settings. Nothing here is
   // load bearing, so every access degrades to "no memory" instead of an error.
@@ -170,10 +202,45 @@ export const EMBED_SCRIPT = `(() => {
     return window.location.pathname + (query ? '?' + query : '');
   };
 
-  // What the banner is showing, once it has shown. Held here rather than read
-  // back out of the pending key, which is cleared the moment it is used: this
-  // is the code from the one verdict that produced it, and putting the same
-  // element back is not a second claim about anything.
+  // The open window, or null. Anything malformed, expired, or dismissed is
+  // nothing to show, and a state entry that will never be shown again is
+  // cleared here rather than left to sit out the session.
+  const readWindow = () => {
+    if (store.get(DISMISSED_KEY)) return null;
+    const raw = store.get(STATE_KEY);
+    if (!raw) return null;
+    let entry = null;
+    try { entry = JSON.parse(raw); } catch (e) { entry = null; }
+    const usable = entry && typeof entry.code === 'string' && entry.code &&
+      typeof entry.expires === 'number' && entry.expires > Date.now();
+    if (!usable) { store.clear(STATE_KEY); return null; }
+    return entry;
+  };
+
+  // The one place a code is ever written to storage, reached only after
+  // data.allow and a minted code. Nothing else in this script can put a code
+  // where a later document would read one.
+  const openBannerWindow = (code) => {
+    // A fresh verdict is a fresh window: the two keys never disagree.
+    store.clear(DISMISSED_KEY);
+    store.set(STATE_KEY, JSON.stringify({ code: code, expires: Date.now() + WINDOW_MS, navigations: 0 }));
+  };
+
+  // How many documents the banner has had to survive. Rebuilt from the entry
+  // just read, field by field, so the count cannot smuggle in anything else and
+  // the window is neither extended nor closed by having been shown.
+  const countNavigation = (entry) => {
+    const seen = typeof entry.navigations === 'number' ? entry.navigations : 0;
+    store.set(STATE_KEY, JSON.stringify({
+      code: entry.code,
+      expires: entry.expires,
+      navigations: seen + 1,
+    }));
+  };
+
+  // What the banner is showing, once it has shown. Held here so a restore does
+  // not have to go back to storage: this is the code from the one verdict that
+  // produced it, and putting the same element back is not a second claim.
   let bannerCode = null;
   let bannerElement = null;
   let bannerDismissed = false;
@@ -234,10 +301,13 @@ export const EMBED_SCRIPT = `(() => {
     dismiss.textContent = 'Dismiss';
     dismiss.setAttribute('aria-label', 'Dismiss this message');
     dismiss.style.cssText = '${DISMISS_STYLE}';
-    // Dismissed is final. The observer disconnects there and then, and nothing
-    // puts the banner back on this page load or on a restore of it.
+    // Dismissed is final, and final now outlives the document: the window is
+    // closed in storage as well as on the page, so the next document in the
+    // chain has nothing to draw either.
     dismiss.addEventListener('click', () => {
       bannerDismissed = true;
+      store.set(DISMISSED_KEY, '1');
+      store.clear(STATE_KEY);
       stopBannerGuard();
       banner.remove();
     });
@@ -254,20 +324,21 @@ export const EMBED_SCRIPT = `(() => {
   // A bfcache restore replays the page from a snapshot instead of loading it,
   // so nothing in this script runs again and any guard that was running is
   // gone. Re-show from the held code, which showBanner will decline if the
-  // restored snapshot still has the banner in it.
+  // restored snapshot still has the banner in it. This is the same document
+  // coming back, not a new one, so it is not a navigation to count.
   window.addEventListener('pageshow', () => {
     if (bannerDismissed || !bannerCode) return;
     showBanner(bannerCode);
   });
 
   const apply = async () => {
-    // Second half of a discount redirect. The verdict already happened, on the
-    // load before this one, and the code below is the one Shopify just applied.
-    const pending = store.get(PENDING_KEY);
-    if (pending) {
-      store.clear(PENDING_KEY);
-      if (bannerEnabled()) showBanner(pending);
-      return;
+    // A window an earlier verdict opened. Whichever document this is, the
+    // discount landing or a market or locale redirect after it, the banner
+    // belongs on it, and drawing it here does not use the window up.
+    const live = readWindow();
+    if (live && bannerEnabled()) {
+      countNavigation(live);
+      showBanner(live.code);
     }
 
     const agentHeaders = collectAgentHeaders();
@@ -294,7 +365,7 @@ export const EMBED_SCRIPT = `(() => {
     if (!code || store.get(APPLIED_KEY)) return;
 
     store.set(APPLIED_KEY, code);
-    if (bannerEnabled()) store.set(PENDING_KEY, code);
+    if (bannerEnabled()) openBannerWindow(code);
 
     // Shopify's /discount/CODE endpoint applies the code and 302s back.
     window.location.href = '/discount/' + encodeURIComponent(code) +
