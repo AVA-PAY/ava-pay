@@ -83,11 +83,14 @@ export interface SignatureAgentValue {
  * is never chosen as the unlabeled fallback.
  *
  * `strict` controls what happens when `label` names no member. Off (default),
- * the first usable member is taken, which is the tolerance the deployed
- * bare-string traffic needs. ON, the absence is an error: a caller that knows
- * the signature covers one NAMED member must resolve that member or nothing,
- * because falling back would attribute the signature to a member it never
- * covered (-02 §5.2.2).
+ * a single usable member is taken, which is the tolerance the deployed
+ * bare-string traffic and the draft's own E.2.1 vector need (that vector labels
+ * the signature sig2 and keys the member agent2). SEVERAL usable members and no
+ * label match is an error either way: nothing says which one signed, so any
+ * choice would be attribution by header order. ON, the absence is an error too:
+ * a caller that knows the signature covers one NAMED member must resolve that
+ * member or nothing, because falling back would attribute the signature to a
+ * member it never covered (-02 §5.2.2).
  */
 export function parseSignatureAgent(
   headerValue: string,
@@ -109,9 +112,11 @@ export function parseSignatureAgent(
     // Dictionary form: member(s) of shape  label="value"[;param...]
     const memberRe = /([a-z][a-z0-9_.*-]*)="([^"]*)"((?:;[^,;=]+(?:=[^,;]+)?)*)/g;
     let m: RegExpExecArray | null;
-    // The fallback (unlabeled call) only ever holds a member with a recognized
-    // type; an unrecognized-type member is never selected as fallback.
-    let fallback: { target: string; type: SignatureAgentType } | undefined;
+    // Every member whose discovery type we recognize. An unrecognized-type
+    // member is dropped here and never becomes a candidate: §5.2.1 says to
+    // ignore it, and promoting it to `directory` would grant domain binding to
+    // a member the spec says to skip.
+    const candidates: { target: string; type: SignatureAgentType }[] = [];
     let matched: { target: string; type: SignatureAgentType | null } | undefined;
     while ((m = memberRe.exec(value)) !== null) {
       const memberType = parseDiscoveryType(m[3] ?? '');
@@ -121,8 +126,8 @@ export function parseSignatureAgent(
         matched = { target: m[2] as string, type: memberType };
         break;
       }
-      if (memberType !== null && fallback === undefined) {
-        fallback = { target: m[2] as string, type: memberType };
+      if (memberType !== null) {
+        candidates.push({ target: m[2] as string, type: memberType });
       }
     }
     if (matched) {
@@ -137,9 +142,17 @@ export function parseSignatureAgent(
       throw new WebBotAuthParseError(
         `Signature-Agent has no member keyed "${label}", which is the member the signature covers`,
       );
-    } else if (fallback) {
-      target = fallback.target;
-      type = fallback.type;
+    } else if (candidates.length === 1) {
+      target = candidates[0]!.target;
+      type = candidates[0]!.type;
+    } else if (candidates.length > 1) {
+      // Several usable members and nothing says which one signed. Picking one
+      // would attribute the signature to a member chosen by header order, which
+      // is precisely the attribution §5.2.2 forbids ("A verifier MUST NOT
+      // attribute a signature to a member that signature does not cover").
+      throw new WebBotAuthParseError(
+        `Signature-Agent carries ${candidates.length} usable members and none is keyed "${label}", so the signature cannot be attributed to one of them`,
+      );
     } else {
       throw new WebBotAuthParseError(
         'Signature-Agent has no usable member (empty, unparseable, or unrecognized type only)',
@@ -158,6 +171,22 @@ export function parseSignatureAgent(
   }
   if (url.username !== '' || url.password !== '') {
     throw new WebBotAuthParseError('Signature-Agent must not carry credentials');
+  }
+  // §5.5: for the `directory` type "The member value MUST be the ASCII
+  // serialization of an origin ... and a verifier MUST ignore a member carrying
+  // anything else (an empty path / MAY be accepted though)." The directory path
+  // is fixed by the well-known registration, so a value carrying its own path
+  // is either a jwks_uri sent under the wrong type or an attempt to point
+  // discovery outside the reservation. Taking url.origin and discarding the
+  // rest, as we did before, silently rewrote the second case into a request we
+  // would then verify with binding="domain".
+  //
+  // jwks_uri and cimd values are URLs to a file, so a path is correct there and
+  // this does not apply.
+  if (type === 'directory' && (url.pathname !== '/' || url.search !== '' || url.hash !== '')) {
+    throw new WebBotAuthParseError(
+      `Signature-Agent value "${target}" is not an origin serialization; a directory-type member must carry no path, query or fragment`,
+    );
   }
   return { target, origin: url.origin.toLowerCase(), type };
 }
