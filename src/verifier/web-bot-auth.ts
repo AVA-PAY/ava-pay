@@ -23,7 +23,8 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
 
 /**
  * WebBotAuthVerifier — verifies IETF Web Bot Auth signed agent traffic
- * (draft-meunier-webbotauth-httpsig-protocol-02, 2026-08-18), the
+ * (draft-ietf-webbotauth-httpsig-protocol-00, adopted 2026-09-01 and
+ * content-identical to draft-meunier-webbotauth-httpsig-protocol-02), the
  * scheme real ChatGPT / Claude / Perplexity crawler+agent requests use.
  *
  * Identity, not payment authority: a passing request proves "this really is

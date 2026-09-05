@@ -8,7 +8,8 @@ import {
 import type { SignedRequest } from './visa.js';
 
 /**
- * Web Bot Auth — agent-side signing (IETF draft-meunier-webbotauth-httpsig-protocol).
+ * Web Bot Auth — agent-side signing (IETF draft-ietf-webbotauth-httpsig-protocol-00,
+ * formerly draft-meunier-webbotauth-httpsig-protocol).
  *
  * Mirror image of the WebBotAuthVerifier and byte-compatible with real
  * deployed traffic (OpenAI's agents): covered components
