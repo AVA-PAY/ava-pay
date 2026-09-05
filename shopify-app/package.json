@@ -22,7 +22,7 @@
     "setup": "prisma generate && prisma migrate deploy"
   },
   "dependencies": {
-    "@ava-pay/agent": "^0.2.0",
+    "@ava-pay/agent": "^0.3.0",
     "@prisma/client": "^6.19.0",
     "@react-router/node": "^7.18.2",
     "@react-router/serve": "^7.18.2",
