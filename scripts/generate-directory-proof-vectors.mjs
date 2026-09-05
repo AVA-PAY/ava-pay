@@ -1,6 +1,9 @@
 /**
  * Generate the signed-response possession-proof test vectors contributed to
- * draft-meunier-webbotauth-httpsig-protocol.
+ * draft-ietf-webbotauth-httpsig-protocol (formerly
+ * draft-meunier-webbotauth-httpsig-protocol). Revision shorthands below name
+ * the individual draft the vectors were merged into; the sections did not move
+ * on adoption.
  *
  * Two sets, one mechanism:
  *

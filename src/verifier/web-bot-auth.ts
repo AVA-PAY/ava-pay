@@ -149,13 +149,16 @@ export class WebBotAuthVerifier implements AgentVerifier {
       );
     }
     if (!sigAgentHeader) {
-      // -02 Section 5.2.1: a signed request MUST carry Signature-Agent. We do
-      // not fall back to resolving the bare keyid against every directory we
-      // know: that is the (URL, key) confusion Section 5.4 forbids. Conclusive,
-      // because nothing about this request is in doubt.
+      // draft-ietf-webbotauth-httpsig-protocol-00 (formerly
+      // draft-meunier-webbotauth-httpsig-protocol-02) Section 5.2.1: a signed
+      // request MUST carry Signature-Agent. We do not fall back to resolving
+      // the bare keyid against every directory we know: that is the (URL, key)
+      // confusion Section 5.4 forbids. Conclusive, because nothing about this
+      // request is in doubt.
       return fail(
         'missing_signature_agent',
-        'Web Bot Auth requires a Signature-Agent header (draft -02 Section 5.2.1); none was sent.',
+        'Web Bot Auth requires a Signature-Agent header '
+          + '(draft-ietf-webbotauth-httpsig-protocol Section 5.2.1); none was sent.',
       );
     }
 
@@ -310,7 +313,8 @@ export class WebBotAuthVerifier implements AgentVerifier {
       // reporting "unreachable" for a directory that answered would be untrue.
       return fail(
         'key_directory_redirected',
-        `Key directory for "${origin}" answered with a redirect; draft -02 Section 5.5 requires 200 (OK) and forbids following it.`,
+        `Key directory for "${origin}" answered with a redirect; `
+          + 'draft-ietf-webbotauth-httpsig-protocol Section 5.5 requires 200 (OK) and forbids following it.',
         false,
       );
     }
