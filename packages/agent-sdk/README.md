@@ -1,9 +1,15 @@
 # @ava-pay/agent
 
-> **Status: developer preview (0.2.x).** The API surface may change before
-> 1.0. **0.2.0 is a breaking release**: the AP2 v0.1 Intent/Cart API
-> (`buildAp2Headers`, `signIntentMandate`, `signCartMandate`) was removed in
-> favor of AP2 v0.2 dSD-JWT mandate chains — see the AP2 section below.
+> **Status: developer preview (0.3.x).** The API surface may change before
+> 1.0. **0.3.0 is additive at the type level but stricter at verification
+> time**: it carries three security fixes to the Web Bot Auth and RFC 9421
+> parsers, two of which let requests that must never verify come back
+> `trusted: true`. Anyone building a verifier on these primitives should treat
+> 0.3.0 as the floor. See [CHANGELOG.md](./CHANGELOG.md).
+>
+> (0.2.0 was a breaking release: the AP2 v0.1 Intent/Cart API
+> `buildAp2Headers`, `signIntentMandate`, `signCartMandate` was removed in
+> favor of AP2 v0.2 dSD-JWT mandate chains. See the AP2 section below.)
 >
 > Be clear about what each protocol's verdict means. Web Bot Auth and
 > browse-intent Visa TAP prove **agent identity** ("this request really came
@@ -16,7 +22,10 @@
 Sign AI-agent requests for all four protocols the [AVA Pay](https://github.com/AVA-PAY/ava-pay) merchant-side verifier accepts, from Node.js (≥20, zero dependencies):
 
 - **Visa Trusted Agent Protocol** (real wire format: `agent-browser-auth` / `agent-payer-auth` tags)
-- **IETF Web Bot Auth** (the scheme real ChatGPT agent traffic uses)
+- **IETF Web Bot Auth** (the scheme real ChatGPT agent traffic uses), tracking
+  `draft-ietf-webbotauth-httpsig-protocol-00` (formerly
+  `draft-meunier-webbotauth-httpsig-protocol-02`; adopted 2026-09-01,
+  content-identical, section numbers unchanged)
 - **Google Agent Payments Protocol v0.2** (dSD-JWT Checkout / Payment mandate chains)
 - **AVA's TAP-style profile** (RFC 9421 + Ed25519 + `x-ava-mandate`)
 
@@ -68,6 +77,26 @@ const signed = signWithWebBotAuth({
   privateKey,
 });
 ```
+
+By default this emits the bare-string `Signature-Agent` form that deployed
+agents send today. Section 5.2.1 of the draft requires signers to send the
+dictionary form and to cover the member keyed to their own signature label:
+
+```ts
+const signed = signWithWebBotAuth({
+  method: 'GET',
+  url: 'https://shop.example.com/products/tool-1234',
+  signatureAgent: 'https://your-agent.example',
+  privateKey,
+  signatureAgentFormat: 'dictionary',  // Signature-Agent: sig1="https://your-agent.example"
+  // keyedSignatureAgentComponent defaults to true here, covering
+  //   "signature-agent";key="sig1"  rather than the whole field.
+  // signatureAgentType: 'jwks_uri',  // optional §5.5 ;type= parameter
+});
+```
+
+Verifiers accept both forms. The draft's Appendix E.2.1 vector verifies against
+this signer end to end.
 
 ### Google AP2 v0.2 (mandate chains)
 
@@ -155,13 +184,21 @@ import { verifyChain, checkCheckoutConstraints } from '@ava-pay/agent/protocol/a
 ### Types
 - `Mandate`, `BuyerInfo`, `IncomingRequest`, `VerificationResult`, `VerificationFailureReason`
 - `VerifiedProtocol`, `VerifiedAgentIdentity`, `TapVerificationDetail`
+- `VerificationResult` carries an optional `conclusive` flag on both branches;
+  false means a trust root could not be reached, not that the request was
+  rejected. `trusted` stays false either way, so fail-closed behavior is
+  unchanged. Read an absent value as conclusive.
+- `VerifiedAgentIdentity.binding` is `'domain'` for a key found through the
+  reserved well-known directory path and `'url-only'` for one declared via
+  `jwks_uri`/`cimd`, which proves key continuity at a URL with no origin
+  association.
 - `CheckoutMandate`, `OpenCheckoutMandate`, `PaymentMandate`, `OpenPaymentMandate`, `Checkout`
 - `CheckoutConstraintEvaluator`, `PaymentConstraintEvaluator` (pluggable validator registries)
 
 ### Subpath imports for low-level work
 - `@ava-pay/agent/protocol/visa` — RFC 9421 parser, signature base, Ed25519 verify, content-digest
 - `@ava-pay/agent/protocol/visa-tap` — TAP tags/algorithms, Visa JWKS + PS256 IdToken parsing, signed body objects
-- `@ava-pay/agent/protocol/web-bot-auth` — Signature-Agent parsing (both wire forms), RFC 7638 thumbprints, key-directory parsing
+- `@ava-pay/agent/protocol/web-bot-auth` — Signature-Agent parsing (both wire forms, §5.5 discovery types), RFC 7638 thumbprints, key-directory parsing, Appendix B directory proof-of-possession (`verifyDirectoryProofs` / `signDirectoryResponse`)
 - `@ava-pay/agent/protocol/ap2` — dSD-JWT chain verify, v0.2 mandate shapes, constraint evaluators, compact-JWS helpers
 
 ## Onboarding

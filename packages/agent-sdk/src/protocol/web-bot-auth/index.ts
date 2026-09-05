@@ -3,9 +3,11 @@ import { createHash } from 'node:crypto';
 /**
  * Web Bot Auth protocol primitives.
  *
- * Targets draft-meunier-webbotauth-httpsig-protocol-02 (2026-08-18), which
- * folded the separate -httpsig-directory draft into itself at -01. Section
- * numbers in this file are -02's.
+ * Targets draft-ietf-webbotauth-httpsig-protocol-00 (adopted 2026-09-01),
+ * which is content-identical to draft-meunier-webbotauth-httpsig-protocol-02
+ * (2026-08-18), the individual draft it was adopted from. That draft folded
+ * the separate -httpsig-directory draft into itself at -01. Section numbers in
+ * this file are unchanged by adoption and are cited as -02's.
  *
  * Deployed reality (verified against live traffic, 2026-07): OpenAI's agents
  * still emit the pre-restructure shape — `Signature-Agent: "https://chatgpt.com"`

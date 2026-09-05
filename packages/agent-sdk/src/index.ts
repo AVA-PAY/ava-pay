@@ -66,7 +66,8 @@ export {
   type PresentMandateInput,
 } from './agent/ap2.js';
 
-// Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol)
+// Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-00, formerly
+// draft-meunier-webbotauth-httpsig-protocol)
 export {
   signWithWebBotAuth,
   webBotAuthKeyId,

@@ -3,7 +3,8 @@ import { computeContentDigest, verifyEd25519 } from '../visa/http-signatures.js'
 import type { WebBotAuthKey } from './index.js';
 
 /**
- * Appendix B directory proof-of-possession (draft-meunier-webbotauth-httpsig).
+ * Appendix B directory proof-of-possession (draft-ietf-webbotauth-httpsig-protocol-00,
+ * formerly draft-meunier-webbotauth-httpsig).
  *
  * The directory server signs its RESPONSE, once per published key, with an HTTP
  * Message Signature made BY that key. A verifier that checks the proof learns

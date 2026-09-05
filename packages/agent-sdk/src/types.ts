@@ -96,7 +96,8 @@ export type VerificationFailureReason =
   | 'mandate_constraint_violation'
   | 'checkout_hash_mismatch'
   | 'unsupported_protocol_version'
-  // Web Bot Auth (IETF draft-meunier-webbotauth-httpsig-protocol-02)
+  // Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-00, formerly
+  // draft-meunier-webbotauth-httpsig-protocol-02)
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
   // The Signature-Agent URL answered with a redirect. Section 5.5 of -02
