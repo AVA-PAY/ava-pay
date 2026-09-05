@@ -15,7 +15,11 @@ import { readBounded, type SignatureAgentKeyResolver } from './web-bot-auth.js';
  *   1. Visa's Agentic Directory (partner-gated remote, when configured)
  *   2. Visa's public JWKS (mcp.visa.com)
  *   3. Web Bot Auth key directories of allowlisted signature agents
- *      ("agent cards" — keys the agent operator publishes at their origin)
+ *      ("agent cards" — keys the agent operator publishes at their origin).
+ *      Web Bot Auth rules cited below as "-02 Section N" are
+ *      draft-ietf-webbotauth-httpsig-protocol-00 (formerly
+ *      draft-meunier-webbotauth-httpsig-protocol-02); the sections did not
+ *      move on adoption.
  *   4. The hosted AVA directory / private allowlist
  *
  * Semantics:
