@@ -101,12 +101,25 @@ export function parseSignatureInput(headerValue: string): ParsedSignatureInput {
   const re = /"([^"]*)"((?:;[A-Za-z0-9_-]+(?:=(?:"[^"]*"|[^;"\s)]*))?)*)/g;
   let m: RegExpExecArray | null;
   let consumed = 0;
+  // RFC 9421 Section 2.5 step 2.1: "If the component identifier (including its
+  // parameters) has already been added to the signature base, produce an
+  // error." The identifier is name PLUS parameters, so
+  // "signature-agent";key="a" and "signature-agent";key="b" are two different
+  // identifiers and both may appear.
+  const seen = new Set<string>();
   while ((m = re.exec(componentsRaw)) !== null) {
     const name = m[1];
     if (name === undefined || name === '') {
       throw new SignatureParseError('Empty component in Signature-Input');
     }
     const params = m[2] ?? '';
+    const identifier = `"${name}"${params}`;
+    if (seen.has(identifier)) {
+      throw new SignatureParseError(
+        `Signature-Input covers ${identifier} more than once; RFC 9421 Section 2.5 forbids building a base with a repeated component identifier`,
+      );
+    }
+    seen.add(identifier);
     const keyMatch = params.match(/;key="([^"]*)"/);
     const id: SignatureComponentId = { name, params };
     if (keyMatch) id.key = keyMatch[1] as string;

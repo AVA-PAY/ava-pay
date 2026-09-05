@@ -18,6 +18,7 @@ import {
   signDirectoryResponse,
   WebBotAuthParseError,
 } from '@ava-pay/agent/protocol/web-bot-auth';
+import { parseSignatureInput } from '../src/verifier/http-signatures.js';
 import { generateAgentKeyPair, signWithVisa, signWithWebBotAuth, webBotAuthKeyId } from '../src/sdk/index.js';
 import type { AgentKeyPair } from '../src/sdk/index.js';
 import type { IncomingRequest, Mandate } from '../src/types.js';
@@ -990,4 +991,64 @@ describe('MultiProtocolVerifier dispatch with Web Bot Auth', () => {
     const result = await multi.verify(toIncoming(signed));
     expect(result).toMatchObject({ trusted: false, reason: 'ambiguous_protocol' });
   });
+});
+
+/**
+ * Regressions from the ParallaxGrain negative-vector cross-check
+ * (github.com/ParallaxGrain/webbotauth-negative-vectors, offered on
+ * thibmeu/http-message-signatures-directory issue #11).
+ *
+ * Three of his seventeen vectors VERIFIED against our verifier before this
+ * block existed. Each is a request that must not verify, and each got through
+ * a different hole. Kept here as behavior tests with our own keys rather than
+ * as a copy of his set: the vectors are still under review and pinning them is
+ * a separate call. See CROSSCHECK-REPORT.md in the strategy folder.
+ */
+describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
+  const FIXED_NOW = 1_750_000_000;
+  const AGENT_ORIGIN = 'https://agent.example';
+  const MERCHANT_URL = 'https://shop.example.com/products/tool-1234';
+
+  let keys: AgentKeyPair;
+  let resolver: StaticSignatureAgentKeys;
+  let verifier: WebBotAuthVerifier;
+
+  beforeEach(() => {
+    keys = generateAgentKeyPair();
+    resolver = new StaticSignatureAgentKeys();
+    resolver.add(AGENT_ORIGIN, jwksFor(keys));
+    verifier = new WebBotAuthVerifier({ resolver, now: () => FIXED_NOW });
+  });
+
+  // NV-19. RFC 9421 §2.5 step 2.1: "If the component identifier (including its
+  // parameters) has already been added to the signature base, produce an
+  // error." We used to build the base anyway, and a signature made over that
+  // base then verified.
+  it('refuses a Signature-Input that covers the same component identifier twice', async () => {
+    const signed = signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: AGENT_ORIGIN,
+      privateKey: keys.privateKey,
+      created: FIXED_NOW - 5,
+      components: ['@authority', '@authority', 'signature-agent'],
+    });
+    // The signer produced a real signature over the repeated base, so this is
+    // rejected on the rule and not because the crypto failed.
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toMatch(/more than once/);
+  });
+
+  // The same identifier with DIFFERENT parameters is a different identifier and
+  // stays legal, which is the half a name-only duplicate check would break.
+  it('still accepts the same component name under two different key parameters', () => {
+    const parsed = parseSignatureInput(
+      'sig1=("signature-agent";key="a" "signature-agent";key="b" "@authority");' +
+        'created=1;expires=2;keyid="k";tag="web-bot-auth"',
+    );
+    expect(parsed.components).toEqual(['signature-agent', 'signature-agent', '@authority']);
+  });
+
 });
