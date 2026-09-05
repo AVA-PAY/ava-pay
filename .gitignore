@@ -50,3 +50,6 @@ shopify-app/.react-router/
 
 # PHPUnit cache
 woocommerce-plugin/.phpunit.result.cache
+
+# wp-env local overrides (the committed .wp-env.json is the shared config)
+woocommerce-plugin/.wp-env.override.json
