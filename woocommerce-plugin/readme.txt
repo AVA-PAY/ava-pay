@@ -2,7 +2,7 @@
 Contributors: avalayer
 Tags: ai agents, agentic commerce, bot verification, coupons, security
 Requires at least: 6.5
-Tested up to: 6.8
+Tested up to: 7.1
 Requires PHP: 7.4
 Stable tag: 0.2.0
 License: MIT
@@ -12,7 +12,7 @@ Verify AI shopping agents on your WooCommerce store. Know which agents to trust,
 
 == Description ==
 
-AI agents are already shopping your store — ChatGPT browses product pages, agentic checkouts are rolling out across the ecosystem. AVA Pay tells you which agents to trust, lets you set the rules, and records every verification and attributed order so you can see the traffic when reporting lands.
+AI agents are already shopping your store. ChatGPT browses product pages, agentic checkouts are rolling out across the ecosystem. AVA Pay tells you which agents to trust, lets you set the rules, and records every verification and attributed order so you can see the traffic when reporting lands.
 
 This plugin connects your WooCommerce store to the AVA Pay verification API, which cryptographically verifies agent traffic across protocols (Visa Trusted Agent Protocol, IETF Web Bot Auth, Google AP2) through a single endpoint.
 
@@ -35,7 +35,7 @@ This plugin connects your WooCommerce store to the AVA Pay verification API, whi
 1. Upload the plugin to `/wp-content/plugins/ava-pay-for-woocommerce/`, or install through the WordPress plugins screen.
 2. Activate the plugin. WooCommerce must be active.
 3. Go to WooCommerce → AVA Pay to review settings. The defaults work out of the box against the hosted AVA Pay API.
-4. Requirements for verification to work: pretty permalinks (Settings → Permalinks, any structure other than "Plain") and an https site address — agents sign the canonical `https://…/wp-json/…` URL. The settings page warns you if either is missing.
+4. Requirements for verification to work: pretty permalinks (Settings → Permalinks, any structure other than "Plain") and an https site address, because agents sign the canonical `https://…/wp-json/…` URL. The settings page warns you if either is missing.
 
 == Frequently Asked Questions ==
 
@@ -47,7 +47,7 @@ No. The verify endpoint is only exercised by agent traffic, and the storefront s
 
 Only the signed agent request (its headers and body) is forwarded to the verification API. No customer or order data is sent.
 
-= My store is behind Cloudflare or a reverse proxy — does rate limiting still work? =
+= My store is behind Cloudflare or a reverse proxy. Does rate limiting still work? =
 
 The verify endpoint is rate-limited per client IP (REMOTE_ADDR). If your host does not restore the real client IP, all traffic shares the proxy's IP and one rate-limit bucket. Preferably fix real-IP restoration at the server level (mod_remoteip / ngx_http_realip); alternatively, use the `ava_pay_client_ip` filter to supply the client IP from a header only your trusted proxy can set (e.g. CF-Connecting-IP when only Cloudflare can reach the origin).
 

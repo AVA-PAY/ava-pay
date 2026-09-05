@@ -53,7 +53,7 @@ class AVA_Pay_Admin {
 
 		?>
 		<div class="wrap">
-			<h1><?php esc_html_e( 'AVA Pay — Agent Trust Gateway', 'ava-pay-for-woocommerce' ); ?></h1>
+			<h1><?php esc_html_e( 'AVA Pay: Agent Trust Gateway', 'ava-pay-for-woocommerce' ); ?></h1>
 			<p>
 				<?php esc_html_e( 'AI agents are already shopping your store. AVA Pay verifies which ones to trust, lets you set the rules, and records the traffic.', 'ava-pay-for-woocommerce' ); ?>
 			</p>
@@ -113,7 +113,7 @@ class AVA_Pay_Admin {
 							<textarea name="ava_pay_policy_json" id="ava_pay_policy_json" class="large-text code" rows="12"
 								placeholder='{"version": 1, "rules": [{"platform": "https://chatgpt.com", "action": "allow"}]}'><?php echo esc_textarea( $policy_json ); ?></textarea>
 							<p class="description">
-								<?php esc_html_e( 'Optional per-platform rules: allow/challenge/block, discount caps (maxDiscountPct), spend rules (maxSpendMinor), and agent-only offers (offerDiscountPct). Leave empty for default behavior. This document is portable — copy it out to export, paste to import.', 'ava-pay-for-woocommerce' ); ?>
+								<?php esc_html_e( 'Optional per-platform rules: allow/challenge/block, discount caps (maxDiscountPct), spend rules (maxSpendMinor), and agent-only offers (offerDiscountPct). Leave empty for default behavior. This document is portable: copy it out to export, paste to import.', 'ava-pay-for-woocommerce' ); ?>
 							</p>
 						</td>
 					</tr>
@@ -137,7 +137,7 @@ class AVA_Pay_Admin {
 		}
 		$messages = array(
 			'plain_permalinks' => __( 'Pretty permalinks are disabled, so this site\'s REST URL uses the ?rest_route= form. Agents sign the /wp-json/… form, so every verification will fail. Fix: Settings → Permalinks → choose any structure other than "Plain".', 'ava-pay-for-woocommerce' ),
-			'not_https'        => __( 'This site\'s WordPress Address (home URL) is not https, but agents sign https URLs — verification signatures will not match. Fix: serve the site over https and update the WordPress/Site Address (or your reverse-proxy HTTPS detection) so WordPress generates https URLs.', 'ava-pay-for-woocommerce' ),
+			'not_https'        => __( 'This site\'s WordPress Address (home URL) is not https, but agents sign https URLs, so verification signatures will not match. Fix: serve the site over https and update the WordPress/Site Address (or your reverse-proxy HTTPS detection) so WordPress generates https URLs.', 'ava-pay-for-woocommerce' ),
 		);
 		foreach ( $problems as $problem ) {
 			if ( ! isset( $messages[ $problem ] ) ) {

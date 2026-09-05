@@ -28,7 +28,7 @@ require_once $core . 'class-ava-pay-rate-limiter.php';
 function ava_pay_load_fixture( $name ) {
 	$path = __DIR__ . '/fixtures/' . $name;
 	if ( ! is_file( $path ) ) {
-		fwrite( STDERR, "Missing fixture {$path} — run the generators in woocommerce-plugin/scripts/ first.\n" );
+		fwrite( STDERR, "Missing fixture {$path}, run the generators in woocommerce-plugin/scripts/ first.\n" );
 		exit( 1 );
 	}
 	$decoded = json_decode( (string) file_get_contents( $path ), true );

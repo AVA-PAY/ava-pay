@@ -97,19 +97,48 @@ class AVA_Pay_Events {
 	 */
 	public static function record_verification( array $event ) {
 		global $wpdb;
-		$wpdb->insert(
-			self::verification_table(),
-			array(
-				'created_at'    => gmdate( 'Y-m-d H:i:s' ),
-				'protocol'      => isset( $event['protocol'] ) ? $event['protocol'] : null,
-				'platform'      => isset( $event['platform'] ) ? self::truncate( $event['platform'], 191 ) : null,
-				'outcome'       => $event['outcome'],
-				'reason'        => isset( $event['reason'] ) ? self::truncate( $event['reason'], 64 ) : null,
-				'identity_only' => ! empty( $event['identity_only'] ) ? 1 : 0,
-				'discount_pct'  => isset( $event['discount_pct'] ) ? (int) $event['discount_pct'] : null,
-				'discount_code' => isset( $event['discount_code'] ) ? self::truncate( $event['discount_code'], 64 ) : null,
-			)
+		$row = array(
+			'created_at'    => gmdate( 'Y-m-d H:i:s' ),
+			'protocol'      => isset( $event['protocol'] ) ? $event['protocol'] : null,
+			'platform'      => isset( $event['platform'] ) ? self::truncate( $event['platform'], 191 ) : null,
+			'outcome'       => $event['outcome'],
+			'reason'        => isset( $event['reason'] ) ? self::truncate( $event['reason'], 64 ) : null,
+			'identity_only' => ! empty( $event['identity_only'] ) ? 1 : 0,
+			'discount_pct'  => isset( $event['discount_pct'] ) ? (int) $event['discount_pct'] : null,
+			'discount_code' => isset( $event['discount_code'] ) ? self::truncate( $event['discount_code'], 64 ) : null,
 		);
+
+		if ( false === $wpdb->insert( self::verification_table(), $row ) && self::repair_tables() ) {
+			$wpdb->insert( self::verification_table(), $row );
+		}
+	}
+
+	/**
+	 * Re-run the installer once per request after a failed insert.
+	 *
+	 * The version gate in the main plugin file only re-runs dbDelta when
+	 * AVA_PAY_WC_VERSION changes, so a site whose event tables went missing
+	 * while `ava_pay_db_version` still matched (a database restored without
+	 * custom tables, a staging clone, a migration plugin that copied only
+	 * core tables) would drop every event for the rest of the release and say
+	 * nothing: verification still succeeds and coupons are still minted, so
+	 * the merchant sees a working store and an empty traffic table.
+	 *
+	 * Checking the tables exist on every request would cost a query per page
+	 * load for a condition that is almost never true, so the check hangs off
+	 * the failure instead. Once per request, because a row rejected for any
+	 * other reason (a value too long for its column) must not retry forever.
+	 *
+	 * @return bool True if the installer ran and the caller should retry.
+	 */
+	private static function repair_tables() {
+		static $attempted = false;
+		if ( $attempted || ! defined( 'ABSPATH' ) ) {
+			return false;
+		}
+		$attempted = true;
+		self::install();
+		return true;
 	}
 
 	/**
@@ -136,23 +165,28 @@ class AVA_Pay_Events {
 			return false;
 		}
 
+		$row = array(
+			'created_at'    => gmdate( 'Y-m-d H:i:s' ),
+			'kind'          => $event['kind'],
+			'source_id'     => self::truncate( $event['source_id'], 191 ),
+			'order_name'    => isset( $event['order_name'] ) ? self::truncate( $event['order_name'], 64 ) : null,
+			'total_minor'   => isset( $event['total_minor'] ) ? (int) $event['total_minor'] : null,
+			'currency'      => isset( $event['currency'] ) ? self::truncate( $event['currency'], 8 ) : null,
+			'discount_code' => isset( $event['discount_code'] ) ? self::truncate( $event['discount_code'], 64 ) : null,
+			'platform'      => isset( $event['platform'] ) ? self::truncate( $event['platform'], 191 ) : null,
+			'protocol'      => isset( $event['protocol'] ) ? $event['protocol'] : null,
+		);
+
 		// The unique key still guards the SELECT→INSERT race; suppress the
 		// duplicate-key error rather than surfacing it to the checkout flow.
 		$suppress = $wpdb->suppress_errors();
-		$inserted = $wpdb->insert(
-			self::commerce_table(),
-			array(
-				'created_at'    => gmdate( 'Y-m-d H:i:s' ),
-				'kind'          => $event['kind'],
-				'source_id'     => self::truncate( $event['source_id'], 191 ),
-				'order_name'    => isset( $event['order_name'] ) ? self::truncate( $event['order_name'], 64 ) : null,
-				'total_minor'   => isset( $event['total_minor'] ) ? (int) $event['total_minor'] : null,
-				'currency'      => isset( $event['currency'] ) ? self::truncate( $event['currency'], 8 ) : null,
-				'discount_code' => isset( $event['discount_code'] ) ? self::truncate( $event['discount_code'], 64 ) : null,
-				'platform'      => isset( $event['platform'] ) ? self::truncate( $event['platform'], 191 ) : null,
-				'protocol'      => isset( $event['protocol'] ) ? $event['protocol'] : null,
-			)
-		);
+		$inserted = $wpdb->insert( self::commerce_table(), $row );
+		// A missing table looks the same as a duplicate key from here, so the
+		// retry is worth one attempt; a real duplicate simply fails again and
+		// still reads as already-recorded. See repair_tables().
+		if ( false === $inserted && self::repair_tables() ) {
+			$inserted = $wpdb->insert( self::commerce_table(), $row );
+		}
 		$wpdb->suppress_errors( $suppress );
 
 		return false !== $inserted;
