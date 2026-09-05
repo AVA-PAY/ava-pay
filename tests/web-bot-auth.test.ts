@@ -573,10 +573,17 @@ describe('web-bot-auth protocol primitives', () => {
     );
     // No type param at all → the default directory.
     expect(parseSignatureAgent('sig1="https://agent.example"', 'sig1').type).toBe('directory');
-    // A path that looks like a jwks_uri does NOT change the type (never inferred).
-    expect(parseSignatureAgent('sig1="https://agent.example/jwks.json"', 'sig1').type).toBe(
-      'directory',
+    // A path that looks like a jwks_uri does NOT change the type: the type is
+    // never inferred from the path shape. With no type param the member is a
+    // `directory` value, and §5.5 requires a directory value to be a bare
+    // origin, so it is refused rather than silently read as a jwks_uri.
+    expect(() => parseSignatureAgent('sig1="https://agent.example/jwks.json"', 'sig1')).toThrow(
+      /not an origin serialization/,
     );
+    // Declared as jwks_uri, the same URL is fine: that type points at a file.
+    expect(
+      parseSignatureAgent('sig1="https://agent.example/jwks.json";type=jwks_uri', 'sig1').type,
+    ).toBe('jwks_uri');
   });
 
   it('rejects a label-matched member with an unrecognized type (never upgraded to directory)', () => {
@@ -1051,4 +1058,57 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
     expect(parsed.components).toEqual(['signature-agent', 'signature-agent', '@authority']);
   });
 
+  // NV-13. §5.2.2: "A verifier MUST NOT attribute a signature to a member that
+  // signature does not cover." With several usable members and no label match
+  // we used to take the first one in header order and verify against it.
+  it('refuses to attribute a signature when several Signature-Agent members could match', async () => {
+    const signed = signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: AGENT_ORIGIN,
+      privateKey: keys.privateKey,
+      created: FIXED_NOW - 5,
+    });
+    // Two members, neither keyed to the signature label, and the covered
+    // component is the unkeyed whole field. The signature itself is untouched.
+    signed.headers['signature-agent'] =
+      `first="${AGENT_ORIGIN}", second="https://other-agent.example"`;
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toMatch(/cannot be attributed/);
+  });
+
+  // One usable member that is not label-matched is still resolved: that is the
+  // draft's own E.2.1 shape (signature sig2, member agent2) and the deployed
+  // bare-string traffic. The NV-13 fix must not cost us either.
+  it('still resolves a single Signature-Agent member that does not match the label', () => {
+    const parsed = parseSignatureAgent(`only="${AGENT_ORIGIN}"`, 'sig1');
+    expect(parsed.origin).toBe(AGENT_ORIGIN);
+    expect(parsed.type).toBe('directory');
+  });
+
+  // NV-17. §5.5: the directory member value "MUST be the ASCII serialization of
+  // an origin ... and a verifier MUST ignore a member carrying anything else".
+  // We used to take url.origin and discard the path, then verify the request
+  // and report binding="domain" for it.
+  it('refuses a directory-type Signature-Agent that carries a path', async () => {
+    const signed = signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: `${AGENT_ORIGIN}/keys`,
+      privateKey: keys.privateKey,
+      created: FIXED_NOW - 5,
+    });
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toMatch(/not an origin serialization/);
+  });
+
+  // A bare origin's URL pathname is "/", which §5.5 exempts explicitly.
+  it('still accepts a bare origin, whose parsed path is a single slash', () => {
+    expect(parseSignatureAgent(`sig1="${AGENT_ORIGIN}"`, 'sig1').origin).toBe(AGENT_ORIGIN);
+    expect(parseSignatureAgent(`sig1="${AGENT_ORIGIN}/"`, 'sig1').origin).toBe(AGENT_ORIGIN);
+  });
 });
