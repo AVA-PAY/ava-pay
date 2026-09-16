@@ -41,7 +41,7 @@ class AVA_Pay_Admin {
 		}
 
 		$notices = array();
-		if ( 'POST' === ( isset( $_SERVER['REQUEST_METHOD'] ) ? $_SERVER['REQUEST_METHOD'] : '' ) ) {
+		if ( 'POST' === ( isset( $_SERVER['REQUEST_METHOD'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) : '' ) ) {
 			check_admin_referer( self::NONCE );
 			$notices = self::handle_save();
 		}
@@ -167,10 +167,12 @@ class AVA_Pay_Admin {
 	 * @return array<int,array{type:string,message:string}>
 	 */
 	private static function handle_save() {
+		// Only reached from render_page() after check_admin_referer( self::NONCE ).
+		// phpcs:disable WordPress.Security.NonceVerification.Missing
 		$notices = array();
 
 		$api_url = isset( $_POST['ava_pay_api_url'] )
-			? esc_url_raw( trim( wp_unslash( $_POST['ava_pay_api_url'] ) ), array( 'http', 'https' ) )
+			? esc_url_raw( sanitize_text_field( wp_unslash( $_POST['ava_pay_api_url'] ) ), array( 'http', 'https' ) )
 			: '';
 		if ( '' === $api_url ) {
 			$api_url = AVA_Pay_Settings::DEFAULT_API_URL;
@@ -179,14 +181,16 @@ class AVA_Pay_Admin {
 		$patch = array(
 			'apiUrl'                  => $api_url,
 			'acceptVerifiedAgents'    => ! empty( $_POST['ava_pay_accept'] ),
-			'defaultDiscountPct'      => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_default_pct'] ) ? wp_unslash( $_POST['ava_pay_default_pct'] ) : 0 ),
-			'maxDiscountPct'          => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_max_pct'] ) ? wp_unslash( $_POST['ava_pay_max_pct'] ) : 0 ),
-			'identityOnlyDiscountPct' => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_identity_pct'] ) ? wp_unslash( $_POST['ava_pay_identity_pct'] ) : 0 ),
+			'defaultDiscountPct'      => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_default_pct'] ) ? sanitize_text_field( wp_unslash( $_POST['ava_pay_default_pct'] ) ) : 0 ),
+			'maxDiscountPct'          => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_max_pct'] ) ? sanitize_text_field( wp_unslash( $_POST['ava_pay_max_pct'] ) ) : 0 ),
+			'identityOnlyDiscountPct' => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_identity_pct'] ) ? sanitize_text_field( wp_unslash( $_POST['ava_pay_identity_pct'] ) ) : 0 ),
 		);
 
 		$policy_json = isset( $_POST['ava_pay_policy_json'] )
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- raw JSON on purpose: text sanitizers strip %XX octets and would corrupt it. It is validated by the strict policy parser below and only its re-serialization is stored.
 			? trim( (string) wp_unslash( $_POST['ava_pay_policy_json'] ) )
 			: '';
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		if ( '' === $policy_json ) {
 			$patch['policyJson'] = '';

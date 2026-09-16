@@ -53,3 +53,6 @@ woocommerce-plugin/.phpunit.result.cache
 
 # wp-env local overrides (the committed .wp-env.json is the shared config)
 woocommerce-plugin/.wp-env.override.json
+
+# WooCommerce plugin distribution zip (scripts/build-zip.sh)
+woocommerce-plugin/dist/

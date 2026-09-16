@@ -4,7 +4,7 @@
  * Plugin URI: https://avalayer.com
  * Description: Verify AI shopping agents (Visa TAP, Web Bot Auth, AP2) on your WooCommerce store. Set the rules, admit trusted agents, optionally mint one-time coupons, and see the traffic.
  * Version: 0.2.0
- * Author: AVA Layer
+ * Author: Agentic Verification Architecture
  * Author URI: https://avalayer.com
  * License: MIT
  * Text Domain: ava-pay-for-woocommerce

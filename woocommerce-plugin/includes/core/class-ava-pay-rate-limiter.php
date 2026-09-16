@@ -11,7 +11,7 @@
  * @package AVA_Pay
  */
 
-if ( ! defined( 'ABSPATH' ) && ! defined( 'AVA_PAY_TESTS' ) ) {
+if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 

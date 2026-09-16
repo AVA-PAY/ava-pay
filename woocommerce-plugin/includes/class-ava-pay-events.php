@@ -108,9 +108,11 @@ class AVA_Pay_Events {
 			'discount_code' => isset( $event['discount_code'] ) ? self::truncate( $event['discount_code'], 64 ) : null,
 		);
 
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery -- insert into this plugin's own event table; no core API exists for custom tables.
 		if ( false === $wpdb->insert( self::verification_table(), $row ) && self::repair_tables() ) {
 			$wpdb->insert( self::verification_table(), $row );
 		}
+		// phpcs:enable
 	}
 
 	/**
@@ -154,9 +156,11 @@ class AVA_Pay_Events {
 	public static function record_commerce_event( array $event ) {
 		global $wpdb;
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- dedup read on this plugin's own event table; must see the live row, so no cache.
 		$existing = $wpdb->get_var(
 			$wpdb->prepare(
-				'SELECT id FROM ' . self::commerce_table() . ' WHERE kind = %s AND source_id = %s',
+				'SELECT id FROM %i WHERE kind = %s AND source_id = %s',
+				self::commerce_table(),
 				$event['kind'],
 				$event['source_id']
 			)
@@ -180,12 +184,12 @@ class AVA_Pay_Events {
 		// The unique key still guards the SELECT→INSERT race; suppress the
 		// duplicate-key error rather than surfacing it to the checkout flow.
 		$suppress = $wpdb->suppress_errors();
-		$inserted = $wpdb->insert( self::commerce_table(), $row );
+		$inserted = $wpdb->insert( self::commerce_table(), $row ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- insert into this plugin's own event table.
 		// A missing table looks the same as a duplicate key from here, so the
 		// retry is worth one attempt; a real duplicate simply fails again and
 		// still reads as already-recorded. See repair_tables().
 		if ( false === $inserted && self::repair_tables() ) {
-			$inserted = $wpdb->insert( self::commerce_table(), $row );
+			$inserted = $wpdb->insert( self::commerce_table(), $row ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- insert into this plugin's own event table.
 		}
 		$wpdb->suppress_errors( $suppress );
 
@@ -202,10 +206,11 @@ class AVA_Pay_Events {
 	 */
 	public static function find_verification_by_code( $code ) {
 		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- attribution read on this plugin's own event table, once per order.
 		$row = $wpdb->get_row(
 			$wpdb->prepare(
-				'SELECT platform, protocol FROM ' . self::verification_table() .
-				' WHERE discount_code = %s ORDER BY id DESC LIMIT 1',
+				'SELECT platform, protocol FROM %i WHERE discount_code = %s ORDER BY id DESC LIMIT 1',
+				self::verification_table(),
 				$code
 			),
 			ARRAY_A
