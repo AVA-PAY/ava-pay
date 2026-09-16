@@ -55,6 +55,10 @@ The verify endpoint is rate-limited per client IP (REMOTE_ADDR). If your host do
 
 No. Discounts are capped by your maximum, identity-only agents get 0% unless you explicitly raise the identity-only tier, and platform offers apply only to mandate-backed requests.
 
+== Screenshots ==
+
+1. The AVA Pay settings page under WooCommerce: API URL, verified-agent admission, discount tiers, and the per-platform policy document.
+
 == External services ==
 
 This plugin connects to the AVA Pay verification API, operated by Agentic Verification Architecture LLC, to check whether an AI agent's signed request is genuine. Your store cannot verify agent signatures on its own; this API does the cryptographic check against the agent platforms' published keys.
