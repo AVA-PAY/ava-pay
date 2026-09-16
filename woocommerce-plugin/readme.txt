@@ -18,10 +18,10 @@ This plugin connects your WooCommerce store to the AVA Pay verification API, whi
 
 **What it does**
 
-* Adds a verify endpoint (`/wp-json/ava-pay/v1/verify-agent`) that proxies signed agent requests to the AVA Pay API — signatures are verified server-side against the agent platforms' published keys.
-* Applies YOUR policy: accept/reject verified agents, per-platform allow/challenge/block rules, discount caps, and spend limits — as a portable JSON policy document.
+* Adds a verify endpoint (`/wp-json/ava-pay/v1/verify-agent`) that proxies signed agent requests to the AVA Pay API. Signatures are verified server-side against the agent platforms' published keys.
+* Applies YOUR policy: accept/reject verified agents, per-platform allow/challenge/block rules, discount caps, and spend limits, kept as a portable JSON policy document.
 * Optionally mints a single-use, expiring WooCommerce coupon for verified agents.
-* Records every verification and every attributed order in local database tables. (This version records the data; a traffic/revenue dashboard is planned — nothing is displayed yet.)
+* Records every verification and every attributed order in local database tables. (This version records the data; a traffic/revenue dashboard is planned, and nothing is displayed yet.)
 
 **Trust model, honestly stated**
 
@@ -45,7 +45,7 @@ No. The verify endpoint is only exercised by agent traffic, and the storefront s
 
 = What data leaves my site? =
 
-Only the signed agent request (its headers and body) is forwarded to the verification API. No customer or order data is sent.
+Only the agent request that reached the verify endpoint (its method, headers with cookies and credentials removed, and body) is forwarded to the verification API. No customer, order, or session data is sent. See External services below for the full detail.
 
 = My store is behind Cloudflare or a reverse proxy. Does rate limiting still work? =
 
@@ -54,6 +54,18 @@ The verify endpoint is rate-limited per client IP (REMOTE_ADDR). If your host do
 = Can agents get discounts without my consent? =
 
 No. Discounts are capped by your maximum, identity-only agents get 0% unless you explicitly raise the identity-only tier, and platform offers apply only to mandate-backed requests.
+
+== External services ==
+
+This plugin connects to the AVA Pay verification API, operated by Agentic Verification Architecture LLC, to check whether an AI agent's signed request is genuine. Your store cannot verify agent signatures on its own; this API does the cryptographic check against the agent platforms' published keys.
+
+* **Service:** AVA Pay verification API. The plugin sends `POST https://pay.avalayer.com/verify`. The base URL is the "AVA Pay API URL" setting (default `https://pay.avalayer.com`) and can also be changed with the `ava_pay_api_url` filter.
+* **When data is sent:** only when a request is POSTed to the plugin's verify endpoint, `/wp-json/ava-pay/v1/verify-agent`, and passes the local rate limit. That endpoint is how signed agent requests reach the plugin, either directly from the agent or from the storefront script on a page view that carries agent signature parameters. The plugin forwards each such request as received and lets the API decide; a request without valid signature material is rejected there. Nothing is sent on ordinary page views, in the admin, or during checkout.
+* **What is sent:** the incoming request's HTTP method; the canonical URL of the verify endpoint, built from your site's own address rather than from the incoming request; the request headers as received, with `Cookie`, `Authorization` and `X-WP-Nonce` removed and `Host` replaced by your site's own host; and the request body, if there is one. The forwarded headers are whatever the caller sent, such as the agent's signature headers and `User-Agent`, plus any headers your web server or a proxy in front of it adds before WordPress sees the request (for example `X-Forwarded-For`).
+* **What is not sent:** no customer, order, or session data. No cookies, no logged-in user information, no cart contents, and no store settings or policy.
+
+Terms of service: https://avalayer.com/terms
+Privacy policy: https://avalayer.com/privacy
 
 == Changelog ==
 
