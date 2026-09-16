@@ -216,7 +216,7 @@ class AVA_Pay_Rest {
 	 * disables the flood guard.
 	 */
 	private static function client_bucket() {
-		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : 'unknown';
+		$remote_addr = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : 'unknown';
 		$ip          = apply_filters( 'ava_pay_client_ip', $remote_addr );
 		return is_string( $ip ) && '' !== $ip ? $ip : $remote_addr;
 	}

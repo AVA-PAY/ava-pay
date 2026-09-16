@@ -58,17 +58,17 @@ class AVA_Pay_Frontend {
 	}
 
 	private static function request_has_signature_params() {
-		// Detection only — the values are read (and signature-verified) later,
-		// never trusted here. phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		// Detection only: the values are read (and signature-verified) later,
+		// never trusted here. A public storefront URL cannot carry a nonce.
 		foreach ( self::SIG_PARAMS as $param ) {
-			if ( isset( $_GET[ $param ] ) ) {
+			if ( isset( $_GET[ $param ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key presence check on a public page.
 				return true;
 			}
 		}
 		// The embed also forwards arbitrary x-* hint params, so an
 		// x-*-only redirect must load it too (the gate and the JS
 		// collection must trigger on the same requests).
-		foreach ( array_keys( $_GET ) as $key ) {
+		foreach ( array_keys( $_GET ) as $key ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key names only, on a public page.
 			if ( is_string( $key ) && 0 === strpos( strtolower( $key ), 'x-' ) ) {
 				return true;
 			}
