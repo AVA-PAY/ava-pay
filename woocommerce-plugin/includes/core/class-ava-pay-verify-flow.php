@@ -24,7 +24,7 @@
  * @package AVA_Pay
  */
 
-if ( ! defined( 'ABSPATH' ) && ! defined( 'AVA_PAY_TESTS' ) ) {
+if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
@@ -235,7 +235,7 @@ class AVA_Pay_Verify_Flow {
 		if ( false !== strpos( (string) $signed_url, 'rest_route=' ) ) {
 			$problems[] = 'plain_permalinks';
 		}
-		$scheme = parse_url( (string) $signed_url, PHP_URL_SCHEME );
+		$scheme = parse_url( (string) $signed_url, PHP_URL_SCHEME ); // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url -- core is WordPress-free by contract (PHPUnit loads it without WP); PHP 7.4+ parse_url is consistent.
 		if ( 'https' !== strtolower( (string) $scheme ) ) {
 			$problems[] = 'not_https';
 		}

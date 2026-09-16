@@ -16,7 +16,7 @@
  * @package AVA_Pay
  */
 
-if ( ! defined( 'ABSPATH' ) && ! defined( 'AVA_PAY_TESTS' ) ) {
+if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
@@ -98,7 +98,7 @@ class AVA_Pay_Agent_Hint {
 	 * @return string|null Null when the URL doesn't parse to an https origin.
 	 */
 	private static function https_origin( $url ) {
-		$parts = parse_url( $url );
+		$parts = parse_url( $url ); // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url -- core is WordPress-free by contract (PHPUnit loads it without WP); PHP 7.4+ parse_url is consistent.
 		if ( false === $parts || ! isset( $parts['scheme'], $parts['host'] ) ) {
 			return null;
 		}

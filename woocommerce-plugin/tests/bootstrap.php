@@ -9,7 +9,11 @@
  * @package AVA_Pay
  */
 
-define( 'AVA_PAY_TESTS', true );
+// The core files carry the standard WordPress direct-access guard
+// (`if ( ! defined( 'ABSPATH' ) ) exit;`, the only shape Plugin Check
+// accepts), so the suite defines ABSPATH before loading them. Nothing in
+// includes/core/ reads it.
+define( 'ABSPATH', __DIR__ . '/' );
 
 $core = __DIR__ . '/../includes/core/';
 require_once $core . 'class-ava-pay-agent-policy.php';
