@@ -91,6 +91,7 @@ export type {
   VerifiedProtocol,
   VerifiedAgentIdentity,
   TapVerificationDetail,
+  OperatorRecord,
 } from './types.js';
 
 // AP2 protocol re-exports for users implementing custom AP2 logic
