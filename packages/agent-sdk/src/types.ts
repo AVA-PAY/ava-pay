@@ -186,6 +186,39 @@ export interface VerifiedAgentIdentity {
 }
 
 /**
+ * Accountability provenance for a verified agent origin: who operates it and
+ * where that claim came from.
+ *
+ * This answers a DIFFERENT question from key resolution. A resolved key proves
+ * "this request came from this origin"; an OperatorRecord says "and here is who
+ * is accountable for that origin, per a registry". The two must never shadow
+ * each other, so this is attached to an already-verified result as provenance
+ * and NEVER contributes to `trusted`, `conclusive`, or `reason`. Absent on
+ * every failed or inconclusive result, and absent on a verified result when no
+ * operator source is configured or the source could not answer.
+ *
+ * Produced by an OperatorSource (src/verifier/operator-source.ts). See
+ * docs/RESOLVER-SOURCES.md.
+ */
+export interface OperatorRecord {
+  /** The https origin this record describes, e.g. "https://www.shopify.com". */
+  origin: string;
+  /** Operator name as the registry reports it. Not a trust claim on its own. */
+  operator: string;
+  /** Abuse contact published for the origin, when the registry publishes one. */
+  abuseContact?: string;
+  /** Which registry answered, e.g. an RDAP service name. Provenance, not authority. */
+  registry: string;
+  /**
+   * DNSSEC validation state of the key-to-name binding the source checked.
+   * `unchecked` means the source did not attempt validation; it is NOT a pass.
+   */
+  dnssec: 'valid' | 'invalid' | 'absent' | 'unchecked';
+  /** ISO 8601 timestamp of when the source made this observation. */
+  observedAt: string;
+}
+
+/**
  * Result returned to the merchant.
  *
  * The shape is a discriminated union on `trusted` so merchants can do:
@@ -215,6 +248,13 @@ export type VerificationResult =
       mandate?: Mandate;
       /** Real Visa TAP only: intent + validated consumer/payment context. */
       tap?: TapVerificationDetail;
+      /**
+       * Accountability provenance for the verified origin, attached AFTER
+       * verification by an optional OperatorSource. Advisory only: it never
+       * changed `trusted` or `conclusive`, and its absence means "not looked
+       * up or not answered", never "not accountable".
+       */
+      operator?: OperatorRecord;
       /** Optional merchant-funded discount, expressed as a fraction 0..1 (e.g. 0.1 = 10%). */
       discount?: number;
       /** How long this decision is valid, in seconds. Merchant can cache. */

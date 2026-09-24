@@ -9,4 +9,5 @@ export type {
   VerifiedProtocol,
   VerifiedAgentIdentity,
   TapVerificationDetail,
+  OperatorRecord,
 } from '@ava-pay/agent';

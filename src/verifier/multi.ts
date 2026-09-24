@@ -1,4 +1,5 @@
 import type { AgentVerifier } from './interface.js';
+import { annotateWithOperator, type OperatorSource } from './operator-source.js';
 import type { IncomingRequest, VerificationResult } from '../types.js';
 
 /**
@@ -24,6 +25,13 @@ import type { IncomingRequest, VerificationResult } from '../types.js';
  *
  * The protocol-specific verifiers are passed in by name. New protocols are
  * added by registering them in server.ts and adding a sniff rule here.
+ *
+ * An optional OperatorSource hangs off the same seam. It runs after whichever
+ * verifier answered, only for a verified result, and only ever adds
+ * `result.operator` provenance. Dispatch is the right place for it precisely
+ * because it is protocol-agnostic: accountability for an origin does not depend
+ * on which protocol proved the request came from there. See
+ * docs/RESOLVER-SOURCES.md.
  */
 
 export interface MultiProtocolVerifierOptions {
@@ -33,6 +41,11 @@ export interface MultiProtocolVerifierOptions {
   visaTap: AgentVerifier;
   ap2: AgentVerifier;
   webBotAuth: AgentVerifier;
+  /**
+   * Optional accountability provenance for verified origins. Default none, in
+   * which case results are byte-for-byte what the verifiers returned.
+   */
+  operator?: OperatorSource;
 }
 
 export class MultiProtocolVerifier implements AgentVerifier {
@@ -62,10 +75,10 @@ export class MultiProtocolVerifier implements AgentVerifier {
         conclusive: true,
       };
     }
-    if (hasWba) return this.impls.webBotAuth.verify(request);
-    if (hasVisaTap) return this.impls.visaTap.verify(request);
-    if (hasVisa) return this.impls.visa.verify(request);
-    if (hasAp2) return this.impls.ap2.verify(request);
+    if (hasWba) return this.annotate(await this.impls.webBotAuth.verify(request));
+    if (hasVisaTap) return this.annotate(await this.impls.visaTap.verify(request));
+    if (hasVisa) return this.annotate(await this.impls.visa.verify(request));
+    if (hasAp2) return this.annotate(await this.impls.ap2.verify(request));
 
     return {
       trusted: false,
@@ -75,4 +88,32 @@ export class MultiProtocolVerifier implements AgentVerifier {
       conclusive: true,
     };
   }
+
+  /**
+   * Attach operator provenance to a verified result. Failed and inconclusive
+   * results never reach the source: annotateWithOperator re-checks that itself,
+   * so the invariant holds even if this call site changes.
+   */
+  private annotate(result: VerificationResult): Promise<VerificationResult> {
+    return annotateWithOperator(result, this.impls.operator, originOf(result));
+  }
+}
+
+/**
+ * The https origin a verified result is about, or undefined when there is none
+ * to ask about. Web Bot Auth identities ARE origins; other protocols may
+ * identify an agent by an opaque id, and an opaque id is not a name a registry
+ * can be asked about, so we do not guess one.
+ */
+function originOf(result: VerificationResult): string | undefined {
+  if (!result.trusted) return undefined;
+  const id = result.agent?.id;
+  if (!id) return undefined;
+  let url: URL;
+  try {
+    url = new URL(id);
+  } catch {
+    return undefined;
+  }
+  return url.protocol === 'https:' ? url.origin : undefined;
 }

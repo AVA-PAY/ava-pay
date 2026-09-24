@@ -121,6 +121,23 @@ export interface VerifiedAgentIdentity {
   binding?: 'domain' | 'url-only';
 }
 
+/**
+ * Accountability provenance for a verified agent origin (who operates it and
+ * which registry said so). Attached AFTER verification by an optional operator
+ * source on the API side; advisory only. It never affects `trusted`,
+ * `conclusive`, or `reason`, and its absence means "not looked up or not
+ * answered", never "not accountable".
+ */
+export interface OperatorRecord {
+  origin: string;
+  operator: string;
+  abuseContact?: string;
+  registry: string;
+  dnssec: 'valid' | 'invalid' | 'absent' | 'unchecked';
+  /** ISO 8601 timestamp of when the source made this observation. */
+  observedAt: string;
+}
+
 export type VerificationResult =
   | {
       trusted: true;
@@ -141,6 +158,8 @@ export type VerificationResult =
       mandate?: Mandate;
       /** Real Visa TAP only: intent + validated consumer/payment context. */
       tap?: TapVerificationDetail;
+      /** Accountability provenance for the verified origin. Advisory only. */
+      operator?: OperatorRecord;
       discount?: number;
       ttlSeconds: number;
     }
