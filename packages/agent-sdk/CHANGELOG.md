@@ -96,7 +96,7 @@ without the new `contentDigest` argument, it now classifies an offered proof
   way; a consumer that read `signature_expired` as covering clock-ahead should
   handle both.
 
-## [0.3.0] - 2026-09-04
+## [0.3.0] - 2026-09-05
 
 Everything below has accumulated since 0.2.0 (published 2026-07-12). The type
 surface is additive: nothing exported by 0.2.0 was removed or changed shape.

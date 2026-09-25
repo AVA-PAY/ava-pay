@@ -15,7 +15,8 @@ import {
  * CLEAN BREAK from v0.1: the Intent/Cart mandate API (signIntentMandate,
  * signCartMandate, buildAp2Headers) is gone, replaced by the Checkout/Payment
  * mandate chain model of AP2 v0.2.0 (github.com/google-agentic-commerce/AP2).
- * @ava-pay/agent has not shipped a 0.2.0 release, so no published API breaks.
+ * That removal shipped in @ava-pay/agent 0.2.0 (2026-07-12), the breaking
+ * release; see the 0.2.0 entry in CHANGELOG.md.
  *
  * Wire form mirrors the reference MandateClient:
  *   - root SD-JWT (user-signed open mandate):

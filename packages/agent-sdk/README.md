@@ -19,7 +19,7 @@
 >
 > Be clear about what each protocol's verdict means. Web Bot Auth and
 > browse-intent Visa TAP prove **agent identity** ("this request really came
-> from this agent operator") — not that an end user authorized a purchase.
+> from this agent operator"), not that an end user authorized a purchase.
 > The AVA TAP-style profile's mandate is **agent-signed** in this preview.
 > AP2 v0.2 chains carry a **user-rooted delegation** (the root mandate is
 > signed by the user/wallet key and delegates to the agent's key), which is
@@ -63,7 +63,7 @@ await fetch(signed.url, { method: signed.method, headers: signed.headers });
 ```
 
 Checkout requests can attach the signed body objects (`agenticConsumer` /
-`agenticPaymentContainer`) via `signTapObject` — kid/alg/nonce must match the
+`agenticPaymentContainer`) via `signTapObject`: kid/alg/nonce must match the
 message signature.
 
 ### Web Bot Auth (IETF)
@@ -181,11 +181,11 @@ import { verifyChain, checkCheckoutConstraints } from '@ava-pay/agent/protocol/a
 ## API surface
 
 ### Signers
-- `generateAgentKeyPair(): AgentKeyPair` — fresh Ed25519 keypair
-- `signWithVisaTap(input): SignedRequest` / `signTapObject(fields, key)` — real Visa TAP
-- `signWithWebBotAuth(input): SignedRequest` / `webBotAuthKeyId(key): string` — Web Bot Auth
-- `createRootMandate` / `presentMandate` / `buildCheckoutMandateChain` / `buildPaymentMandateChain` / `makeCheckoutJwt` / `computeCheckoutHash` — AP2 v0.2 chains
-- `signWithVisa(input): SignedRequest` / `encodeMandate(m)` — AVA TAP-style profile
+- `generateAgentKeyPair(): AgentKeyPair`: fresh Ed25519 keypair
+- `signWithVisaTap(input): SignedRequest` / `signTapObject(fields, key)`: real Visa TAP
+- `signWithWebBotAuth(input): SignedRequest` / `webBotAuthKeyId(key): string`: Web Bot Auth
+- `createRootMandate` / `presentMandate` / `buildCheckoutMandateChain` / `buildPaymentMandateChain` / `makeCheckoutJwt` / `computeCheckoutHash`: AP2 v0.2 chains
+- `signWithVisa(input): SignedRequest` / `encodeMandate(m)`: AVA TAP-style profile
 
 ### Types
 - `Mandate`, `BuyerInfo`, `IncomingRequest`, `VerificationResult`, `VerificationFailureReason`
@@ -206,14 +206,14 @@ import { verifyChain, checkCheckoutConstraints } from '@ava-pay/agent/protocol/a
 - `CheckoutConstraintEvaluator`, `PaymentConstraintEvaluator` (pluggable validator registries)
 
 ### Subpath imports for low-level work
-- `@ava-pay/agent/protocol/visa` — RFC 9421 parser, signature base, Ed25519 verify, content-digest
-- `@ava-pay/agent/protocol/visa-tap` — TAP tags/algorithms, Visa JWKS + PS256 IdToken parsing, signed body objects
-- `@ava-pay/agent/protocol/web-bot-auth` — Signature-Agent parsing (both wire forms, §5.5 discovery types), RFC 7638 thumbprints, key-directory parsing, Appendix B directory proof-of-possession (`verifyDirectoryProofs` / `signDirectoryResponse`)
-- `@ava-pay/agent/protocol/ap2` — dSD-JWT chain verify, v0.2 mandate shapes, constraint evaluators, compact-JWS helpers
+- `@ava-pay/agent/protocol/visa`: RFC 9421 parser, signature base, Ed25519 verify, content-digest
+- `@ava-pay/agent/protocol/visa-tap`: TAP tags/algorithms, Visa JWKS + PS256 IdToken parsing, signed body objects
+- `@ava-pay/agent/protocol/web-bot-auth`: Signature-Agent parsing (both wire forms, §5.5 discovery types), RFC 7638 thumbprints, key-directory parsing, Appendix B directory proof-of-possession (`verifyDirectoryProofs` / `signDirectoryResponse`)
+- `@ava-pay/agent/protocol/ap2`: dSD-JWT chain verify, v0.2 mandate shapes, constraint evaluators, compact-JWS helpers
 
 ## Onboarding
 
-To get a key recognized by AVA Pay merchants, either register it with the AVA Agent Directory (see [AGENT_ISSUERS.md](https://github.com/ava-pay/ava-pay/blob/main/AGENT_ISSUERS.md)) or publish it at your origin's Web Bot Auth key directory — AVA Pay merchants resolve keys through a federated chain (Visa's directories → Web Bot Auth agent cards → the AVA directory), so a key published once works across protocols.
+To get a key recognized by AVA Pay merchants, either register it with the AVA Agent Directory (see [AGENT_ISSUERS.md](https://github.com/ava-pay/ava-pay/blob/main/AGENT_ISSUERS.md)) or publish it at your origin's Web Bot Auth key directory. AVA Pay merchants resolve keys through a federated chain (Visa's directories → Web Bot Auth agent cards → the AVA directory), so a key published once works across protocols.
 
 ## License
 
