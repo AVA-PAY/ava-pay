@@ -6,12 +6,22 @@ This package is a pre-1.0 developer preview, so a minor version may tighten
 verification behaviour. Type-level changes are called out as additive or
 breaking on each entry.
 
-## [Unreleased]
+## [0.4.0] - 2026-09-25
 
-Not published. Additive at the type level: nothing exported by 0.3.0 was
-removed or changed shape, and the new union members are additions. A consumer
-that switches exhaustively over `VerificationFailureReason` will see the new
-members as a compile error, which is the intended signal.
+**Upgrade note.** Anyone verifying Web Bot Auth requests whose key directory
+serves Appendix B proofs should treat 0.4.0 as the floor. 0.3.x classifies
+chatgpt.com's directory proof `invalid`, so a verifier built on it rejects
+every ChatGPT-signed request `key_proof_invalid` (see Fixed). The failure was closed: nothing that
+should have failed was accepted.
+
+The type surface is additive: nothing exported by 0.3.0 was removed or changed
+shape, and the new union members are additions. A consumer that switches
+exhaustively over `VerificationFailureReason` will see the new members as a
+compile error, which is the intended signal.
+
+One behavior change for direct callers of `verifyDirectoryProofs`: called
+without the new `contentDigest` argument, it now classifies an offered proof
+`invalid`. See Changed.
 
 ### Added
 
@@ -38,6 +48,11 @@ members as a compile error, which is the intended signal.
   without reading the message. Both default to their previous meaning.
 - `classifyKeyDirectoryMediaType()` and `JWK_SET_MEDIA_TYPE` in
   `protocol/web-bot-auth`.
+- `OperatorRecord`, and an optional `operator` field on the verified branch of
+  `VerificationResult`: accountability provenance (who operates a verified
+  origin, per which registry) attached after verification. Advisory only; it
+  never contributes to `trusted`, `conclusive` or `reason`, and its absence
+  means "not looked up or not answered".
 
 ### Fixed
 
@@ -63,20 +78,25 @@ members as a compile error, which is the intended signal.
   if present, must be `ed25519`. The `content-digest` line is the response
   header as received, passed in through the new optional `contentDigest`
   parameter, and that header must match the body: every sha-256 or sha-512
-  value it carries is checked and at least one is required. A proof offered
-  for a known key with no Content-Digest header is `invalid`, so a caller that
-  does not pass `contentDigest` now gets `invalid` where it used to get a
-  verdict. `signDirectoryResponse`, `buildDirectoryProofBase` and the
-  published vectors are unchanged.
+  value it carries is checked and at least one is required.
+  `signDirectoryResponse`, `buildDirectoryProofBase` and the published vectors
+  are unchanged.
 
 ### Changed
 
-- `signature_created_in_future` replaces `signature_expired` for a `created`
-  ahead of the verifier clock in every verifier that checks it (Web Bot Auth,
-  Visa TAP, the AVA TAP profile). `signature_expired` now means actual expiry
-  only.
+- **`verifyDirectoryProofs` without `contentDigest` now returns `invalid` for
+  an offered proof.** A proof offered for a known key with no Content-Digest
+  header is `invalid`, so a caller that does not pass the new optional
+  `contentDigest` argument gets `invalid` where 0.3.x gave a verdict. Pass the
+  response's `Content-Digest` header as received. AVA Pay's own directory
+  fetcher already does.
+- `signature_created_in_future` is the reason for a `created` ahead of the
+  verifier clock, and `signature_expired` now means actual expiry only. AVA
+  Pay's verifiers (Web Bot Auth, Visa TAP, the AVA TAP profile) report it that
+  way; a consumer that read `signature_expired` as covering clock-ahead should
+  handle both.
 
-## [0.3.0] - 2026-09-04
+## [0.3.0] - 2026-09-05
 
 Everything below has accumulated since 0.2.0 (published 2026-07-12). The type
 surface is additive: nothing exported by 0.2.0 was removed or changed shape.
