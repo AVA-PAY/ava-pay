@@ -46,12 +46,15 @@ members as a compile error, which is the intended signal.
   Appendix B proof from a fixed template of `created`, `expires`, `keyid` and
   `tag`, and the `content-digest` line from its own recomputation. RFC 9421
   Section 2.3 makes `@signature-params` the Signature-Input member value
-  exactly as received. Since the proof verifier shipped (b53aac2, 2026-08-09),
-  any directory whose proof carried parameters beyond those four, or listed
-  them in another order, was classified `invalid`, and every request signed by
-  its keys was rejected `key_proof_invalid` (conclusive). chatgpt.com's live
-  proof carries `alg="ed25519"`, so every ChatGPT-signed request was rejected.
-  The failure was closed: no request that should have failed was accepted.
+  exactly as received. The defect has existed since the proof verifier
+  shipped (b53aac2, 2026-08-09): any directory whose proof carried parameters
+  beyond those four, or listed them in another order, was classified
+  `invalid`, and every request signed by its keys was rejected
+  `key_proof_invalid` (conclusive). No live directory served proofs on
+  2026-08-09. chatgpt.com's proof carries `alg="ed25519"`, so ChatGPT-signed
+  requests were rejected once chatgpt.com began serving proofs, at a date
+  between 2026-08-09 and 2026-09-25 that we did not observe. The failure was
+  closed: no request that should have failed was accepted.
 
   The line is now the member value verbatim, so parameter order and any
   parameter the verifier does not read (`alg`, `nonce`, unknown ones) are
