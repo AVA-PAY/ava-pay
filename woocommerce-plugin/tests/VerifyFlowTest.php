@@ -76,7 +76,7 @@ final class VerifyFlowTest extends TestCase {
 		$this->assertSame( 'ava-tap', $out['event']['protocol'] );
 		$this->assertSame( 'agent_woo_fixture', $out['event']['platform'], 'TAP platform comes from the signed keyid' );
 		$this->assertFalse( $out['event']['identity_only'] );
-		$this->assertSame( 10, $out['event']['discount_pct'] );
+		$this->assertArrayNotHasKey( 'discount_pct', $out['event'], 'what policy wants is an instruction to mint, not yet a discount' );
 	}
 
 	public function test_identity_only_wba_request_is_admitted_with_zero_discount(): void {
@@ -89,7 +89,7 @@ final class VerifyFlowTest extends TestCase {
 		$this->assertSame( 'web-bot-auth', $out['event']['protocol'] );
 		$this->assertSame( 'https://agent-demo.ava.example', $out['event']['platform'], 'WBA platform is the verified agent identity' );
 		$this->assertTrue( $out['event']['identity_only'] );
-		$this->assertSame( 0, $out['event']['discount_pct'] );
+		$this->assertArrayNotHasKey( 'discount_pct', $out['event'] );
 	}
 
 	public function test_identity_only_tier_opt_in_applies_to_real_wba_traffic(): void {
@@ -290,17 +290,88 @@ final class VerifyFlowTest extends TestCase {
 
 		// The controller's minting block, with mint() returning null.
 		$coupon = null;
-		if ( $response['allow'] && $out['mint_discount_pct'] > 0 && null !== $coupon ) {
-			$event['discount_code'] = $coupon['code'];
-			$response['discount']   = $coupon;
+		if ( null !== $coupon ) {
+			$response['discount'] = $coupon;
 		}
+		$lines = array();
+		$event = AVA_Pay_Verify_Flow::settle_discount(
+			$event,
+			$out['mint_discount_pct'],
+			$coupon,
+			'demo-store.example',
+			static function ( $line ) use ( &$lines ) {
+				$lines[] = $line;
+			}
+		);
 
 		$this->assertTrue( $response['allow'], 'a missing coupon does not withdraw the verification' );
 		$this->assertSame( 'verified', $response['reason'] );
 		$this->assertArrayNotHasKey( 'discount', $response, 'no coupon means no discount in the response' );
 		$this->assertSame( 'verified', $event['outcome'] );
 		$this->assertArrayNotHasKey( 'discount_code', $event );
-		$this->assertSame( 10, $event['discount_pct'], 'the granted percentage is still what policy decided' );
+		$this->assertArrayNotHasKey( 'discount_pct', $event, 'no coupon means no discount on the row either' );
+
+		$this->assertCount( 1, $lines, 'one structured line for the failed mint' );
+		$this->assertSame(
+			array(
+				'event'       => 'discount.mint_failed',
+				'shop'        => 'demo-store.example',
+				'reason'      => 'mint_returned_null',
+				'discountPct' => 10,
+			),
+			json_decode( $lines[0], true )
+		);
+	}
+
+	public function test_minted_coupon_records_percentage_and_code(): void {
+		$out   = $this->run_fixture( 'ava_tap_mandate_backed', $this->settings() );
+		$lines = array();
+		$event = AVA_Pay_Verify_Flow::settle_discount(
+			$out['event'],
+			$out['mint_discount_pct'],
+			array(
+				'code'       => 'ava-abcd2345',
+				'percentage' => 10,
+			),
+			'demo-store.example',
+			static function ( $line ) use ( &$lines ) {
+				$lines[] = $line;
+			}
+		);
+
+		$this->assertSame( 'verified', $event['outcome'] );
+		$this->assertSame( 10, $event['discount_pct'] );
+		$this->assertSame( 'ava-abcd2345', $event['discount_code'] );
+		$this->assertSame( array(), $lines );
+	}
+
+	public function test_no_discount_wanted_records_none_and_logs_nothing(): void {
+		$out   = $this->run_fixture( 'web_bot_auth_identity_only', $this->settings() );
+		$lines = array();
+		$event = AVA_Pay_Verify_Flow::settle_discount(
+			$out['event'],
+			$out['mint_discount_pct'],
+			null,
+			'demo-store.example',
+			static function ( $line ) use ( &$lines ) {
+				$lines[] = $line;
+			}
+		);
+
+		$this->assertArrayNotHasKey( 'discount_pct', $event );
+		$this->assertSame( array(), $lines );
+	}
+
+	public function test_a_percentage_already_on_the_row_is_never_trusted(): void {
+		$out   = $this->run_fixture( 'ava_tap_mandate_backed', $this->settings() );
+		$event = AVA_Pay_Verify_Flow::settle_discount(
+			array_merge( $out['event'], array( 'discount_pct' => 50 ) ),
+			$out['mint_discount_pct'],
+			null,
+			'demo-store.example',
+			static function () {}
+		);
+		$this->assertArrayNotHasKey( 'discount_pct', $event );
 	}
 
 	public function test_credential_less_request_is_rejected(): void {

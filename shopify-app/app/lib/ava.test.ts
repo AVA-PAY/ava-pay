@@ -20,7 +20,7 @@ describe('AvaPayClient', () => {
     vi.restoreAllMocks();
   });
 
-  it('forwards the IncomingRequest snapshot to /verify', async () => {
+  it('forwards the IncomingRequest snapshot to /verify, minus headers the verifier does not need', async () => {
     let captured: { url: string; method: string; body: string | null } | null = null;
     const fetcher = makeFetch(async (req) => {
       captured = { url: req.url, method: req.method, body: await req.text() };
@@ -47,7 +47,12 @@ describe('AvaPayClient', () => {
     const out = await client.verify({
       method: 'POST',
       url: 'https://shop.example.com/cart',
-      headers: { 'x-ava-agent-id': 'agent_demo' },
+      headers: {
+        host: 'shop.example.com',
+        'x-ava-mandate': 'e30=',
+        'x-ava-agent-id': 'agent_demo',
+        'x-forwarded-for': '203.0.113.7',
+      },
       body: 'hello',
     });
 
@@ -55,7 +60,10 @@ describe('AvaPayClient', () => {
     expect(captured!.url).toBe(`${baseUrl}/verify`);
     expect(captured!.method).toBe('POST');
     const sent = JSON.parse(captured!.body!);
-    expect(sent.headers['x-ava-agent-id']).toBe('agent_demo');
+    expect(sent.headers).toEqual({ host: 'shop.example.com', 'x-ava-mandate': 'e30=' });
+    expect(sent.method).toBe('POST');
+    expect(sent.url).toBe('https://shop.example.com/cart');
+    expect(sent.body).toBe('hello');
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.result.trusted).toBe(true);
   });
@@ -100,17 +108,21 @@ describe('AvaPayClient', () => {
   });
 
   it('returns ok=false with error=timeout when the request exceeds the budget', async () => {
-    const fetcher = makeFetch(async (req) => {
-      // Honor the abort signal so the test runs fast.
+    // Reads the caller's own signal: a Request built from init does not always
+    // relay an abort in time on current Node, which left this test hanging.
+    const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const signal = init?.signal;
       await new Promise((_resolve, reject) => {
-        req.signal.addEventListener('abort', () => {
+        const abort = () => {
           const err = new Error('aborted');
           err.name = 'AbortError';
           reject(err);
-        });
+        };
+        if (!signal || signal.aborted) abort();
+        else signal.addEventListener('abort', abort);
       });
       return new Response();
-    });
+    }) as unknown as typeof fetch;
     const client = new AvaPayClient({ baseUrl, fetcher, timeoutMs: 5 });
     const out = await client.verify({ method: 'POST', url: 'http://x', headers: {} });
     expect(out.ok).toBe(false);

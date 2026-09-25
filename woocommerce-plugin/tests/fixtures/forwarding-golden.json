@@ -1,0 +1,827 @@
+{
+  "generatedBy": "woocommerce-plugin/scripts/generate-forwarding-golden.ts",
+  "note": "Do not edit by hand. Regenerate from the TypeScript reference.",
+  "coveredCases": [
+    {
+      "name": "wba_keyed",
+      "signatureInput": "sig1=(\"@authority\" \"signature-agent\";key=\"sig1\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"web-bot-auth\"",
+      "members": [
+        "sig1=(\"@authority\" \"signature-agent\";key=\"sig1\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"web-bot-auth\""
+      ],
+      "expected": [
+        "signature-agent"
+      ]
+    },
+    {
+      "name": "wba_unkeyed",
+      "signatureInput": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"web-bot-auth\"",
+      "members": [
+        "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"web-bot-auth\""
+      ],
+      "expected": [
+        "signature-agent"
+      ]
+    },
+    {
+      "name": "ava_tap",
+      "signatureInput": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "host",
+        "content-digest",
+        "x-ava-mandate"
+      ]
+    },
+    {
+      "name": "visa_tap",
+      "signatureInput": "sig2=(\"@authority\" \"@path\");created=1790345533;expires=1790346013;keyId=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"agent-browser-auth\"",
+      "members": [
+        "sig2=(\"@authority\" \"@path\");created=1790345533;expires=1790346013;keyId=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"agent-browser-auth\""
+      ],
+      "expected": []
+    },
+    {
+      "name": "body_components",
+      "signatureInput": "sig1=(\"@authority\" \"content-digest\" \"content-type\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"@authority\" \"content-digest\" \"content-type\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "content-digest",
+        "content-type"
+      ]
+    },
+    {
+      "name": "custom_header",
+      "signatureInput": "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "x-example"
+      ]
+    },
+    {
+      "name": "upper_case_names",
+      "signatureInput": "sig1=(\"@Authority\" \"Content-Digest\" \"X-Example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"@Authority\" \"Content-Digest\" \"X-Example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "content-digest",
+        "x-example"
+      ]
+    },
+    {
+      "name": "component_params",
+      "signatureInput": "sig1=(\"content-digest\";sf \"x-a\";bs \"x-b\";req \"x-c\";key=\"m\" \"x-d\";tr);created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"content-digest\";sf \"x-a\";bs \"x-b\";req \"x-c\";key=\"m\" \"x-d\";tr);created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "content-digest",
+        "x-a",
+        "x-b",
+        "x-c",
+        "x-d"
+      ]
+    },
+    {
+      "name": "same_name_two_keys",
+      "signatureInput": "sig1=(\"signature-agent\";key=\"a\" \"signature-agent\";key=\"b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"signature-agent\";key=\"a\" \"signature-agent\";key=\"b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "signature-agent"
+      ]
+    },
+    {
+      "name": "duplicate_identifier",
+      "signatureInput": "sig1=(\"x-a\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"x-a\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "derived_only",
+      "signatureInput": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": []
+    },
+    {
+      "name": "multi_member",
+      "signatureInput": "sig1=(\"@authority\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\", sig2=(\"x-b\" \"content-digest\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"@authority\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "sig2=(\"x-b\" \"content-digest\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "x-a",
+        "x-b",
+        "content-digest"
+      ]
+    },
+    {
+      "name": "multi_member_overlap",
+      "signatureInput": "sig1=(\"x-a\" \"x-b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\",sig2=(\"x-b\" \"x-c\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"x-a\" \"x-b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "sig2=(\"x-b\" \"x-c\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "x-a",
+        "x-b",
+        "x-c"
+      ]
+    },
+    {
+      "name": "comma_in_quoted_param",
+      "signatureInput": "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a,b\"",
+      "members": [
+        "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a,b\""
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "paren_in_quoted_param",
+      "signatureInput": "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a)b\"",
+      "members": [
+        "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a)b\""
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "escaped_quote_in_param",
+      "signatureInput": "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a\\\"b\"",
+      "members": [
+        "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a\\\"b\""
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "escaped_quote_then_comma",
+      "signatureInput": "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a\\\",b\"",
+      "members": [
+        "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"a\\\",b\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "quoted_key_with_comma",
+      "signatureInput": "sig1=(\"signature-agent\";key=\"a,b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"signature-agent\";key=\"a,b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "signature-agent"
+      ]
+    },
+    {
+      "name": "whitespace_padding",
+      "signatureInput": "  sig1=(  \"x-a\"   \"x-b\"  );created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"  ",
+      "members": [
+        "sig1=(  \"x-a\"   \"x-b\"  );created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "x-a",
+        "x-b"
+      ]
+    },
+    {
+      "name": "no_params",
+      "signatureInput": "sig1=(\"x-a\")",
+      "members": [
+        "sig1=(\"x-a\")"
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "params_without_semicolon",
+      "signatureInput": "sig1=(\"x-a\")garbage",
+      "members": [
+        "sig1=(\"x-a\")garbage"
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "covers_credentials",
+      "signatureInput": "sig1=(\"@authority\" \"cookie\" \"authorization\" \"proxy-authorization\" \"x-wp-nonce\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"@authority\" \"cookie\" \"authorization\" \"proxy-authorization\" \"x-wp-nonce\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": [
+        "cookie",
+        "authorization",
+        "proxy-authorization",
+        "x-wp-nonce",
+        "x-a"
+      ]
+    },
+    {
+      "name": "created_hex",
+      "signatureInput": "sig1=(\"x-a\");created=0x10",
+      "members": [
+        "sig1=(\"x-a\");created=0x10"
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "created_exponent",
+      "signatureInput": "sig1=(\"x-a\");created=1e3",
+      "members": [
+        "sig1=(\"x-a\");created=1e3"
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "created_quoted",
+      "signatureInput": "sig1=(\"x-a\");created=\"1790345533\"",
+      "members": [
+        "sig1=(\"x-a\");created=\"1790345533\""
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "created_empty",
+      "signatureInput": "sig1=(\"x-a\");created=",
+      "members": [
+        "sig1=(\"x-a\");created="
+      ],
+      "expected": [
+        "x-a"
+      ]
+    },
+    {
+      "name": "created_not_a_number",
+      "signatureInput": "sig1=(\"x-a\");created=soon",
+      "members": [
+        "sig1=(\"x-a\");created=soon"
+      ],
+      "expected": null
+    },
+    {
+      "name": "created_infinity",
+      "signatureInput": "sig1=(\"x-a\");created=Infinity",
+      "members": [
+        "sig1=(\"x-a\");created=Infinity"
+      ],
+      "expected": null
+    },
+    {
+      "name": "created_overflow",
+      "signatureInput": "sig1=(\"x-a\");created=1e999",
+      "members": [
+        "sig1=(\"x-a\");created=1e999"
+      ],
+      "expected": null
+    },
+    {
+      "name": "expires_bad",
+      "signatureInput": "sig1=(\"x-a\");created=1;expires=later",
+      "members": [
+        "sig1=(\"x-a\");created=1;expires=later"
+      ],
+      "expected": null
+    },
+    {
+      "name": "unterminated_list",
+      "signatureInput": "sig1=(\"x-a\" \"x-b\"",
+      "members": null,
+      "expected": null
+    },
+    {
+      "name": "unterminated_string",
+      "signatureInput": "sig1=(\"x-a)",
+      "members": null,
+      "expected": null
+    },
+    {
+      "name": "unbalanced_close",
+      "signatureInput": "sig1=(\"x-a\"))",
+      "members": null,
+      "expected": null
+    },
+    {
+      "name": "not_an_inner_list",
+      "signatureInput": "sig1=\"x-a\"",
+      "members": [
+        "sig1=\"x-a\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "no_label",
+      "signatureInput": "(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "empty_list",
+      "signatureInput": "sig1=();created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=();created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "empty_component",
+      "signatureInput": "sig1=(\"\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "junk_between_components",
+      "signatureInput": "sig1=(\"x-a\" junk \"x-b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(\"x-a\" junk \"x-b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "unquoted_component",
+      "signatureInput": "sig1=(x-a);created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "sig1=(x-a);created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "trailing_comma",
+      "signatureInput": "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\",",
+      "members": [
+        "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        ""
+      ],
+      "expected": null
+    },
+    {
+      "name": "leading_comma",
+      "signatureInput": ",sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+      "members": [
+        "",
+        "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      ],
+      "expected": null
+    },
+    {
+      "name": "one_bad_member",
+      "signatureInput": "sig1=(\"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\", sig2=(\"x-b\"",
+      "members": null,
+      "expected": null
+    },
+    {
+      "name": "empty",
+      "signatureInput": "",
+      "members": [
+        ""
+      ],
+      "expected": null
+    },
+    {
+      "name": "whitespace_only",
+      "signatureInput": "   ",
+      "members": [
+        ""
+      ],
+      "expected": null
+    }
+  ],
+  "minimizeCases": [
+    {
+      "name": "wba_behind_proxy",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"signature-agent\";key=\"sig1\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"web-bot-auth\"",
+        "signature-agent": "sig1=\"https://agent.example\""
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"signature-agent\";key=\"sig1\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\";tag=\"web-bot-auth\"",
+        "signature-agent": "sig1=\"https://agent.example\""
+      }
+    },
+    {
+      "name": "wba_body_covered",
+      "hasBody": true,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"content-digest\" \"content-type\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "content-digest": "sha-256=:abc=:",
+        "content-type": "application/json"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"content-digest\" \"content-type\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "content-digest": "sha-256=:abc=:",
+        "content-type": "application/json"
+      }
+    },
+    {
+      "name": "custom_header_covered",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "x-example": "kept"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "x-example": "kept"
+      }
+    },
+    {
+      "name": "user_agent_covered",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"user-agent\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      },
+      "expected": {
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"user-agent\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      }
+    },
+    {
+      "name": "ava_tap_with_body",
+      "hasBody": true,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "content-digest": "sha-256=:abc=:",
+        "content-type": "application/json",
+        "x-ava-mandate": "e30=",
+        "x-ava-discount-hint": "0.1"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "content-digest": "sha-256=:abc=:",
+        "content-type": "application/json",
+        "x-ava-mandate": "e30=",
+        "x-ava-discount-hint": "0.1"
+      }
+    },
+    {
+      "name": "content_type_without_body",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "content-digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
+        "content-type": "application/json"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "content-digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:"
+      }
+    },
+    {
+      "name": "ap2_chains",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "ap2-checkout-mandate": "a~b~c",
+        "ap2-payment-mandate": "d~e~f"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "ap2-checkout-mandate": "a~b~c",
+        "ap2-payment-mandate": "d~e~f"
+      }
+    },
+    {
+      "name": "ap2_v01",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "ap2-attestation": "x.y.z",
+        "ap2-cart-mandate": "x.y.z"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "ap2-attestation": "x.y.z"
+      }
+    },
+    {
+      "name": "unreadable_signature_input",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"x-a\" \"x-b\"",
+        "x-a": "dropped",
+        "x-ava-mandate": "e30="
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"x-a\" \"x-b\"",
+        "x-ava-mandate": "e30="
+      }
+    },
+    {
+      "name": "no_signature_input",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example"
+      },
+      "expected": {
+        "host": "demo-store.example"
+      }
+    },
+    {
+      "name": "multi_member_union",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"x-a\" \"x-b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\",sig2=(\"x-b\" \"x-c\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "x-a": "1",
+        "x-b": "2",
+        "x-c": "3",
+        "x-d": "dropped"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"x-a\" \"x-b\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\",sig2=(\"x-b\" \"x-c\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "x-a": "1",
+        "x-b": "2",
+        "x-c": "3"
+      }
+    },
+    {
+      "name": "covered_but_absent",
+      "hasBody": false,
+      "headers": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"x-example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      }
+    },
+    {
+      "name": "covered_cookie_and_authorization",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"cookie\" \"authorization\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"cookie\" \"authorization\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\""
+      }
+    },
+    {
+      "name": "covered_credentials_all",
+      "hasBody": false,
+      "headers": {
+        "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+        "x-forwarded-proto": "https",
+        "user-agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "cookie": "wordpress_logged_in_x=abc",
+        "authorization": "Basic abc",
+        "x-wp-nonce": "abc123",
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "accept-encoding": "gzip, br",
+        "x-request-id": "req-1",
+        "x-ava-agent-id": "claimed-agent",
+        "x-ava-signature": "claimed",
+        "x-ava-mock-discount": "0.9",
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"cookie\" \"authorization\" \"proxy-authorization\" \"x-wp-nonce\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "proxy-authorization": "Basic xyz",
+        "x-a": "kept"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@authority\" \"cookie\" \"authorization\" \"proxy-authorization\" \"x-wp-nonce\" \"x-a\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "x-a": "kept"
+      }
+    },
+    {
+      "name": "mixed_case_names",
+      "hasBody": false,
+      "headers": {
+        "Host": "demo-store.example",
+        "Signature": "sig1=:AAAA:",
+        "Signature-Input": "sig1=(\"@Authority\" \"Content-Digest\" \"X-Example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "X-Example": "kept",
+        "User-Agent": "dropped"
+      },
+      "expected": {
+        "host": "demo-store.example",
+        "signature": "sig1=:AAAA:",
+        "signature-input": "sig1=(\"@Authority\" \"Content-Digest\" \"X-Example\");created=1790345533;keyid=\"k1\";alg=\"ed25519\";nonce=\"n1\"",
+        "x-example": "kept"
+      }
+    }
+  ]
+}

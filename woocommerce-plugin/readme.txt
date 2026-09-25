@@ -45,7 +45,7 @@ No. The verify endpoint is only exercised by agent traffic, and the storefront s
 
 = What data leaves my site? =
 
-Only the agent request that reached the verify endpoint (its method, headers with cookies and credentials removed, and body) is forwarded to the verification API. No customer, order, or session data is sent. See External services below for the full detail.
+Only the agent request that reached the verify endpoint is forwarded to the verification API: its method, its body, and the headers verification needs (the agent's signature headers, the headers that signature covers, and the protocol headers the verifier reads). Cookies, credentials, and other request headers are not forwarded. No customer, order, or session data is sent. See External services below for the full detail.
 
 = My store is behind Cloudflare or a reverse proxy. Does rate limiting still work? =
 
@@ -65,7 +65,7 @@ This plugin connects to the AVA Pay verification API, operated by Agentic Verifi
 
 * **Service:** AVA Pay verification API. The plugin sends `POST https://pay.avalayer.com/verify`. The base URL is the "AVA Pay API URL" setting (default `https://pay.avalayer.com`) and can also be changed with the `ava_pay_api_url` filter.
 * **When data is sent:** only when a request is POSTed to the plugin's verify endpoint, `/wp-json/ava-pay/v1/verify-agent`, and passes the local rate limit. That endpoint is how signed agent requests reach the plugin, either directly from the agent or from the storefront script on a page view that carries agent signature parameters. The plugin forwards each such request as received and lets the API decide; a request without valid signature material is rejected there. Nothing is sent on ordinary page views, in the admin, or during checkout.
-* **What is sent:** the incoming request's HTTP method; the canonical URL of the verify endpoint, built from your site's own address rather than from the incoming request; the request headers as received, with `Cookie`, `Authorization` and `X-WP-Nonce` removed and `Host` replaced by your site's own host; and the request body, if there is one. The forwarded headers are whatever the caller sent, such as the agent's signature headers and `User-Agent`, plus any headers your web server or a proxy in front of it adds before WordPress sees the request (for example `X-Forwarded-For`).
+* **What is sent:** the incoming request's HTTP method; the canonical URL of the verify endpoint, built from your site's own address rather than from the incoming request; only the request headers verification needs, which are `Signature`, `Signature-Input` and `Signature-Agent`, every header the agent's signature names as covered, the protocol headers the verifier reads by name (`X-Ava-Mandate`, `X-Ava-Discount-Hint`, the AP2 mandate headers, `Content-Digest`, and `Content-Type` when there is a body), and `Host`, replaced by your site's own host; and the request body, if there is one. Every other header is dropped before the request leaves your site, including `X-Forwarded-For` and `User-Agent` (unless the agent's signature covers it). `Cookie`, `Authorization` and `X-WP-Nonce` are never forwarded.
 * **What is not sent:** no customer, order, or session data. No cookies, no logged-in user information, no cart contents, and no store settings or policy.
 
 Terms of service: https://avalayer.com/terms

@@ -7,6 +7,10 @@
  * interpretation itself is pure and lives in
  * AVA_Pay_Verify_Flow::interpret_api_response().
  *
+ * This is also the one place headers leave the site: verify() forwards only
+ * what the verifier needs (AVA_Pay_Forwarded_Headers), whatever the caller
+ * passes in.
+ *
  * @package AVA_Pay
  */
 
@@ -40,6 +44,7 @@ class AVA_Pay_Api_Client {
 
 	/**
 	 * POST an IncomingRequest ({method, url, headers, body?}) to /verify.
+	 * `headers` may be the full incoming map; only the minimized set is sent.
 	 *
 	 * @param array $incoming IncomingRequest payload.
 	 * @return array {ok: true, result: array} | {ok: false, error: 'timeout'|'network'|'bad_response', status?: int}
@@ -50,7 +55,7 @@ class AVA_Pay_Api_Client {
 			array(
 				'timeout' => $this->timeout,
 				'headers' => array( 'content-type' => 'application/json' ),
-				'body'    => wp_json_encode( $incoming ),
+				'body'    => wp_json_encode( AVA_Pay_Forwarded_Headers::outbound_request( $incoming ) ),
 			)
 		);
 

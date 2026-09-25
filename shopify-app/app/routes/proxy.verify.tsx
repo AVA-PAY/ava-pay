@@ -5,7 +5,11 @@ import { getShopSettings } from '../lib/settings.server.js';
 import { createOneTimeDiscount } from '../lib/discount.server.js';
 import prisma from '../db.server.js';
 import type { IncomingRequest } from '../lib/ava-types.js';
-import { decideVerification, type ProxyResponseBody } from '../lib/verify-flow.js';
+import {
+  decideVerification,
+  settleDiscount,
+  type ProxyResponseBody,
+} from '../lib/verify-flow.js';
 import { resolveVisitSource } from '../lib/storefront-visit.js';
 
 /**
@@ -17,11 +21,13 @@ import { resolveVisitSource } from '../lib/storefront-visit.js';
  *   `Signature`, `Signature-Input`, `Content-Digest`, `Host`,
  *   `x-ava-mandate`, and anything else the agent attaches.
  *
- *   We pass that request through to AVA Pay /verify EXACTLY as we received
- *   it: no header allowlist, no JSON wrapper. The only construction we do is
- *   reconstructing the URL the agent originally signed, since by the time
- *   Shopify forwards the request to our app the Host header reflects our
- *   internal app domain rather than the storefront myshopify host.
+ *   We hand AVA Pay /verify the request as we received it, with one
+ *   construction: the URL and Host the agent originally signed, since by the
+ *   time Shopify forwards the request to our app the Host header reflects our
+ *   internal app domain rather than the storefront myshopify host. What leaves
+ *   the store is narrower than what arrives: AvaPayClient.verify() forwards
+ *   only the headers the verifier needs (lib/forwarded-headers.ts), while this
+ *   route keeps the full map for its own reads.
  *
  * Failure mode unchanged: if AVA Pay is unreachable or the agent fails
  * verification, we fail closed (`allow: false`). Storefront JS treats that as
@@ -78,8 +84,8 @@ async function handleVerify({ request }: ActionFunctionArgs) {
 
   const shop = session.shop;
 
-  // Pass-through: collect every incoming header verbatim, lower-cased so the
-  // verifier on the AVA Pay side can index consistently. No allowlist.
+  // Every incoming header, lower-cased, for the reads this route makes itself
+  // (request hints, the visit source). The API client minimizes what it sends.
   const headers: Record<string, string> = {};
   for (const [k, v] of request.headers.entries()) {
     headers[k.toLowerCase()] = v;
@@ -115,6 +121,8 @@ async function handleVerify({ request }: ActionFunctionArgs) {
     response.allow && mintDiscountPct > 0
       ? await createOneTimeDiscount(admin, mintDiscountPct)
       : null;
+  // The row records a discount only when a code exists; see settleDiscount.
+  const recorded = settleDiscount(event, mintDiscountPct, discount, { shop });
 
   // Whether the merchant sent this themselves from Settings. Honoured only for
   // a marker that was inside a signature the verifier accepted, so a passing
@@ -122,12 +130,7 @@ async function handleVerify({ request }: ActionFunctionArgs) {
   const source = resolveVisitSource(headers, verifyCall.ok && verifyCall.result.trusted);
 
   await prisma.verificationEvent.create({
-    data: {
-      shop,
-      ...event,
-      source,
-      ...(discount ? { discountCode: discount.code } : {}),
-    },
+    data: { shop, ...recorded, source },
   });
 
   return proxyJson({
