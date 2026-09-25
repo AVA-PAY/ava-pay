@@ -5,6 +5,7 @@ import type {
   VerificationFailureReason,
   VerificationResult,
 } from '../types.js';
+import { rejection } from '../types.js';
 import type { AgentDirectory } from './agent-directory.js';
 import {
   buildSignatureBase,
@@ -153,7 +154,10 @@ export class VisaTapVerifier implements AgentVerifier {
       );
     }
     if (created > now + this.skew) {
-      return fail('signature_expired', `Signature created in the future (created=${created}, now=${now}).`);
+      return fail(
+        'signature_created_in_future',
+        `Signature created in the future (created=${created}, now=${now}, skew ${this.skew}s).`,
+      );
     }
     // Spec: created/expires "should not be more than 8 minutes apart" — the
     // effective window is capped at 8 minutes from created regardless.
@@ -187,7 +191,6 @@ export class VisaTapVerifier implements AgentVerifier {
       return fail(
         'directory_unavailable',
         `Agent key lookup for "${keyid}" failed.`,
-        false,
       );
     }
     if (!record) {
@@ -333,7 +336,6 @@ export class VisaTapVerifier implements AgentVerifier {
       return failure(
         'key_directory_unavailable',
         'No Visa JWKS resolver configured; cannot verify the IdToken.',
-        false,
       );
     }
     let visaKey: VisaJwk | null;
@@ -343,7 +345,6 @@ export class VisaTapVerifier implements AgentVerifier {
       return failure(
         'key_directory_unavailable',
         'Visa JWKS could not be fetched or parsed.',
-        false,
       );
     }
     if (!visaKey) {
@@ -458,20 +459,16 @@ function normAlg(alg: unknown): string {
   return String(alg).toLowerCase();
 }
 
-function fail(
-  reason: VerificationFailureReason,
-  message: string,
-  conclusive = true,
-): VerificationResult {
-  return { trusted: false, reason, message, conclusive };
+/** Every failure carries the outcome REASON_CONCLUSIVE fixes for its reason. */
+function fail(reason: VerificationFailureReason, message: string): VerificationResult {
+  return rejection(reason, message);
 }
 
 function failure(
   reason: VerificationFailureReason,
   message: string,
-  conclusive = true,
 ): { ok: false; failure: VerificationResult } {
-  return { ok: false, failure: fail(reason, message, conclusive) };
+  return { ok: false, failure: fail(reason, message) };
 }
 
 // ─── Visa JWKS resolver ─────────────────────────────────────────────────────

@@ -149,12 +149,21 @@ If verification fails at the merchant, your agent gets back a `403` with one of:
 - `revoked_agent` — your registration was revoked
 - `invalid_signature` / `jws_signature_invalid` — signature didn't verify
 - `signature_expired` / `mandate_expired` — time window violated
+- `signature_created_in_future`: your `created` is ahead of the verifier's clock by more than the allowed skew. Check your clock; the signature has not expired
 - `mandate_merchant_mismatch` — your mandate didn't authorize this merchant
 - `replay_detected` — nonce or chain already presented; sign fresh per request
 - `mandate_chain_mismatch` (AP2) — the delegation chain doesn't link (wrong `cnf`, `aud`, or signer)
 - `mandate_constraint_violation` (AP2) — a user constraint failed (or the constraint type is unknown — unknown types fail closed)
 - `checkout_hash_mismatch` (AP2) — the closed mandate doesn't match the merchant-signed checkout
 - `unsupported_protocol_version` (AP2) — v0.1 headers; migrate to the v0.2 chain format
+
+Web Bot Auth requests get finer names for a signature the verifier could read but will not accept, each pointing at what to fix:
+
+- the signature: `signature_input_malformed`, `signature_value_malformed`, `signature_parameter_missing` (created, expires, keyid or tag absent), `foreign_signature_tag` (a tag other than `web-bot-auth`), `duplicate_covered_component`, `required_component_not_covered` (the request target or the Signature-Agent member), `covered_component_missing` (a covered header you did not send)
+- the Signature-Agent header: `missing_signature_agent`, `signature_agent_malformed`, `signature_agent_ambiguous` (several members, none keyed to your signature label), `signature_agent_member_missing`, `signature_agent_not_origin` (not https, or a directory-type value carrying a path)
+- a Content-Digest is always checked against the body that arrived, including an empty one: `content_digest_mismatch`
+
+Every reason above is a definite rejection (`conclusive: true`). A result with `conclusive: false` means the verifier could not complete its checks, so it says nothing about your agent: `directory_unavailable`, `key_directory_unavailable`, `key_directory_redirected` (your Web Bot Auth directory answered with a redirect) and `key_directory_unsupported_media_type` (your directory was served with a Content-Type other than `application/http-message-signatures-directory+json` or `application/json`). Each reason's outcome is fixed by `REASON_CONCLUSIVE` in `@ava-pay/agent`.
 
 ## Questions?
 

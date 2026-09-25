@@ -12,9 +12,9 @@
         "headers": {
           "host": "demo-store.example",
           "content-digest": "sha-256=:bOr7ySKVN1cFwOcEmvDplebnL6158gyYgBli3aT/Tck=:",
-          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3ODY2NzkwMDgiLCJpYXQiOjE3ODY2NzkwMDMsImV4cCI6MTc4NjY3OTYwOCwibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
-          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1786679008;expires=1786679068;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"f0e1f102-550f-430a-a659-12a2ed9e5beb\"",
-          "signature": "sig1=:1PAqtEwgidPEOLaozPbT0+FSQ3khFpi/fbsAYHCx9aKkcgBJVRBYJ0MSELLI/SEtPxTn6QswhVIF2qbp/IZeAw==:"
+          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3OTAzNDU1MzMiLCJpYXQiOjE3OTAzNDU1MjgsImV4cCI6MTc5MDM0NjEzMywibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
+          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790345533;expires=1790345593;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"b1cc0cd5-efba-4903-b1ea-c934837e456a\"",
+          "signature": "sig1=:rTaVO4KEgdGLdP6864RLWwY/3y5fANoR2H1qfUpyD8H+zLUA57kRq+m3Fp1U7km4l5eLMY/q4ko260KK3GaFAA==:"
         },
         "body": "{\"cart\":[{\"sku\":\"WOO-1\",\"qty\":1,\"price_minor\":4999}],\"total_minor\":4999,\"currency\":\"USD\"}"
       },
@@ -30,9 +30,9 @@
             "displayName": "Fixture Buyer"
           },
           "mandate": {
-            "id": "mandate_woo_1786679008",
-            "iat": 1786679003,
-            "exp": 1786679608,
+            "id": "mandate_woo_1790345533",
+            "iat": 1790345528,
+            "exp": 1790346133,
             "maxAmountMinor": 50000,
             "currency": "USD",
             "allowedMerchants": [
@@ -57,8 +57,8 @@
         "headers": {
           "host": "demo-store.example",
           "signature-agent": "\"https://agent-demo.ava.example\"",
-          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1786679008;expires=1786679308;keyid=\"M8d1gXl5h63-eBayQzKKyPhgsrsifre4rBT_xOj8Kmo\";alg=\"ed25519\";nonce=\"Z7-W4scq84YtCrxIo3ycTq2UVMA3d3rGkE5htjKIutUqFhnkufaUSjOgRxVuwpZFAuLfjrAMlyViWmxqECHh1A\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:rTRsQ9DEgHbS77ZySh17l4yyxOcdU5COOH58iyfTwcJnISuelds2tTtExSLigYpnLahZcQgGw/502gi9hkJ7DQ==:"
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"ukMTO8c9yMZXL37cSRPrwLSrSGxt8U71X_m4IKQ06hs\";alg=\"ed25519\";nonce=\"r069YChmQkBPw3z71QrdZ4z8L6AK9liJCMH4ESB3OC7D7yuI005M4IcsHBszf_azYRetejmUfr3iOu4iRCFQzg\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:eKXH+25EfhWuRnvyAqCrC+F3aekWZc5cDHNoVIx4wO4SDtPpiK3dA5fm4aMXjTjZJl4xS5mozvQx4Y7ddL6zDw==:"
         }
       },
       "response": {
@@ -70,7 +70,7 @@
           "agent": {
             "id": "https://agent-demo.ava.example",
             "protocol": "web-bot-auth",
-            "keyThumbprint": "M8d1gXl5h63-eBayQzKKyPhgsrsifre4rBT_xOj8Kmo",
+            "keyThumbprint": "ukMTO8c9yMZXL37cSRPrwLSrSGxt8U71X_m4IKQ06hs",
             "binding": "domain"
           },
           "ttlSeconds": 60
@@ -86,8 +86,8 @@
         "headers": {
           "host": "demo-store.example",
           "signature-agent": "\"https://agent-demo.ava.example\"",
-          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1786679008;expires=1786679308;keyid=\"M8d1gXl5h63-eBayQzKKyPhgsrsifre4rBT_xOj8Kmo\";alg=\"ed25519\";nonce=\"qm4fcOnhuafVLWhy9PZeufwMmlHk3RLg3CnEv6g4qf1_HhXkCgoN3K5T0QHvjN5rqVkqUxzJjqnRymedkz1l8A\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:43Ip3cu+l9zvSxbWWad6cu9Vg5V59lrZt2iMpNapmBM7RGjAPLsvN4VG5MPb+EfIqJ1w8NwGiRu/wfzxiUSfBQ==:"
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"ukMTO8c9yMZXL37cSRPrwLSrSGxt8U71X_m4IKQ06hs\";alg=\"ed25519\";nonce=\"IAy9VL5mqHCrGUs-q3KG99ls1-0-m5-5pXZsYt60T3H9tV8BiTXVxW2QrC2DtitRJ4J2YKGhE4SPnoypL_BcEQ\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:meagu5K+j/QIPpWbZeLpEsC0MoZRACnzcGATCh3g9qGmRFV4Y4IwVTtezTflLCDQ/IgbIUlMtewSjKfQj/C2Cg==:"
         }
       },
       "response": {
@@ -130,9 +130,9 @@
         "headers": {
           "host": "demo-store.example",
           "content-digest": "sha-256=:bOr7ySKVN1cFwOcEmvDplebnL6158gyYgBli3aT/Tck=:",
-          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3ODY2NzkwMDgiLCJpYXQiOjE3ODY2NzkwMDMsImV4cCI6MTc4NjY3OTYwOCwibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
-          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1786679008;expires=1786679068;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"f0e1f102-550f-430a-a659-12a2ed9e5beb\"",
-          "signature": "sig1=:1PAqtEwgidPEOLaozPbT0+FSQ3khFpi/fbsAYHCx9aKkcgBJVRBYJ0MSELLI/SEtPxTn6QswhVIF2qbp/IZeAw==:"
+          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3OTAzNDU1MzMiLCJpYXQiOjE3OTAzNDU1MjgsImV4cCI6MTc5MDM0NjEzMywibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
+          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790345533;expires=1790345593;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"b1cc0cd5-efba-4903-b1ea-c934837e456a\"",
+          "signature": "sig1=:rTaVO4KEgdGLdP6864RLWwY/3y5fANoR2H1qfUpyD8H+zLUA57kRq+m3Fp1U7km4l5eLMY/q4ko260KK3GaFAA==:"
         },
         "body": "{\"cart\":[{\"sku\":\"WOO-1\",\"qty\":1,\"price_minor\":4999}],\"total_minor\":4999,\"currency\":\"USD\"}"
       },
@@ -142,6 +142,52 @@
           "trusted": false,
           "reason": "directory_unavailable",
           "message": "Agent directory lookup for \"agent_woo_fixture\" failed.",
+          "conclusive": false
+        }
+      }
+    },
+    {
+      "name": "web_bot_auth_foreign_tag",
+      "note": "Well-formed WBA signature with tag=\"other-protocol\": expects foreign_signature_tag with conclusive=true",
+      "request": {
+        "method": "GET",
+        "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
+        "headers": {
+          "host": "demo-store.example",
+          "signature-agent": "\"https://agent-demo.ava.example\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"ukMTO8c9yMZXL37cSRPrwLSrSGxt8U71X_m4IKQ06hs\";alg=\"ed25519\";nonce=\"9t4w_2ZEHbElm-hl8QP8VPh6lAjh4Ey_pUYYUJRMKwzTlee3hqDJnEYMaWWAgDfrK5_OBlorLSY0zFUBVl0lqA\";tag=\"other-protocol\"",
+          "signature": "sig1=:VZodzFMXv8HSehxnbTmCF/0mRMChjsnspTBONHoBaBqzVQ+tOYfSKMerKFrvYmQwFHAvDaEAA4YFVV2ieSgOBg==:"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "trusted": false,
+          "reason": "foreign_signature_tag",
+          "message": "Signature-Input declares tag=\"other-protocol\"; this verifier speaks tag=\"web-bot-auth\" only.",
+          "conclusive": true
+        }
+      }
+    },
+    {
+      "name": "web_bot_auth_directory_wrong_media_type",
+      "note": "Valid WBA request, directory serving its JWK Set as text/html: expects key_directory_unsupported_media_type with conclusive=false",
+      "request": {
+        "method": "GET",
+        "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
+        "headers": {
+          "host": "demo-store.example",
+          "signature-agent": "\"https://agent-demo.ava.example\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"ukMTO8c9yMZXL37cSRPrwLSrSGxt8U71X_m4IKQ06hs\";alg=\"ed25519\";nonce=\"r069YChmQkBPw3z71QrdZ4z8L6AK9liJCMH4ESB3OC7D7yuI005M4IcsHBszf_azYRetejmUfr3iOu4iRCFQzg\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:eKXH+25EfhWuRnvyAqCrC+F3aekWZc5cDHNoVIx4wO4SDtPpiK3dA5fm4aMXjTjZJl4xS5mozvQx4Y7ddL6zDw==:"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "trusted": false,
+          "reason": "key_directory_unsupported_media_type",
+          "message": "Key directory for \"https://agent-demo.ava.example\" was not served as application/http-message-signatures-directory+json or application/json (Content-Type text/html; charset=utf-8); its body was not parsed.",
           "conclusive": false
         }
       }

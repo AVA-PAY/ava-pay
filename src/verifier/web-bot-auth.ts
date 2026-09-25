@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { AgentVerifier } from './interface.js';
 import type { IncomingRequest, VerificationFailureReason, VerificationResult } from '../types.js';
+import { rejection } from '../types.js';
 import {
   buildSignatureBase,
   computeContentDigest,
@@ -8,8 +9,11 @@ import {
   parseSignatureInput,
   SignatureParseError,
   verifyEd25519,
+  type SignatureParseErrorCode,
 } from './http-signatures.js';
 import {
+  classifyKeyDirectoryMediaType,
+  KEY_DIRECTORY_MEDIA_TYPE,
   KEY_DIRECTORY_PATH,
   parseKeyDirectory,
   parseSignatureAgent,
@@ -17,6 +21,7 @@ import {
   WEB_BOT_AUTH_TAG,
   WebBotAuthParseError,
   type KeyProofStatus,
+  type WebBotAuthParseErrorCode,
   type WebBotAuthKey,
 } from '@ava-pay/agent/protocol/web-bot-auth';
 import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
@@ -53,6 +58,8 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  * Every failure is a typed `trusted:false` reason; the verifier never throws.
  * Fail closed: unreachable directory → key_directory_unavailable, origin not
  * in the trust set → unknown_signature_agent, unknown/expired key → unknown_key.
+ * Each reason's outcome (invalid or could-not-check) comes from
+ * REASON_CONCLUSIVE via rejection(), never from the call site.
  */
 
 /** A directory key plus its Appendix B proof-of-possession status. */
@@ -69,6 +76,12 @@ export type KeyDirectoryResolution =
    * fix, not an outage, and the merchant-facing reason says so.
    */
   | { status: 'redirected'; detail?: string }
+  /**
+   * The directory answered 200 with a Content-Type that is not a JSON key
+   * directory type, so the body was never parsed. Separate from `unavailable`
+   * for the same reason as `redirected`: it is up and misconfigured.
+   */
+  | { status: 'unsupported_media_type'; detail?: string }
   | { status: 'unavailable'; detail?: string };
 
 /** Resolves a Signature-Agent origin to its published signing keys. */
@@ -169,18 +182,34 @@ export class WebBotAuthVerifier implements AgentVerifier {
       parsedInput = parseSignatureInput(sigInput);
       signature = parseSignature(sig, parsedInput.label);
     } catch (err) {
-      return fail(
-        'malformed_signature_header',
-        err instanceof SignatureParseError ? err.message : 'Could not parse signature headers.',
-      );
+      return err instanceof SignatureParseError
+        ? fail(signatureParseReason(err.code), err.message)
+        : fail('signature_input_malformed', 'Could not parse signature headers.');
     }
 
     const { created, expires, nonce, keyid, alg, tag } = parsedInput.parameters;
 
-    if (tag !== WEB_BOT_AUTH_TAG) {
+    if (tag === undefined) {
       return fail(
-        'malformed_signature_header',
-        `Signature-Input must carry tag="${WEB_BOT_AUTH_TAG}" (got ${tag === undefined ? 'none' : `"${tag}"`}).`,
+        'signature_parameter_missing',
+        `Signature-Input must carry tag="${WEB_BOT_AUTH_TAG}" (no tag parameter was sent).`,
+      );
+    }
+    if (tag !== WEB_BOT_AUTH_TAG) {
+      // A well-formed signature declaring another protocol. RFC 9421 Section
+      // 3.2.1 says an application MUST enforce its own requirements and that
+      // verification MUST fail when a signature does not conform; the draft's
+      // Section 5.4 says an origin MAY instead discard signatures with another
+      // tag, which would leave the request unsigned. We take the RFC 9421
+      // branch and report invalid. This check always sat here, first after
+      // parsing, for pipeline reasons (cheap checks before directory I/O); it
+      // now stays here as a deliberate reading, not an accident of ordering.
+      // The multi-protocol dispatcher routes known tags to their own verifier
+      // before this runs, so reaching here means the tag is unknown to it too
+      // or the request also carried a Signature-Agent header.
+      return fail(
+        'foreign_signature_tag',
+        `Signature-Input declares tag="${tag}"; this verifier speaks tag="${WEB_BOT_AUTH_TAG}" only.`,
       );
     }
 
@@ -199,12 +228,15 @@ export class WebBotAuthVerifier implements AgentVerifier {
     const now = this.now();
     if (created === undefined || expires === undefined) {
       return fail(
-        'malformed_signature_header',
+        'signature_parameter_missing',
         'Signature-Input must include created and expires parameters.',
       );
     }
     if (created > now + this.skew) {
-      return fail('signature_expired', `Signature created in the future (created=${created}, now=${now}).`);
+      return fail(
+        'signature_created_in_future',
+        `Signature created in the future (created=${created}, now=${now}, skew ${this.skew}s).`,
+      );
     }
     const effectiveExpires = Math.min(expires, created + this.maxAge);
     if (effectiveExpires + this.skew < now) {
@@ -214,9 +246,12 @@ export class WebBotAuthVerifier implements AgentVerifier {
       );
     }
 
-    if (keyid === undefined || !THUMBPRINT_SHAPE.test(keyid)) {
+    if (keyid === undefined) {
+      return fail('signature_parameter_missing', 'Signature-Input must include a keyid parameter.');
+    }
+    if (!THUMBPRINT_SHAPE.test(keyid)) {
       return fail(
-        'malformed_signature_header',
+        'signature_input_malformed',
         'Signature-Input keyid must be a base64url JWK SHA-256 thumbprint.',
       );
     }
@@ -243,7 +278,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
     const sigAgentComponent = parsedInput.componentIds.find((c) => c.name === 'signature-agent');
     if (!sigAgentComponent) {
       return fail(
-        'malformed_signature_header',
+        'required_component_not_covered',
         'signature-agent must be a covered component when the header is sent.',
       );
     }
@@ -252,7 +287,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
       !parsedInput.components.includes('@target-uri')
     ) {
       return fail(
-        'malformed_signature_header',
+        'required_component_not_covered',
         'Covered components must include @authority or @target-uri.',
       );
     }
@@ -274,10 +309,9 @@ export class WebBotAuthVerifier implements AgentVerifier {
       origin = parsedAgent.origin;
       binding = parsedAgent.type === 'directory' ? 'domain' : 'url-only';
     } catch (err) {
-      return fail(
-        'malformed_signature_header',
-        err instanceof WebBotAuthParseError ? err.message : 'Could not parse Signature-Agent.',
-      );
+      return err instanceof WebBotAuthParseError
+        ? fail(signatureAgentReason(err.code), err.message)
+        : fail('signature_agent_malformed', 'Could not parse Signature-Agent.');
     }
 
     // ── Content-Digest (cheap, before any directory I/O) ─────────────────
@@ -290,8 +324,18 @@ export class WebBotAuthVerifier implements AgentVerifier {
         'Request has a body but no covered Content-Digest header.',
       );
     }
-    if (hasBody && digestHeader !== undefined && digestHeader.trim() !== computeContentDigest(request.body)) {
-      return fail('content_digest_mismatch', 'Content-Digest does not match the body.');
+    // A Content-Digest that is present is checked against the body that
+    // arrived, empty or not. An empty body has a digest like any other, so a
+    // digest made over a non-empty body does not describe this request. The
+    // storefront embed forwards an agent's headers into a bodyless POST, which
+    // is exactly the case this closes.
+    if (digestHeader !== undefined && digestHeader.trim() !== computeContentDigest(request.body ?? '')) {
+      return fail(
+        'content_digest_mismatch',
+        hasBody
+          ? 'Content-Digest does not match the body.'
+          : 'Content-Digest does not match the empty body that arrived.',
+      );
     }
 
     // ── 6. Key directory resolution ───────────────────────────────────────
@@ -315,7 +359,15 @@ export class WebBotAuthVerifier implements AgentVerifier {
         'key_directory_redirected',
         `Key directory for "${origin}" answered with a redirect; `
           + 'draft-ietf-webbotauth-httpsig-protocol Section 5.5 requires 200 (OK) and forbids following it.',
-        false,
+      );
+    }
+    if (resolution.status === 'unsupported_media_type') {
+      // Could-not-check: the body was never read as keys, so this says nothing
+      // about the signer and must not read as unknown_key.
+      return fail(
+        'key_directory_unsupported_media_type',
+        `Key directory for "${origin}" was not served as ${KEY_DIRECTORY_MEDIA_TYPE} or application/json`
+          + `${resolution.detail ? ` (${resolution.detail})` : ''}; its body was not parsed.`,
       );
     }
     if (resolution.status === 'unavailable') {
@@ -325,7 +377,6 @@ export class WebBotAuthVerifier implements AgentVerifier {
       return fail(
         'key_directory_unavailable',
         `Key directory for "${origin}" could not be fetched or parsed.`,
-        false,
       );
     }
 
@@ -370,10 +421,9 @@ export class WebBotAuthVerifier implements AgentVerifier {
         ...(request.body !== undefined ? { body: request.body } : {}),
       });
     } catch (err) {
-      return fail(
-        'malformed_signature_header',
-        err instanceof SignatureParseError ? err.message : 'Could not build signature base.',
-      );
+      return err instanceof SignatureParseError
+        ? fail(signatureParseReason(err.code), err.message)
+        : fail('malformed_signature_header', 'Could not build signature base.');
     }
 
     let signatureOk = false;
@@ -383,6 +433,11 @@ export class WebBotAuthVerifier implements AgentVerifier {
       signatureOk = false;
     }
     if (!signatureOk) {
+      // One Ed25519 verify returning false covers both a forgery and a signer
+      // that canonicalized a component differently (an empty @path where the
+      // rule requires "/"). We cannot tell the two apart from here, so there
+      // is no canonicalization reason: a name we cannot honestly emit would be
+      // worse than this coarse one.
       return fail('invalid_signature', 'Ed25519 verification failed against the directory key.');
     }
 
@@ -415,12 +470,41 @@ export class WebBotAuthVerifier implements AgentVerifier {
   }
 }
 
-function fail(
-  reason: VerificationFailureReason,
-  message: string,
-  conclusive = true,
-): VerificationResult {
-  return { trusted: false, reason, message, conclusive };
+function fail(reason: VerificationFailureReason, message: string): VerificationResult {
+  return rejection(reason, message);
+}
+
+/** Name an RFC 9421 parse or base-construction fault by what it is about. */
+function signatureParseReason(code: SignatureParseErrorCode): VerificationFailureReason {
+  switch (code) {
+    case 'input':
+      return 'signature_input_malformed';
+    case 'value':
+      return 'signature_value_malformed';
+    case 'duplicate_component':
+      return 'duplicate_covered_component';
+    case 'component_missing':
+      return 'covered_component_missing';
+    case 'base_unbuildable':
+      // A derived component we do not implement, or a request URL that does
+      // not parse. Neither is a fault in the signer's headers we can name, so
+      // it keeps the coarse name.
+      return 'malformed_signature_header';
+  }
+}
+
+/** Name a Signature-Agent fault by what the operator must fix in that header. */
+function signatureAgentReason(code: WebBotAuthParseErrorCode): VerificationFailureReason {
+  switch (code) {
+    case 'malformed':
+      return 'signature_agent_malformed';
+    case 'ambiguous':
+      return 'signature_agent_ambiguous';
+    case 'member_missing':
+      return 'signature_agent_member_missing';
+    case 'not_origin':
+      return 'signature_agent_not_origin';
+  }
 }
 
 // ─── Key directory resolvers ────────────────────────────────────────────────
@@ -475,6 +559,11 @@ export interface FetchingKeyDirectoryResolverOptions {
   fetchImpl?: typeof fetch;
   /** Override "now" (ms) for deterministic tests. */
   nowMs?: () => number;
+  /**
+   * Receives operator-facing warnings, today only "directory served as plain
+   * application/json". Default console.warn; server.ts passes the app logger.
+   */
+  onWarning?: (message: string) => void;
 }
 
 const TEN_MINUTES_MS = 10 * 60 * 1000;
@@ -493,6 +582,14 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * tell a merchant which of the two happened: a directory that is up and
  * misconfigured is an operator fix, an unreachable one is an outage.
  *
+ * Media type: the body is parsed only when Content-Type is the registered
+ * KEY_DIRECTORY_MEDIA_TYPE or plain application/json (accepted with a warning,
+ * because it is a common server default). Anything else, including no
+ * Content-Type, resolves to `unsupported_media_type` without parsing, so a JWK
+ * Set that happens to appear in an HTML page never stands in for a directory.
+ * Both live directories we resolve serve the registered type (checked
+ * chatgpt.com and www.shopify.com 2026-09-25).
+ *
  * Directory responses are trusted on the strength of TLS to an allowlisted
  * origin, plus Appendix B proof-of-possession when the directory serves it:
  * each key is classified valid/invalid/absent (verifyDirectoryProofs) and the
@@ -508,6 +605,7 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   private readonly maxBytes: number;
   private readonly fetchImpl: typeof fetch;
   private readonly nowMs: () => number;
+  private readonly onWarning: (message: string) => void;
   private readonly cache = new Map<
     string,
     { until: number; value: KeyDirectoryResolution }
@@ -521,6 +619,7 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
     this.maxBytes = opts.maxResponseBytes ?? 64 * 1024;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.nowMs = opts.nowMs ?? Date.now;
+    this.onWarning = opts.onWarning ?? ((message) => console.warn(message));
   }
 
   async resolve(origin: string): Promise<KeyDirectoryResolution> {
@@ -562,6 +661,21 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
       if (res.status !== 200) {
         // Exactly 200, not any 2xx: a 204 carries no key set to parse.
         return { status: 'unavailable', detail: `HTTP ${res.status}` };
+      }
+      const contentType = res.headers.get('content-type');
+      const mediaClass = classifyKeyDirectoryMediaType(contentType);
+      if (mediaClass !== 'directory' && mediaClass !== 'json') {
+        await res.body?.cancel().catch(() => {});
+        return {
+          status: 'unsupported_media_type',
+          detail: contentType ? `Content-Type ${contentType}` : 'no Content-Type',
+        };
+      }
+      if (mediaClass === 'json') {
+        this.onWarning(
+          `Key directory ${url} is served as application/json; `
+            + `the registered media type is ${KEY_DIRECTORY_MEDIA_TYPE}.`,
+        );
       }
       const body = await readBounded(res, this.maxBytes);
       const keys = parseKeyDirectory(JSON.parse(body));

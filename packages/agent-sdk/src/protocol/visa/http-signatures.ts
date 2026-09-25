@@ -25,10 +25,32 @@ type JsonWebKeyLike = { kty: string; [k: string]: unknown };
  * Reference: https://www.rfc-editor.org/rfc/rfc9421
  */
 
+/**
+ * Which part of the RFC 9421 input a SignatureParseError is about, so a
+ * verifier can name the fault without parsing the message:
+ *   input               Signature-Input cannot be parsed, or a parameter value
+ *                       cannot be read
+ *   value               Signature cannot be parsed or has no member for the label
+ *   duplicate_component the covered list repeats an identifier (Section 2.5)
+ *   component_missing   a covered component is absent from the request
+ *   base_unbuildable    the base cannot be built for any other reason (a derived
+ *                       component this module does not implement, or a request
+ *                       URL that does not parse)
+ */
+export type SignatureParseErrorCode =
+  | 'input'
+  | 'value'
+  | 'duplicate_component'
+  | 'component_missing'
+  | 'base_unbuildable';
+
 export class SignatureParseError extends Error {
-  constructor(message: string) {
+  readonly code: SignatureParseErrorCode;
+
+  constructor(message: string, code: SignatureParseErrorCode = 'input') {
     super(message);
     this.name = 'SignatureParseError';
+    this.code = code;
   }
 }
 
@@ -117,6 +139,7 @@ export function parseSignatureInput(headerValue: string): ParsedSignatureInput {
     if (seen.has(identifier)) {
       throw new SignatureParseError(
         `Signature-Input covers ${identifier} more than once; RFC 9421 Section 2.5 forbids building a base with a repeated component identifier`,
+        'duplicate_component',
       );
     }
     seen.add(identifier);
@@ -183,29 +206,30 @@ export function parseSignatureInput(headerValue: string): ParsedSignatureInput {
 
 export function parseSignature(headerValue: string, expectedLabel: string): Buffer {
   const value = headerValue.trim();
-  rejectIfMultiDictionary(value, 'signature');
+  rejectIfMultiDictionary(value, 'signature', 'value');
 
   const eq = value.indexOf('=');
-  if (eq === -1) throw new SignatureParseError('Signature header missing `label=`');
+  if (eq === -1) throw new SignatureParseError('Signature header missing `label=`', 'value');
   const label = value.slice(0, eq).trim();
   if (label !== expectedLabel) {
     throw new SignatureParseError(
       `Signature label "${label}" does not match Signature-Input label "${expectedLabel}"`,
+      'value',
     );
   }
   const rest = value.slice(eq + 1).trim();
   if (!(rest.startsWith(':') && rest.endsWith(':'))) {
-    throw new SignatureParseError('Signature value must be wrapped in colons (byte sequence)');
+    throw new SignatureParseError('Signature value must be wrapped in colons (byte sequence)', 'value');
   }
   const b64 = rest.slice(1, -1);
   let buf: Buffer;
   try {
     buf = Buffer.from(b64, 'base64');
   } catch {
-    throw new SignatureParseError('Signature value is not valid base64');
+    throw new SignatureParseError('Signature value is not valid base64', 'value');
   }
   if (buf.length !== 64) {
-    throw new SignatureParseError(`Ed25519 signature must be 64 bytes, got ${buf.length}`);
+    throw new SignatureParseError(`Ed25519 signature must be 64 bytes, got ${buf.length}`, 'value');
   }
   return buf;
 }
@@ -240,7 +264,7 @@ function resolveComponent(comp: SignatureComponentId, inputs: SignatureBaseInput
     try {
       u = new URL(inputs.url);
     } catch {
-      throw new SignatureParseError(`${name} requires a valid URL, got: ${inputs.url}`);
+      throw new SignatureParseError(`${name} requires a valid URL, got: ${inputs.url}`, 'base_unbuildable');
     }
     if (name === '@authority') return u.host;
     if (name === '@path') return u.pathname;
@@ -249,12 +273,12 @@ function resolveComponent(comp: SignatureComponentId, inputs: SignatureBaseInput
     return u.search === '' ? '?' : u.search;
   }
   if (name.startsWith('@')) {
-    throw new SignatureParseError(`Unsupported derived component: ${name}`);
+    throw new SignatureParseError(`Unsupported derived component: ${name}`, 'base_unbuildable');
   }
   const lower = name.toLowerCase();
   const v = inputs.headers[lower];
   if (v === undefined) {
-    throw new SignatureParseError(`Covered header missing from request: ${name}`);
+    throw new SignatureParseError(`Covered header missing from request: ${name}`, 'component_missing');
   }
   if (comp.key === undefined) return v;
   // RFC 9421 Section 2.1: a `key` parameter names one member of a Dictionary
@@ -265,6 +289,7 @@ function resolveComponent(comp: SignatureComponentId, inputs: SignatureBaseInput
   if (member === undefined) {
     throw new SignatureParseError(
       `Covered header ${name} has no dictionary member "${comp.key}"`,
+      'component_missing',
     );
   }
   return member;
@@ -338,7 +363,11 @@ export function computeContentDigest(body: string | undefined): string {
   return `sha-256=:${hash}:`;
 }
 
-function rejectIfMultiDictionary(value: string, name: string): void {
+function rejectIfMultiDictionary(
+  value: string,
+  name: string,
+  code: SignatureParseErrorCode = 'input',
+): void {
   let depth = 0;
   let inString = false;
   for (let i = 0; i < value.length; i++) {
@@ -349,6 +378,7 @@ function rejectIfMultiDictionary(value: string, name: string): void {
     else if (!inString && depth === 0 && c === ',') {
       throw new SignatureParseError(
         `Multiple ${name} entries are not supported (only one signature per request).`,
+        code,
       );
     }
   }

@@ -34,11 +34,51 @@ export {
 export const WEB_BOT_AUTH_TAG = 'web-bot-auth';
 export const KEY_DIRECTORY_PATH = '/.well-known/http-message-signatures-directory';
 export const KEY_DIRECTORY_MEDIA_TYPE = 'application/http-message-signatures-directory+json';
+/** RFC 7517 Section 8.5 media type for a JWK Set, the natural type of a jwks_uri. */
+export const JWK_SET_MEDIA_TYPE = 'application/jwk-set+json';
+
+/**
+ * Classify a key directory response's Content-Type. Parameters (charset) and
+ * case are ignored.
+ *   directory  KEY_DIRECTORY_MEDIA_TYPE, what the draft registers
+ *   jwk-set    application/jwk-set+json
+ *   json       plain application/json, the common generic fallback
+ *   other      anything else, including an absent header
+ * Callers decide which classes they accept; a fetcher that parsed an `other`
+ * body as keys would let a page that merely contains a key set (an HTML error
+ * page, a CMS) stand in for a directory.
+ */
+export type KeyDirectoryMediaClass = 'directory' | 'jwk-set' | 'json' | 'other';
+
+export function classifyKeyDirectoryMediaType(contentType: string | null | undefined): KeyDirectoryMediaClass {
+  const essence = (contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  if (essence === KEY_DIRECTORY_MEDIA_TYPE) return 'directory';
+  if (essence === JWK_SET_MEDIA_TYPE) return 'jwk-set';
+  if (essence === 'application/json') return 'json';
+  return 'other';
+}
+
+/**
+ * What a WebBotAuthParseError from parseSignatureAgent is about, so a verifier
+ * can name the fault without parsing the message:
+ *   malformed      not a readable Structured Field, no usable member, a value
+ *                  that is not a URL, or only members of unrecognized type
+ *   ambiguous      several usable members and none keyed to the signature
+ *   member_missing the covered (keyed) member is not in the header
+ *   not_origin     the value is not an acceptable origin: not https, carrying
+ *                  credentials, or a directory-type value with a path, query
+ *                  or fragment
+ * Errors from the key directory helpers are always `malformed`.
+ */
+export type WebBotAuthParseErrorCode = 'malformed' | 'ambiguous' | 'member_missing' | 'not_origin';
 
 export class WebBotAuthParseError extends Error {
-  constructor(message: string) {
+  readonly code: WebBotAuthParseErrorCode;
+
+  constructor(message: string, code: WebBotAuthParseErrorCode = 'malformed') {
     super(message);
     this.name = 'WebBotAuthParseError';
+    this.code = code;
   }
 }
 
@@ -141,9 +181,16 @@ export function parseSignatureAgent(
       target = matched.target;
       type = matched.type;
     } else if (options.strict === true) {
-      throw new WebBotAuthParseError(
-        `Signature-Agent has no member keyed "${label}", which is the member the signature covers`,
-      );
+      // Name the failure for what it is. A header we could not read as a
+      // dictionary at all is malformed; "no member keyed X" is true only of a
+      // header that parsed and lacks X. This only chooses the error's name:
+      // either way the request is refused.
+      throw hasUnparsedResidue(value, memberRe)
+        ? new WebBotAuthParseError('Signature-Agent is not a readable Structured Field dictionary')
+        : new WebBotAuthParseError(
+            `Signature-Agent has no member keyed "${label}", which is the member the signature covers`,
+            'member_missing',
+          );
     } else if (candidates.length === 1) {
       target = candidates[0]!.target;
       type = candidates[0]!.type;
@@ -154,6 +201,7 @@ export function parseSignatureAgent(
       // attribute a signature to a member that signature does not cover").
       throw new WebBotAuthParseError(
         `Signature-Agent carries ${candidates.length} usable members and none is keyed "${label}", so the signature cannot be attributed to one of them`,
+        'ambiguous',
       );
     } else {
       throw new WebBotAuthParseError(
@@ -169,10 +217,10 @@ export function parseSignatureAgent(
     throw new WebBotAuthParseError(`Signature-Agent value is not a valid URL: ${target}`);
   }
   if (url.protocol !== 'https:') {
-    throw new WebBotAuthParseError('Signature-Agent must be an https origin');
+    throw new WebBotAuthParseError('Signature-Agent must be an https origin', 'not_origin');
   }
   if (url.username !== '' || url.password !== '') {
-    throw new WebBotAuthParseError('Signature-Agent must not carry credentials');
+    throw new WebBotAuthParseError('Signature-Agent must not carry credentials', 'not_origin');
   }
   // §5.5: for the `directory` type "The member value MUST be the ASCII
   // serialization of an origin ... and a verifier MUST ignore a member carrying
@@ -188,9 +236,20 @@ export function parseSignatureAgent(
   if (type === 'directory' && (url.pathname !== '/' || url.search !== '' || url.hash !== '')) {
     throw new WebBotAuthParseError(
       `Signature-Agent value "${target}" is not an origin serialization; a directory-type member must carry no path, query or fragment`,
+      'not_origin',
     );
   }
   return { target, origin: url.origin.toLowerCase(), type };
+}
+
+/**
+ * True when something in a dictionary-form header is not a member the member
+ * pattern reads, once separating commas and whitespace are set aside. Used only
+ * to name an error, never to accept or refuse a header.
+ */
+function hasUnparsedResidue(value: string, memberRe: RegExp): boolean {
+  const pattern = new RegExp(memberRe.source, 'g');
+  return value.replace(pattern, '').replace(/[\s,]+/g, '') !== '';
 }
 
 /**

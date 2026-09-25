@@ -163,8 +163,9 @@ export default function TrafficPage() {
                     </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
                       These say nothing about the agents. A trust root was
-                      unreachable, so the check never completed and the request
-                      was not admitted.
+                      unreachable, redirected, or served something other than a
+                      key directory, so the check never completed and the
+                      request was not admitted.
                     </Text>
                     <ReasonList reasons={view.unavailableReasons} />
                   </>

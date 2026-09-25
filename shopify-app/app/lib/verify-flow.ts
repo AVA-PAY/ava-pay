@@ -24,7 +24,7 @@ import { extractAgentIdHint, sniffProtocolHint } from './request-hints.js';
  * What a VerificationEvent row can say happened.
  *
  * `unverifiable` is the honest middle: the verifier could not complete its
- * checks (a trust root was unreachable), so nothing was proved either way. It
+ * checks (a trust root could not be consulted), so nothing was proved either way. It
  * fails closed exactly like `failed`, but it is NOT a rejection and must never
  * be counted or displayed as one. See isConclusive().
  */
@@ -67,10 +67,11 @@ export interface VerifyDecision {
 /**
  * Did the verifier complete its checks?
  *
- * `conclusive` is additive on the API's VerificationResult: false ONLY on
- * could-not-check paths, where a trust root was unreachable (reason
- * `directory_unavailable` or `key_directory_unavailable`); true when the
- * request was definitively rejected. An absent value reads as true, matching
+ * `conclusive` is additive on the API's VerificationResult, and the API fixes
+ * it per reason in REASON_CONCLUSIVE (mirrored in ava-types.ts): false for the
+ * could-not-check reasons that table lists, true when the request was
+ * definitively rejected. We split on the flag, never on the reason string, so
+ * a could-not-check reason added later needs no change here. An absent value reads as true, matching
  * the API's own forward-compatibility rule, so verdicts from an older API build
  * (or cached before the field existed) keep their meaning instead of silently
  * becoming "could not check". A present but non-boolean value is malformed

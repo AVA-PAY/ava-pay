@@ -61,15 +61,54 @@ export interface Mandate {
   buyer?: BuyerInfo;
 }
 
-/** Reasons we may reject a verification request. */
+/**
+ * Reasons we may reject a verification request.
+ *
+ * Every member has a fixed outcome, recorded in REASON_CONCLUSIVE below: either
+ * invalid (the verifier checked and the request failed, conclusive) or
+ * unverified (the verifier could not complete its checks, not conclusive). A
+ * name says what the verifier KNOWS, not how it found out.
+ */
 export type VerificationFailureReason =
   // Generic
   | 'missing_agent_credentials'
   // Signature-layer (RFC 9421 / Visa TAP)
+  // malformed_signature_header is the coarse name the Visa, Visa TAP and AP2
+  // verifiers still use for any unparseable or incomplete signature. Web Bot
+  // Auth reports the finer names below and uses this one only for a signature
+  // base it cannot build for a reason none of them describes (a derived
+  // component it does not implement, or an unusable request URL).
   | 'malformed_signature_header'
+  // Signature-Input cannot be parsed, or one of its parameter values cannot be
+  // read (a non-numeric created, a keyid that is not a JWK thumbprint).
+  | 'signature_input_malformed'
+  // Signature cannot be parsed: no member for the Signature-Input label, not a
+  // byte sequence, or not a 64-byte Ed25519 value.
+  | 'signature_value_malformed'
+  // Signature-Input parses but omits a parameter the protocol requires
+  // (created, expires, keyid, tag).
+  | 'signature_parameter_missing'
+  // A well-formed signature whose tag declares a protocol other than the one
+  // the verifier speaks. The header is not garbage; it is someone else's.
+  | 'foreign_signature_tag'
+  // The covered component list repeats one identifier (name plus parameters),
+  // which RFC 9421 Section 2.5 forbids.
+  | 'duplicate_covered_component'
+  // The signature does not cover a component the protocol requires it to
+  // (the request target, or the Signature-Agent member).
+  | 'required_component_not_covered'
+  // The signature covers a component the request does not carry, so the base
+  // the signer signed cannot be rebuilt from what arrived.
+  | 'covered_component_missing'
   | 'unsupported_algorithm'
   | 'invalid_signature'
+  // Actual expiry only: the signature's window, or the server-side cap on its
+  // lifetime, ended before the request arrived.
   | 'signature_expired'
+  // created is ahead of the verifier clock by more than the tolerated skew.
+  // Split out of signature_expired, which told a signer the opposite of what
+  // was wrong.
+  | 'signature_created_in_future'
   | 'content_digest_mismatch'
   | 'replay_detected'
   // Directory / agent-state
@@ -108,7 +147,25 @@ export type VerificationFailureReason =
   // directory is reachable and misconfigured, not down. Pairs with
   // conclusive=false (we could not check), and never reported as unknown_agent.
   | 'key_directory_redirected'
+  // The key directory answered 200 with a Content-Type that is not a JSON key
+  // directory type, so its body was never parsed. Could-not-check: nothing was
+  // learned about the signer, and a key set served as text/html must not read
+  // as unknown_key. Operator fix: serve the directory with its media type.
+  | 'key_directory_unsupported_media_type'
   | 'unknown_key'
+  // Signature-Agent header names, each for what the operator must fix in that
+  // header. All conclusive: the header arrived and says something definite.
+  // The header is not a readable Structured Field (bad quoting, no usable
+  // member, a value that is not a URL, or only members of unknown type).
+  | 'signature_agent_malformed'
+  // Several usable members, none keyed to the signature, so nothing says which
+  // one signed. Attributing by header order is what Section 5.2.2 forbids.
+  | 'signature_agent_ambiguous'
+  // The signature covers a keyed member the header does not contain.
+  | 'signature_agent_member_missing'
+  // The member value is not an acceptable origin: not https, carrying
+  // credentials, or (directory type) carrying a path, query or fragment.
+  | 'signature_agent_not_origin'
   // A signed request that carried no Signature-Agent header. Required on every
   // signed request by Section 5.2.1 of -02, so this is a definitive rejection
   // rather than a prompt to guess an identity from keyid alone. Distinct from
@@ -132,6 +189,98 @@ export type VerificationFailureReason =
   | 'payment_container_signature_invalid'
   // Multi-protocol
   | 'ambiguous_protocol';
+
+/**
+ * The outcome every failure reason carries, and the only place it is decided.
+ *
+ * true: invalid. The verifier completed its checks and the request failed
+ * them (Appendix C.1 `invalid` in the Web Bot Auth draft).
+ * false: unverified. The verifier could not complete its checks, so the result
+ * says nothing about the signer (C.1 `unverified`). trusted stays false there
+ * too, so fail-closed behavior does not depend on this flag.
+ *
+ * Enforced three ways, so a new could-not-check reason cannot silently inherit
+ * the conclusive default:
+ *   - `satisfies Record<VerificationFailureReason, boolean>` fails the build
+ *     if a reason is added to the union without an entry here, or an entry
+ *     names a reason the union does not have;
+ *   - every verifier builds its failures through rejection() below, which
+ *     reads the flag from this table instead of taking it as an argument;
+ *   - check:type-sync reads this table from the source and fails unless it
+ *     lists every union member exactly once and matches the Shopify mirror.
+ */
+export const REASON_CONCLUSIVE = {
+  missing_agent_credentials: true,
+  malformed_signature_header: true,
+  signature_input_malformed: true,
+  signature_value_malformed: true,
+  signature_parameter_missing: true,
+  foreign_signature_tag: true,
+  duplicate_covered_component: true,
+  required_component_not_covered: true,
+  covered_component_missing: true,
+  unsupported_algorithm: true,
+  invalid_signature: true,
+  signature_expired: true,
+  signature_created_in_future: true,
+  content_digest_mismatch: true,
+  replay_detected: true,
+  unknown_agent: true,
+  revoked_agent: true,
+  directory_unavailable: false,
+  malformed_mandate: true,
+  mandate_expired: true,
+  mandate_merchant_mismatch: true,
+  mandate_amount_exceeded: true,
+  malformed_jws: true,
+  jws_unsupported_algorithm: true,
+  jws_signature_invalid: true,
+  mandate_chain_mismatch: true,
+  mandate_constraint_violation: true,
+  checkout_hash_mismatch: true,
+  unsupported_protocol_version: true,
+  unknown_signature_agent: true,
+  key_directory_unavailable: false,
+  key_directory_redirected: false,
+  key_directory_unsupported_media_type: false,
+  unknown_key: true,
+  signature_agent_malformed: true,
+  signature_agent_ambiguous: true,
+  signature_agent_member_missing: true,
+  signature_agent_not_origin: true,
+  missing_signature_agent: true,
+  unsigned_key: true,
+  key_proof_invalid: true,
+  malformed_recognition_object: true,
+  recognition_nonce_mismatch: true,
+  recognition_signature_invalid: true,
+  id_token_invalid: true,
+  malformed_payment_container: true,
+  payment_container_signature_invalid: true,
+  ambiguous_protocol: true,
+} as const satisfies Record<VerificationFailureReason, boolean>;
+
+/** The reasons whose outcome is unverified (could not check), in table order. */
+export const COULD_NOT_CHECK_REASONS: readonly VerificationFailureReason[] = (
+  Object.keys(REASON_CONCLUSIVE) as VerificationFailureReason[]
+).filter((reason) => !REASON_CONCLUSIVE[reason]);
+
+/**
+ * Build a failure result whose `conclusive` flag comes from REASON_CONCLUSIVE.
+ * There is no parameter for the flag on purpose: a caller cannot emit a reason
+ * with the other outcome, so the pairing holds at every call site by
+ * construction rather than by review.
+ */
+export function rejection(
+  reason: VerificationFailureReason,
+  message: string,
+): Extract<VerificationResult, { trusted: false }> {
+  // Untyped JavaScript callers can pass a string the table does not know. That
+  // is not a reason we can classify, so it is never reported as a definite
+  // rejection; trusted is false either way.
+  const conclusive = Object.hasOwn(REASON_CONCLUSIVE, reason) ? REASON_CONCLUSIVE[reason] : false;
+  return { trusted: false, reason, message, conclusive };
+}
 
 /**
  * Protocol that authenticated a trusted request.
@@ -266,13 +415,20 @@ export type VerificationResult =
       /** Human-readable detail. Safe to log; never includes secrets. */
       message: string;
       /**
-       * Whether the verifier completed its checks. false ONLY on could-not-check
-       * paths, where a trust root was unreachable (reason directory_unavailable
-       * or key_directory_unavailable); trusted stays false there too, so
-       * fail-closed behavior is unchanged. true means the request was
-       * definitively rejected. Additive and non-breaking: AVA's engine always
-       * sets this, and an absent value should be read as conclusive for forward
-       * compatibility. The full ternary lands in the v1.0 contract (D4).
+       * Whether the verifier completed its checks. Fixed per reason by
+       * REASON_CONCLUSIVE, which is the source of truth: false for exactly the
+       * could-not-check reasons it lists (today directory_unavailable,
+       * key_directory_unavailable, key_directory_redirected and
+       * key_directory_unsupported_media_type, also exported as
+       * COULD_NOT_CHECK_REASONS), true for every other reason, where the
+       * request was definitively rejected. trusted stays false either way, so
+       * fail-closed behavior never depends on this flag.
+       *
+       * AVA's engine always sets it, because every failure is built by
+       * rejection(), which reads the table. It stays optional on the type so a
+       * reader of results from an older API build still type-checks; read an
+       * absent value as conclusive. The full ternary lands in the v1.0
+       * contract (D4).
        */
       conclusive?: boolean;
     };

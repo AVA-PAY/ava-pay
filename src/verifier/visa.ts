@@ -5,6 +5,7 @@ import type {
   VerificationFailureReason,
   VerificationResult,
 } from '../types.js';
+import { rejection } from '../types.js';
 import type { AgentDirectory } from './agent-directory.js';
 import {
   buildSignatureBase,
@@ -139,7 +140,10 @@ export class VisaAgentVerifier implements AgentVerifier {
       );
     }
     if (created > now + this.skew) {
-      return fail('signature_expired', `Signature created in the future (created=${created}, now=${now}).`);
+      return fail(
+        'signature_created_in_future',
+        `Signature created in the future (created=${created}, now=${now}, skew ${this.skew}s).`,
+      );
     }
     const effectiveExpires = Math.min(expires ?? created + this.maxAge, created + this.maxAge);
     if (effectiveExpires + this.skew < now) {
@@ -183,6 +187,21 @@ export class VisaAgentVerifier implements AgentVerifier {
         );
       }
     }
+    // An empty body is checked the same way when a Content-Digest arrives with
+    // it: the empty body has a digest like any other, and a digest made over a
+    // cart that never arrived does not describe this request. The storefront
+    // embed forwards an agent's signed headers into a bodyless POST, so without
+    // this a signature over a non-empty body verified on that path. First-party
+    // signers (the storefront visit) sign over the empty body and still pass.
+    if (this.requireContentDigest && (request.body === undefined || request.body === '')) {
+      const digestHeader = request.headers['content-digest'];
+      if (digestHeader !== undefined && digestHeader.trim() !== computeContentDigest('')) {
+        return fail(
+          'content_digest_mismatch',
+          'Content-Digest does not match the empty body that arrived.',
+        );
+      }
+    }
 
     // ── 5. Directory lookup ───────────────────────────────────────────────
     let record;
@@ -195,7 +214,6 @@ export class VisaAgentVerifier implements AgentVerifier {
       return fail(
         'directory_unavailable',
         `Agent directory lookup for "${agentId}" failed.`,
-        false,
       );
     }
     if (!record) {
@@ -291,12 +309,9 @@ export class VisaAgentVerifier implements AgentVerifier {
   }
 }
 
-function fail(
-  reason: VerificationFailureReason,
-  message: string,
-  conclusive = true,
-): VerificationResult {
-  return { trusted: false, reason, message, conclusive };
+/** Every failure carries the outcome REASON_CONCLUSIVE fixes for its reason. */
+function fail(reason: VerificationFailureReason, message: string): VerificationResult {
+  return rejection(reason, message);
 }
 
 function parseDiscountHint(raw: string | undefined): number | undefined {

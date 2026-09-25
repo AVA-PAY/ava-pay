@@ -170,7 +170,37 @@ final class VerifyFlowTest extends TestCase {
 	}
 
 	/**
-	 * The fixture above covers directory_unavailable. Web Bot Auth and the Visa
+	 * A refined conclusive reason from the real verifier: a well-formed Web Bot
+	 * Auth signature declaring another protocol's tag. A real rejection, filed
+	 * under its own name.
+	 */
+	public function test_foreign_tag_is_a_rejection_under_its_own_name(): void {
+		$out = $this->run_fixture( 'web_bot_auth_foreign_tag', $this->settings() );
+
+		$this->assertFalse( $out['response']['allow'] );
+		$this->assertSame( 'agent_blocked', $out['response']['reason'] );
+		$this->assertSame( 'failed', $out['event']['outcome'] );
+		$this->assertSame( 'foreign_signature_tag', $out['event']['reason'] );
+		$this->assertSame( 'web-bot-auth', $out['event']['protocol'] );
+	}
+
+	/**
+	 * The new could-not-check reason from the real verifier: the directory
+	 * served a genuine JWK Set as text/html, so it was never parsed. Fails
+	 * closed, and is filed as unverifiable, not as a blocked agent.
+	 */
+	public function test_directory_served_under_the_wrong_media_type_is_unverifiable(): void {
+		$out = $this->run_fixture( 'web_bot_auth_directory_wrong_media_type', $this->settings() );
+
+		$this->assertFalse( $out['response']['allow'], 'fail-closed behaviour is unchanged' );
+		$this->assertSame( 'verification_unavailable', $out['response']['reason'] );
+		$this->assertSame( 'unverifiable', $out['event']['outcome'] );
+		$this->assertSame( 'key_directory_unsupported_media_type', $out['event']['reason'] );
+		$this->assertSame( 'https://agent-demo.ava.example', $out['event']['platform'] );
+	}
+
+	/**
+	 * The fixtures cover directory_unavailable and the media-type case. Web Bot Auth and the Visa
 	 * JWKS path report the same could-not-check condition under the older name
 	 * key_directory_unavailable, so the split must key on `conclusive`, never on
 	 * a list of reason strings.
@@ -180,7 +210,12 @@ final class VerifyFlowTest extends TestCase {
 			// [reason, conclusive, expected outcome, expected storefront reason]
 			array( 'key_directory_unavailable', false, 'unverifiable', 'verification_unavailable' ),
 			array( 'directory_unavailable', false, 'unverifiable', 'verification_unavailable' ),
+			array( 'key_directory_redirected', false, 'unverifiable', 'verification_unavailable' ),
+			array( 'key_directory_unsupported_media_type', false, 'unverifiable', 'verification_unavailable' ),
 			array( 'unknown_agent', true, 'failed', 'agent_blocked' ),
+			array( 'foreign_signature_tag', true, 'failed', 'agent_blocked' ),
+			array( 'signature_created_in_future', true, 'failed', 'agent_blocked' ),
+			array( 'signature_agent_not_origin', true, 'failed', 'agent_blocked' ),
 			array( 'unsigned_key', true, 'failed', 'agent_blocked' ),
 			array( 'key_proof_invalid', true, 'failed', 'agent_blocked' ),
 		);

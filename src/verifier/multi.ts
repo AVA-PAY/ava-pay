@@ -1,6 +1,7 @@
 import type { AgentVerifier } from './interface.js';
 import { annotateWithOperator, type OperatorSource } from './operator-source.js';
 import type { IncomingRequest, VerificationResult } from '../types.js';
+import { rejection } from '../types.js';
 
 /**
  * MultiProtocolVerifier — sniffs the incoming request to decide which
@@ -67,26 +68,20 @@ export class MultiProtocolVerifier implements AgentVerifier {
       'ap2-checkout-mandate' in request.headers || 'ap2-attestation' in request.headers;
 
     if (hasHttpSig && hasAp2) {
-      return {
-        trusted: false,
-        reason: 'ambiguous_protocol',
-        message:
-          'Request includes both an RFC 9421 signature and AP2 credentials. Send exactly one protocol per request.',
-        conclusive: true,
-      };
+      return rejection(
+        'ambiguous_protocol',
+        'Request includes both an RFC 9421 signature and AP2 credentials. Send exactly one protocol per request.',
+      );
     }
     if (hasWba) return this.annotate(await this.impls.webBotAuth.verify(request));
     if (hasVisaTap) return this.annotate(await this.impls.visaTap.verify(request));
     if (hasVisa) return this.annotate(await this.impls.visa.verify(request));
     if (hasAp2) return this.annotate(await this.impls.ap2.verify(request));
 
-    return {
-      trusted: false,
-      reason: 'missing_agent_credentials',
-      message:
-        'No supported protocol detected. Send Visa TAP (Signature + Signature-Input), Web Bot Auth (Signature + Signature-Input + Signature-Agent, tag="web-bot-auth"), or AP2 v0.2 (Ap2-Checkout-Mandate dSD-JWT chain).',
-      conclusive: true,
-    };
+    return rejection(
+      'missing_agent_credentials',
+      'No supported protocol detected. Send Visa TAP (Signature + Signature-Input), Web Bot Auth (Signature + Signature-Input + Signature-Agent, tag="web-bot-auth"), or AP2 v0.2 (Ap2-Checkout-Mandate dSD-JWT chain).',
+    );
   }
 
   /**
