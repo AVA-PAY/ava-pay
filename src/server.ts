@@ -62,6 +62,12 @@ export interface BuildServerOptions {
   allowOpenDirectoryWrites?: boolean;
   /** Register the global rate limiter. Defaults to true; tests may pass false. */
   rateLimit?: boolean;
+  /**
+   * Number of reverse-proxy hops in front of this process whose
+   * X-Forwarded-For entries are trusted. Defaults to $TRUST_PROXY_HOPS, else 1
+   * (Railway's single edge hop). See trustProxyHops().
+   */
+  trustProxyHops?: number;
   /** Serve the public/ landing page. Defaults to true if the dir exists. */
   servePublic?: boolean;
   /** Pass false in tests to silence Fastify's default logger. */
@@ -81,7 +87,22 @@ export interface BuildServerOptions {
  */
 export async function buildServer(opts: BuildServerOptions = {}): Promise<FastifyInstance> {
   const loggerOpt = opts.logger ?? { level: process.env.LOG_LEVEL ?? 'info' };
-  const app = Fastify({ logger: loggerOpt });
+  // request.ip is the rate limiter's bucket key. Without trustProxy it is the
+  // socket address, which behind Railway is the edge proxy, so every caller
+  // would share one bucket. We trust exactly `hops` proxies (never `true`,
+  // which trusts every hop): anything a client prepends to X-Forwarded-For
+  // sits beyond the trusted hops and is ignored.
+  //
+  // This is a function, not `trustProxy: hops`. Since 5.12.4 fastify treats a
+  // numeric trustProxy as "trust nothing", because a hop count alone cannot
+  // tell the edge from a client that connects to the process directly. On
+  // Railway nothing can: the container is reachable only through the edge or
+  // from services in the same project's private network.
+  const hops = opts.trustProxyHops ?? trustProxyHops();
+  const app = Fastify({
+    logger: loggerOpt,
+    ...(hops > 0 ? { trustProxy: (_addr: string, i: number) => i < hops } : {}),
+  });
 
   const mountDirectory = opts.mountDirectory ?? !opts.verifier;
   const directoryStorage = opts.directoryStorage ?? buildDefaultDirectoryStorage();
@@ -137,7 +158,17 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
     });
   }
 
-  app.get('/healthz', async () => ({ ok: true }));
+  // clientIp and forwardedFor only echo the caller's own view back to the
+  // caller. They exist so the trusted hop count can be checked from outside:
+  // curl /healthz and compare clientIp with your own public IP.
+  app.get('/healthz', async (request) => {
+    const xff = request.headers['x-forwarded-for'];
+    return {
+      ok: true,
+      clientIp: request.ip,
+      forwardedFor: (Array.isArray(xff) ? xff.join(', ') : xff) ?? null,
+    };
+  });
 
   // Serve the public landing page if a `public/` directory exists. Resolves
   // both from compiled-output location (`dist/src/server.js` → ../../public)
@@ -193,6 +224,23 @@ export function wbaAllowedOrigins(env: NodeJS.ProcessEnv = process.env): string[
   const base = replacement ? splitOrigins(replacement) : DEFAULT_SIGNATURE_AGENTS;
   const extra = splitOrigins(env.WBA_EXTRA_SIGNATURE_AGENTS);
   return [...new Set([...base, ...extra])];
+}
+
+/**
+ * TRUST_PROXY_HOPS: how many reverse proxies sit in front of the API.
+ * Default 1, Railway's documented single edge hop. 0 turns trust off, so
+ * request.ip is the socket address. Anything other than a non-negative
+ * integer fails the boot: a mistyped value must not silently fall back to a
+ * hop count that either shares one bucket across all callers or lets a
+ * client pick its own.
+ */
+export function trustProxyHops(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.TRUST_PROXY_HOPS?.trim();
+  if (raw === undefined || raw === '') return 1;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`TRUST_PROXY_HOPS must be a non-negative integer, got "${raw}".`);
+  }
+  return Number(raw);
 }
 
 function splitOrigins(value: string | undefined): string[] {
