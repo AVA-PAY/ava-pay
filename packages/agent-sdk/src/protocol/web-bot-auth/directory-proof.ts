@@ -1,4 +1,4 @@
-import { sign as nodeSign, type KeyObject } from 'node:crypto';
+import { createHash, sign as nodeSign, type KeyObject } from 'node:crypto';
 import { computeContentDigest, verifyEd25519 } from '../visa/http-signatures.js';
 import type { WebBotAuthKey } from './index.js';
 
@@ -109,61 +109,189 @@ export function signDirectoryResponse(params: {
   };
 }
 
-interface ProofInput {
-  label: string;
-  keyid?: string;
-  tag?: string;
-  created?: number;
-  expires?: number;
-}
+/**
+ * The only covered component list Appendix B allows, as its serialized Inner
+ * List. A proof covering anything else, or the same two in another order, is
+ * one we cannot build the base for, so it is `invalid` rather than `absent`.
+ */
+const PROOF_COVERED_LIST = '("@authority";req "content-digest")';
 
-/** Parse the response Signature-Input dictionary into per-label proof params. */
-function parseProofInputs(signatureInput: string): ProofInput[] {
-  const memberRe = /([A-Za-z0-9_-]+)=\([^)]*\)((?:;[a-z]+(?:="[^"]*"|=[^;,\s]+)?)*)/g;
-  const out: ProofInput[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = memberRe.exec(signatureInput)) !== null) {
-    const params = m[2] ?? '';
-    const num = (name: string): number | undefined => {
-      const found = params.match(new RegExp(`;${name}=([0-9]+)`));
-      return found ? Number(found[1]) : undefined;
-    };
-    const str = (name: string): string | undefined => {
-      const found = params.match(new RegExp(`;${name}="([^"]*)"`));
-      return found ? found[1] : undefined;
-    };
-    out.push({
-      label: m[1]!,
-      keyid: str('keyid'),
-      tag: str('tag'),
-      created: num('created'),
-      expires: num('expires'),
-    });
-  }
-  return out;
-}
+/** The digest algorithms we can check a response Content-Digest against. */
+const DIGEST_ALGORITHMS = { 'sha-256': 'sha256', 'sha-512': 'sha512' } as const;
 
-/** Parse the response Signature dictionary into label -> signature bytes. */
-function parseProofSignatures(signature: string): Map<string, Buffer> {
-  const memberRe = /([A-Za-z0-9_-]+)=:([^:]*):/g;
-  const out = new Map<string, Buffer>();
-  let m: RegExpExecArray | null;
-  while ((m = memberRe.exec(signature)) !== null) {
-    out.set(m[1]!, Buffer.from(m[2]!, 'base64'));
+/** A Structured Field bare item, as far as the proof parameters need one. */
+type BareItem =
+  | { kind: 'string'; value: string }
+  | { kind: 'integer'; value: number }
+  | { kind: 'other' };
+
+/**
+ * Split a Structured Field Dictionary into its members, each value kept
+ * verbatim (parameters included) so it can feed a signature base byte for
+ * byte. Quoted strings are respected, so a comma or `;` inside a String Item
+ * cannot split a member. A repeated key keeps its first position and takes the
+ * later value (RFC 8941 Section 4.2.2). Returns undefined when the field does
+ * not read as a dictionary.
+ */
+function dictionaryMembers(headerValue: string): Map<string, string> | undefined {
+  const out = new Map<string, string>();
+  let i = 0;
+  const n = headerValue.length;
+  while (i < n) {
+    while (i < n && /[\s,]/.test(headerValue[i] as string)) i++;
+    if (i >= n) break;
+    const keyStart = i;
+    while (i < n && /[A-Za-z0-9_.*-]/.test(headerValue[i] as string)) i++;
+    const key = headerValue.slice(keyStart, i);
+    if (key === '' || headerValue[i] !== '=') return undefined;
+    i++;
+    const valueStart = i;
+    let inQuotes = false;
+    while (i < n) {
+      const ch = headerValue[i] as string;
+      if (inQuotes) {
+        if (ch === '\\') { i += 2; continue; }
+        if (ch === '"') inQuotes = false;
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        break;
+      }
+      i++;
+    }
+    if (inQuotes) return undefined;
+    out.set(key, headerValue.slice(valueStart, i).trim());
   }
   return out;
 }
 
 /**
+ * Parse Structured Field parameters (`;key=value;key2`) into a map. Returns
+ * undefined on anything that is not well formed, so a value we misread can
+ * never select a key or a window.
+ */
+function parseParameters(text: string): Map<string, BareItem> | undefined {
+  const out = new Map<string, BareItem>();
+  let rest = text;
+  while (rest.length > 0) {
+    const m = rest.match(/^;\s*([a-z*][a-z0-9_.*-]*)/);
+    if (!m) return undefined;
+    const name = m[1] as string;
+    rest = rest.slice(m[0].length);
+    if (!rest.startsWith('=')) {
+      out.set(name, { kind: 'other' }); // Boolean true
+      continue;
+    }
+    rest = rest.slice(1);
+    const str = rest.match(/^"((?:[^"\\]|\\["\\])*)"/);
+    if (str) {
+      out.set(name, { kind: 'string', value: (str[1] as string).replace(/\\(["\\])/g, '$1') });
+      rest = rest.slice(str[0].length);
+      continue;
+    }
+    const int = rest.match(/^-?[0-9]{1,15}(?![0-9.])/);
+    if (int) {
+      out.set(name, { kind: 'integer', value: Number(int[0]) });
+      rest = rest.slice(int[0].length);
+      continue;
+    }
+    const other = rest.match(
+      /^(?:-?[0-9]{1,12}\.[0-9]{1,3}|[A-Za-z*][A-Za-z0-9!#$%&'*+.^_`|~:/-]*|:[A-Za-z0-9+/=]*:|\?[01])/,
+    );
+    if (!other) return undefined;
+    out.set(name, { kind: 'other' });
+    rest = rest.slice(other[0].length);
+  }
+  return out;
+}
+
+interface ProofMember {
+  /** The member value exactly as received: the `@signature-params` line. */
+  raw: string;
+  /** True only when the covered list is exactly PROOF_COVERED_LIST. */
+  coveredExact: boolean;
+  params: Map<string, BareItem>;
+}
+
+/** Read one Signature-Input member value into its covered list and parameters. */
+function parseProofMember(raw: string): ProofMember | undefined {
+  if (!raw.startsWith('(')) return undefined;
+  let i = 1;
+  let inQuotes = false;
+  for (; i < raw.length; i++) {
+    const ch = raw[i] as string;
+    if (inQuotes) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === '"') inQuotes = false;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ')') {
+      break;
+    }
+  }
+  if (i >= raw.length) return undefined;
+  const list = raw.slice(0, i + 1);
+  const params = parseParameters(raw.slice(i + 1));
+  if (!params) return undefined;
+  return { raw, coveredExact: list === PROOF_COVERED_LIST, params };
+}
+
+const stringParam = (params: Map<string, BareItem>, name: string): string | undefined => {
+  const item = params.get(name);
+  return item?.kind === 'string' ? item.value : undefined;
+};
+
+/**
+ * True when the response Content-Digest header matches the body. Every
+ * algorithm we know (sha-256, sha-512) that the header carries must match, and
+ * it must carry at least one; algorithms we do not know are ignored, per RFC
+ * 9530. A missing or unreadable header is a mismatch.
+ */
+function contentDigestMatchesBody(header: string | undefined, body: string): boolean {
+  if (header === undefined) return false;
+  const members = dictionaryMembers(header);
+  if (!members) return false;
+  let checked = 0;
+  for (const [name, algorithm] of Object.entries(DIGEST_ALGORITHMS)) {
+    const value = members.get(name);
+    if (value === undefined) continue;
+    const bytes = value.match(/^:([A-Za-z0-9+/]*={0,2}):$/);
+    if (!bytes) return false;
+    const expected = createHash(algorithm).update(body).digest();
+    if (!Buffer.from(bytes[1] as string, 'base64').equals(expected)) return false;
+    checked++;
+  }
+  return checked > 0;
+}
+
+/**
  * Classify every key in `keys` by its Appendix B proof. A key with no matching
- * proof signature is `absent`; a key whose proof is present but fails the
- * window, is missing its signature bytes, or does not verify is `invalid`; a
- * key whose proof verifies is `valid`. Proof signatures for keyids not in the
- * directory are ignored.
+ * proof signature is `absent`; a key whose proof is present but fails is
+ * `invalid`; a key whose proof verifies is `valid`. Proof signatures for keyids
+ * not in the directory are ignored.
+ *
+ * A proof fails when its covered list is not exactly
+ * `("@authority";req "content-digest")`, its `alg` is present and not
+ * `ed25519`, its window is bad, its signature bytes are missing, the response
+ * Content-Digest is absent or does not match the body, or the signature does
+ * not verify.
+ *
+ * The signature base is rebuilt from the bytes the directory sent, not from a
+ * template: `@signature-params` is the Signature-Input member value verbatim
+ * (RFC 9421 Section 2.3), so parameter order and any parameter we do not read
+ * (`alg`, `nonce`, unknown ones) are preserved, and the `content-digest` line
+ * is the response header as received. Until 2026-09-25 this path rebuilt both
+ * from a template, which dropped chatgpt.com's `alg="ed25519"` and classified
+ * its every key invalid.
  */
 export function verifyDirectoryProofs(params: {
   authority: string;
   body: string;
+  /**
+   * The response Content-Digest header as received. Covered verbatim by the
+   * proof and checked against `body`. Absent with a proof present = `invalid`.
+   */
+  contentDigest?: string | undefined;
   signatureInput: string | undefined;
   signature: string | undefined;
   now: number;
@@ -175,37 +303,58 @@ export function verifyDirectoryProofs(params: {
 
   if (!params.signatureInput || !params.signature) return status;
 
-  const contentDigest = computeContentDigest(params.body);
+  const inputs = dictionaryMembers(params.signatureInput);
+  const signatures = dictionaryMembers(params.signature);
+  if (!inputs) return status;
   const keyByThumbprint = new Map(params.keys.map((key) => [key.thumbprint, key]));
-  const signatures = parseProofSignatures(params.signature);
+  const contentDigest = params.contentDigest?.trim();
+  let digestOk: boolean | undefined;
 
-  for (const input of parseProofInputs(params.signatureInput)) {
-    if (input.tag !== DIRECTORY_PROOF_TAG) continue; // not a directory proof
-    if (input.keyid === undefined) continue;
-    const key = keyByThumbprint.get(input.keyid);
+  for (const [label, raw] of inputs) {
+    const proof = parseProofMember(raw);
+    if (!proof) continue; // unreadable: cannot attribute it to a key
+    if (stringParam(proof.params, 'tag') !== DIRECTORY_PROOF_TAG) continue; // not a directory proof
+    const keyid = stringParam(proof.params, 'keyid');
+    if (keyid === undefined) continue;
+    const key = keyByThumbprint.get(keyid);
     if (!key) continue; // a proof for a key not in this directory: ignore it
 
     // From here the proof is "offered" for a known key: any failure is invalid,
     // never absent, so it can never be tolerated under grace.
-    const sig = signatures.get(input.label);
-    if (!sig || input.created === undefined || input.expires === undefined) {
+    const invalid = (): void => {
       status.set(key.thumbprint, 'invalid');
-      continue;
-    }
+    };
+    if (!proof.coveredExact) { invalid(); continue; }
+
+    const created = proof.params.get('created');
+    const expires = proof.params.get('expires');
+    if (created?.kind !== 'integer' || expires?.kind !== 'integer') { invalid(); continue; }
     if (
-      input.created > params.now + params.skewSeconds ||
-      input.expires + params.skewSeconds < params.now
+      created.value > params.now + params.skewSeconds ||
+      expires.value + params.skewSeconds < params.now
     ) {
-      status.set(key.thumbprint, 'invalid');
+      invalid();
       continue;
     }
-    const base = buildDirectoryProofBase({
-      authority: params.authority,
-      contentDigest,
-      created: input.created,
-      expires: input.expires,
-      keyid: input.keyid,
-    });
+    // The key is Ed25519, so an explicit alg must say so. Absent is accepted
+    // (the E.2.3 vector carries none).
+    if (proof.params.has('alg') && stringParam(proof.params, 'alg') !== 'ed25519') {
+      invalid();
+      continue;
+    }
+
+    const sigValue = signatures?.get(label)?.match(/^:([A-Za-z0-9+/]*={0,2}):$/);
+    if (!sigValue) { invalid(); continue; }
+    const sig = Buffer.from(sigValue[1] as string, 'base64');
+
+    digestOk ??= contentDigestMatchesBody(contentDigest, params.body);
+    if (!digestOk || contentDigest === undefined) { invalid(); continue; }
+
+    const base = [
+      `"@authority";req: ${params.authority}`,
+      `"content-digest": ${contentDigest}`,
+      `"@signature-params": ${proof.raw}`,
+    ].join('\n');
     let ok = false;
     try {
       ok = verifyEd25519({ kty: 'OKP', crv: 'Ed25519', x: key.x }, base, sig);

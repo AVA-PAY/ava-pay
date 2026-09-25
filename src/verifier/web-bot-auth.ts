@@ -110,8 +110,9 @@ export interface WebBotAuthVerifierOptions {
    * Signature-Agent origins that MUST serve Appendix B directory
    * proof-of-possession (the per-source grace flag is OFF for these). Default:
    * none, so grace is ON everywhere and a key that offers no proof is tolerated.
-   * As of 2026-08-09 no live directory serves proofs, so an ON-by-default hard
-   * fail would reject all real traffic. A key whose proof is present but
+   * chatgpt.com serves proofs (2026-09-25); www.shopify.com did not when last
+   * checked (2026-08-09), so an ON-by-default hard fail would reject real
+   * traffic. A key whose proof is present but
    * INVALID is dropped regardless, at every grace setting.
    */
   proofRequiredOrigins?: string[];
@@ -593,9 +594,10 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * Directory responses are trusted on the strength of TLS to an allowlisted
  * origin, plus Appendix B proof-of-possession when the directory serves it:
  * each key is classified valid/invalid/absent (verifyDirectoryProofs) and the
- * verifier applies the per-source grace flag. No live directory publishes
- * proofs today (checked chatgpt.com and www.shopify.com 2026-08-09), so grace
- * defaults on and absent proofs are tolerated until a source ships them.
+ * verifier applies the per-source grace flag. chatgpt.com serves proofs (seen
+ * 2026-09-25, with an `alg="ed25519"` parameter); www.shopify.com did not when
+ * last checked (2026-08-09), so grace defaults on and absent proofs are
+ * tolerated until every source ships them.
  */
 export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   private readonly allowed: Set<string>;
@@ -685,6 +687,7 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
       const proofByThumbprint = verifyDirectoryProofs({
         authority: new URL(url).host,
         body,
+        contentDigest: res.headers.get('content-digest') ?? undefined,
         signatureInput: res.headers.get('signature-input') ?? undefined,
         signature: res.headers.get('signature') ?? undefined,
         now: Math.floor(this.nowMs() / 1000),

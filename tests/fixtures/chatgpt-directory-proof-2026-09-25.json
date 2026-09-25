@@ -1,0 +1,6 @@
+{
+  "body": "{\"keys\":[{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"P_1c4SX6fCavDcq6FRegWcVvaOKsp_aXHPEN1FcKDIA\",\"kid\":\"ArwjqcCqtA5oxEWkzXGC-To_0A9whHmajCHtfe8I9aY\",\"use\":\"sig\",\"nbf\":1735689600,\"exp\":1790951127}],\"signature_agent\":\"https://chatgpt.com\",\"purpose\":\"ai\"}",
+  "contentDigest": "sha-256=:zgD6ywoGNVJ7H1OJuk3ZUSWezUmILqyvDoAjkPZ170w=:",
+  "signatureInput": "sig1=(\"@authority\";req \"content-digest\");created=1790346327;expires=1790432727;keyid=\"ArwjqcCqtA5oxEWkzXGC-To_0A9whHmajCHtfe8I9aY\";tag=\"http-message-signatures-directory\";alg=\"ed25519\"",
+  "signature": "sig1=:v5hyW/8Bmj9A98deQSFQ3ycKBovAYBjLpFswJTA01AYPq7ebQwVkof86WABsoenocUayhp0fcfHLC2RsPUUpBw==:"
+}

@@ -65,12 +65,14 @@ const NOW = 1_750_000_000;
 function classify(params: {
   authority: string;
   body: string;
+  contentDigest: string;
   vector: Vector;
 }): string | undefined {
   const keys = parseKeyDirectory(JSON.parse(params.body));
   const status = verifyDirectoryProofs({
     authority: params.authority,
     body: params.body,
+    contentDigest: params.contentDigest,
     signatureInput: params.vector.signatureInput,
     signature: params.vector.signature,
     now: NOW,
@@ -141,9 +143,14 @@ describe('possession-proof vectors under the shipped verifier', () => {
     ['directory', directory],
     ['jwks_uri', jwksUri],
   ])('verifies the %s positive vector with no verifier change', (_name, vector) => {
-    expect(classify({ authority: vector.request.authority, body: vector.body, vector })).toBe(
-      'valid',
-    );
+    expect(
+      classify({
+        authority: vector.request.authority,
+        body: vector.body,
+        contentDigest: vector.contentDigest,
+        vector,
+      }),
+    ).toBe('valid');
   });
 
   it.each([
@@ -153,7 +160,12 @@ describe('possession-proof vectors under the shipped verifier', () => {
     expect(vector.negatives).toHaveLength(2);
     for (const negative of vector.negatives) {
       expect(
-        classify({ authority: negative.authority, body: negative.body, vector }),
+        classify({
+          authority: negative.authority,
+          body: negative.body,
+          contentDigest: negative.contentDigest,
+          vector,
+        }),
         negative.id,
       ).toBe('invalid');
     }
@@ -163,10 +175,20 @@ describe('possession-proof vectors under the shipped verifier', () => {
     // Identical bytes served by two hosts: the proof binds to the authority
     // that served it and to nothing else about how it was served.
     expect(
-      classify({ authority: jwksUri.request.authority, body: directory.body, vector: directory }),
+      classify({
+        authority: jwksUri.request.authority,
+        body: directory.body,
+        contentDigest: directory.contentDigest,
+        vector: directory,
+      }),
     ).toBe('invalid');
     expect(
-      classify({ authority: directory.request.authority, body: jwksUri.body, vector: jwksUri }),
+      classify({
+        authority: directory.request.authority,
+        body: jwksUri.body,
+        contentDigest: jwksUri.contentDigest,
+        vector: jwksUri,
+      }),
     ).toBe('invalid');
   });
 
@@ -176,6 +198,7 @@ describe('possession-proof vectors under the shipped verifier', () => {
       return verifyDirectoryProofs({
         authority: jwksUri.request.authority,
         body: jwksUri.body,
+        contentDigest: jwksUri.contentDigest,
         signatureInput: jwksUri.signatureInput,
         signature: jwksUri.signature,
         now,
