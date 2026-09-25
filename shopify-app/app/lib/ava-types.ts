@@ -28,11 +28,23 @@ export interface Mandate {
 export type VerificationFailureReason =
   // Generic
   | 'missing_agent_credentials'
-  // Signature-layer (RFC 9421 / Visa TAP)
+  // Signature-layer (RFC 9421 / Visa TAP). malformed_signature_header is the
+  // coarse name the Visa, Visa TAP and AP2 verifiers still use; Web Bot Auth
+  // reports the finer names that follow it.
   | 'malformed_signature_header'
+  | 'signature_input_malformed'
+  | 'signature_value_malformed'
+  | 'signature_parameter_missing'
+  // Well-formed, but the tag declares another protocol.
+  | 'foreign_signature_tag'
+  | 'duplicate_covered_component'
+  | 'required_component_not_covered'
+  | 'covered_component_missing'
   | 'unsupported_algorithm'
   | 'invalid_signature'
+  // Actual expiry only. Clock-ahead is signature_created_in_future.
   | 'signature_expired'
+  | 'signature_created_in_future'
   | 'content_digest_mismatch'
   | 'replay_detected'
   // Directory / agent-state
@@ -69,7 +81,16 @@ export type VerificationFailureReason =
   // distinct from key_directory_unavailable: reachable and misconfigured, not
   // down. Could-not-check, so conclusive=false, and never unknown_agent.
   | 'key_directory_redirected'
+  // The directory answered 200 with a Content-Type that is not a JSON key
+  // directory type, so it was never parsed. Could-not-check, conclusive=false,
+  // and never unknown_key.
+  | 'key_directory_unsupported_media_type'
   | 'unknown_key'
+  // What is wrong with the Signature-Agent header itself. All conclusive.
+  | 'signature_agent_malformed'
+  | 'signature_agent_ambiguous'
+  | 'signature_agent_member_missing'
+  | 'signature_agent_not_origin'
   // A signed request that carried no Signature-Agent header, required on every
   // signed request by Section 5.2.1 of -02. Definitive rejection, not a prompt
   // to guess identity from keyid. Distinct from missing_agent_credentials,
@@ -91,6 +112,65 @@ export type VerificationFailureReason =
   | 'payment_container_signature_invalid'
   // Multi-protocol
   | 'ambiguous_protocol';
+
+/**
+ * Mirror of REASON_CONCLUSIVE in packages/agent-sdk/src/types.ts, the table
+ * that fixes each reason's outcome: true is a definite rejection, false is
+ * could-not-check. check:type-sync fails if this table and the SDK's differ in
+ * any key or value, or if either does not list its union exactly once. The
+ * plugin still splits on the `conclusive` flag the API sends (verify-flow.ts),
+ * never on this table; the table is the contract that flag honours.
+ */
+export const REASON_CONCLUSIVE = {
+  missing_agent_credentials: true,
+  malformed_signature_header: true,
+  signature_input_malformed: true,
+  signature_value_malformed: true,
+  signature_parameter_missing: true,
+  foreign_signature_tag: true,
+  duplicate_covered_component: true,
+  required_component_not_covered: true,
+  covered_component_missing: true,
+  unsupported_algorithm: true,
+  invalid_signature: true,
+  signature_expired: true,
+  signature_created_in_future: true,
+  content_digest_mismatch: true,
+  replay_detected: true,
+  unknown_agent: true,
+  revoked_agent: true,
+  directory_unavailable: false,
+  malformed_mandate: true,
+  mandate_expired: true,
+  mandate_merchant_mismatch: true,
+  mandate_amount_exceeded: true,
+  malformed_jws: true,
+  jws_unsupported_algorithm: true,
+  jws_signature_invalid: true,
+  mandate_chain_mismatch: true,
+  mandate_constraint_violation: true,
+  checkout_hash_mismatch: true,
+  unsupported_protocol_version: true,
+  unknown_signature_agent: true,
+  key_directory_unavailable: false,
+  key_directory_redirected: false,
+  key_directory_unsupported_media_type: false,
+  unknown_key: true,
+  signature_agent_malformed: true,
+  signature_agent_ambiguous: true,
+  signature_agent_member_missing: true,
+  signature_agent_not_origin: true,
+  missing_signature_agent: true,
+  unsigned_key: true,
+  key_proof_invalid: true,
+  malformed_recognition_object: true,
+  recognition_nonce_mismatch: true,
+  recognition_signature_invalid: true,
+  id_token_invalid: true,
+  malformed_payment_container: true,
+  payment_container_signature_invalid: true,
+  ambiguous_protocol: true,
+} as const satisfies Record<VerificationFailureReason, boolean>;
 
 export type VerifiedProtocol = 'visa-tap' | 'ava-tap' | 'ap2' | 'web-bot-auth';
 
@@ -168,13 +248,15 @@ export type VerificationResult =
       reason: VerificationFailureReason;
       message: string;
       /**
-       * Whether the verifier completed its checks. false ONLY on could-not-check
-       * paths, where a trust root was unreachable (reason directory_unavailable
-       * or key_directory_unavailable); trusted stays false there too, so
-       * fail-closed behavior is unchanged. true means the request was
-       * definitively rejected. Additive and non-breaking: AVA's engine always
-       * sets this, and an absent value should be read as conclusive for forward
-       * compatibility. The full ternary lands in the v1.0 contract (D4).
+       * Whether the verifier completed its checks. Fixed per reason by
+       * REASON_CONCLUSIVE above (mirrored from the SDK), which is the source of
+       * truth: false for exactly its could-not-check reasons (today
+       * directory_unavailable, key_directory_unavailable,
+       * key_directory_redirected and key_directory_unsupported_media_type),
+       * true for every other reason. trusted stays false either way, so
+       * fail-closed behavior never depends on this flag. The API always sets
+       * it; an absent value, from an older API build, reads as conclusive. The
+       * full ternary lands in the v1.0 contract (D4).
        */
       conclusive?: boolean;
     };

@@ -212,14 +212,15 @@ describe('VisaTapVerifier — message signature', () => {
     });
   });
 
-  it('rejects expired and future-dated signatures → signature_expired', async () => {
-    for (const overrides of [
-      { created: FIXED_NOW - 1000, expires: FIXED_NOW - 520 },
-      { created: FIXED_NOW + 3600, expires: FIXED_NOW + 4080 },
-    ]) {
+  it('rejects expired → signature_expired and future-dated → signature_created_in_future', async () => {
+    for (const [overrides, reason] of [
+      [{ created: FIXED_NOW - 1000, expires: FIXED_NOW - 520 }, 'signature_expired'],
+      [{ created: FIXED_NOW + 3600, expires: FIXED_NOW + 4080 }, 'signature_created_in_future'],
+    ] as const) {
       expect(await verifier.verify(toIncoming(sign(overrides)))).toMatchObject({
         trusted: false,
-        reason: 'signature_expired',
+        reason,
+        conclusive: true,
       });
     }
   });

@@ -11,3 +11,4 @@ export type {
   TapVerificationDetail,
   OperatorRecord,
 } from '@ava-pay/agent';
+export { REASON_CONCLUSIVE, COULD_NOT_CHECK_REASONS, rejection } from '@ava-pay/agent';

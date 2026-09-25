@@ -236,7 +236,8 @@ describe('JwksUriKeySource (typed jwks_uri / cimd, url-only binding)', () => {
 
   function jwksFetch(): typeof fetch {
     const body = JSON.stringify({ keys: [jwkOf(ed)] });
-    return (async () => new Response(body)) as unknown as typeof fetch;
+    return (async () =>
+      new Response(body, { headers: { 'content-type': 'application/jwk-set+json' } })) as unknown as typeof fetch;
   }
 
   it('resolves a key by thumbprint from a jwks_uri and records url-only binding + the URL', async () => {

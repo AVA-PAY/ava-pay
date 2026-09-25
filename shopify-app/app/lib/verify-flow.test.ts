@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decideVerification, isConclusive, REASON_UNVERIFIABLE } from './verify-flow.js';
 import type { MerchantPolicyInput } from './policy.js';
 import type { AvaCallResult } from './ava.server.js';
+import { REASON_CONCLUSIVE } from './ava-types.js';
 import type { VerificationFailureReason, VerificationResult } from './ava-types.js';
 
 /** Headers as a Web Bot Auth request presents them. */
@@ -143,7 +144,12 @@ describe('decideVerification', () => {
     const cases: Array<[VerificationFailureReason, boolean, string, string]> = [
       ['directory_unavailable', false, 'unverifiable', REASON_UNVERIFIABLE],
       ['key_directory_unavailable', false, 'unverifiable', REASON_UNVERIFIABLE],
+      ['key_directory_redirected', false, 'unverifiable', REASON_UNVERIFIABLE],
+      ['key_directory_unsupported_media_type', false, 'unverifiable', REASON_UNVERIFIABLE],
       ['unknown_agent', true, 'failed', 'agent_blocked'],
+      ['foreign_signature_tag', true, 'failed', 'agent_blocked'],
+      ['signature_created_in_future', true, 'failed', 'agent_blocked'],
+      ['signature_agent_not_origin', true, 'failed', 'agent_blocked'],
       ['unsigned_key', true, 'failed', 'agent_blocked'],
       ['key_proof_invalid', true, 'failed', 'agent_blocked'],
     ];
@@ -152,6 +158,18 @@ describe('decideVerification', () => {
       expect(d.response.allow, reason).toBe(false);
       expect(d.event.outcome, reason).toBe(outcome);
       expect(d.response.reason, reason).toBe(responseReason);
+      expect(d.event.reason, reason).toBe(reason);
+    }
+  });
+
+  it('classifies every reason in the contract as the API sends it', () => {
+    // Each reason arrives with the flag REASON_CONCLUSIVE fixes for it, so the
+    // whole vocabulary, including names added later, lands in the right bucket.
+    for (const reason of Object.keys(REASON_CONCLUSIVE) as VerificationFailureReason[]) {
+      const conclusive = REASON_CONCLUSIVE[reason];
+      const d = decideVerification(settings(), rejected(reason, conclusive), WBA_HEADERS);
+      expect(d.response.allow, reason).toBe(false);
+      expect(d.event.outcome, reason).toBe(conclusive ? 'failed' : 'unverifiable');
       expect(d.event.reason, reason).toBe(reason);
     }
   });

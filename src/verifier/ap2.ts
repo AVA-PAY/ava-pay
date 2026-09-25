@@ -6,6 +6,7 @@ import type {
   VerificationFailureReason,
   VerificationResult,
 } from '../types.js';
+import { rejection } from '../types.js';
 import type { AgentDirectory } from './agent-directory.js';
 import {
   asCheckoutMandate,
@@ -317,7 +318,6 @@ export class Ap2AgentVerifier implements AgentVerifier {
           failure: fail(
             'directory_unavailable',
             `Directory lookup for root kid "${rootKid}" failed.`,
-            false,
           ),
         };
       }
@@ -352,10 +352,7 @@ export class Ap2AgentVerifier implements AgentVerifier {
   }
 }
 
-function fail(
-  reason: VerificationFailureReason,
-  message: string,
-  conclusive = true,
-): VerificationResult {
-  return { trusted: false, reason, message, conclusive };
+/** Every failure carries the outcome REASON_CONCLUSIVE fixes for its reason. */
+function fail(reason: VerificationFailureReason, message: string): VerificationResult {
+  return rejection(reason, message);
 }

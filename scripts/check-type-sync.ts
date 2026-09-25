@@ -1,6 +1,8 @@
 /**
  * CI guardrail: ensure VerificationFailureReason in the API and the Shopify
- * plugin haven't drifted.
+ * plugin haven't drifted, and that REASON_CONCLUSIVE, the table fixing each
+ * reason's outcome (invalid or could-not-check), lists every reason exactly
+ * once in both files with the same value.
  *
  * The two files (packages/agent-sdk/src/types.ts and
  * shopify-app/app/lib/ava-types.ts) hand-mirror each other today. A real
@@ -32,7 +34,7 @@ const ROOT = resolve(import.meta.dirname, '..');
  * this floor can. Bump it UP whenever you intentionally add reasons. Only lower
  * it as a deliberate, reviewed act of removing a reason from the contract.
  */
-export const MIN_REASONS = 35;
+export const MIN_REASONS = 48;
 
 const FILES = [
   'packages/agent-sdk/src/types.ts',
@@ -42,10 +44,15 @@ const FILES = [
 export interface Section {
   file: string;
   reasons: string[];
+  /**
+   * REASON_CONCLUSIVE entries in source order, duplicates kept so they can be
+   * reported. Optional so the union-only checks can be exercised alone.
+   */
+  table?: Array<[string, boolean]>;
 }
 
 export interface SyncProblem {
-  kind: 'floor' | 'drift';
+  kind: 'floor' | 'drift' | 'table';
   message: string;
 }
 
@@ -84,6 +91,61 @@ export function extractReasonsFromText(text: string, label: string): string[] {
     throw new Error(`${label}: VerificationFailureReason has no string-literal members`);
   }
   return [...(found as string[])].sort();
+}
+
+/**
+ * Read the REASON_CONCLUSIVE object literal from source text via the AST.
+ * Entries come back in source order with duplicates preserved (the compiler
+ * rejects a duplicate key, but this check must not depend on the file having
+ * been compiled). A value that is not a literal true/false is an error: the
+ * table exists to state each outcome, not compute it.
+ */
+export function extractConclusiveTableFromText(text: string, label: string): Array<[string, boolean]> {
+  const sourceFile = ts.createSourceFile(label, text, ts.ScriptTarget.Latest, false);
+
+  let found: Array<[string, boolean]> | null = null;
+  const unwrap = (expr: ts.Expression): ts.Expression => {
+    let e = expr;
+    while (ts.isSatisfiesExpression(e) || ts.isAsExpression(e) || ts.isParenthesizedExpression(e)) {
+      e = e.expression;
+    }
+    return e;
+  };
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'REASON_CONCLUSIVE' &&
+      node.initializer
+    ) {
+      const literal = unwrap(node.initializer);
+      if (!ts.isObjectLiteralExpression(literal)) {
+        throw new Error(`${label}: REASON_CONCLUSIVE is not an object literal`);
+      }
+      const out: Array<[string, boolean]> = [];
+      for (const prop of literal.properties) {
+        if (!ts.isPropertyAssignment(prop)) {
+          throw new Error(`${label}: REASON_CONCLUSIVE may hold only plain key: true|false entries`);
+        }
+        const key = ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name) ? prop.name.text : null;
+        const kind = prop.initializer.kind;
+        if (key === null || (kind !== ts.SyntaxKind.TrueKeyword && kind !== ts.SyntaxKind.FalseKeyword)) {
+          throw new Error(`${label}: REASON_CONCLUSIVE entry must be a named key with a literal true or false`);
+        }
+        out.push([key, kind === ts.SyntaxKind.TrueKeyword]);
+      }
+      found = out;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  if (found === null) throw new Error(`${label}: REASON_CONCLUSIVE table not found`);
+  return found;
+}
+
+export function extractConclusiveTable(file: string): Array<[string, boolean]> {
+  return extractConclusiveTableFromText(readFileSync(resolve(ROOT, file), 'utf-8'), file);
 }
 
 export function extractReasons(file: string): string[] {
@@ -125,11 +187,47 @@ export function findSyncProblems(sections: Section[], minReasons: number): SyncP
     }
   }
 
+  // REASON_CONCLUSIVE: within each file, exactly one entry per union member.
+  for (const section of sections) {
+    if (!section.table) continue;
+    const counts = new Map<string, number>();
+    for (const [key] of section.table) counts.set(key, (counts.get(key) ?? 0) + 1);
+    const duplicated = [...counts].filter(([, n]) => n > 1).map(([key]) => key);
+    const missing = section.reasons.filter((r) => !counts.has(r));
+    const extra = [...counts.keys()].filter((key) => !section.reasons.includes(key));
+    if (duplicated.length || missing.length || extra.length) {
+      let message = `${section.file}: REASON_CONCLUSIVE must list every reason exactly once.`;
+      if (missing.length) message += ` Missing: ${missing.join(', ')}.`;
+      if (duplicated.length) message += ` Listed more than once: ${duplicated.join(', ')}.`;
+      if (extra.length) message += ` Not in the union: ${extra.join(', ')}.`;
+      problems.push({ kind: 'table', message });
+    }
+  }
+
+  // And the two tables agree on every outcome.
+  if (a?.table && b?.table) {
+    const valuesA = new Map(a.table);
+    const valuesB = new Map(b.table);
+    const differ = [...valuesA]
+      .filter(([key, value]) => valuesB.has(key) && valuesB.get(key) !== value)
+      .map(([key, value]) => `${key} (${a.file}: ${value}, ${b.file}: ${valuesB.get(key)})`);
+    if (differ.length) {
+      problems.push({
+        kind: 'table',
+        message: `REASON_CONCLUSIVE disagrees between the files on: ${differ.join('; ')}.`,
+      });
+    }
+  }
+
   return problems;
 }
 
 export function main(): void {
-  const sections: Section[] = FILES.map((file) => ({ file, reasons: extractReasons(file) }));
+  const sections: Section[] = FILES.map((file) => ({
+    file,
+    reasons: extractReasons(file),
+    table: extractConclusiveTable(file),
+  }));
   const problems = findSyncProblems(sections, MIN_REASONS);
 
   if (problems.length > 0) {
@@ -143,9 +241,11 @@ export function main(): void {
   }
 
   const count = sections[0]!.reasons.length;
+  const couldNotCheck = sections[0]!.table!.filter(([, conclusive]) => !conclusive).map(([key]) => key);
   console.log(
     `✓ VerificationFailureReason in sync across ${sections.length} files ` +
-      `(${count} reasons, floor ${MIN_REASONS}).`,
+      `(${count} reasons, floor ${MIN_REASONS}). REASON_CONCLUSIVE covers all ${count} in both, ` +
+      `${couldNotCheck.length} could-not-check: ${couldNotCheck.join(', ')}.`,
   );
 }
 

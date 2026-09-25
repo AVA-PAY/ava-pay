@@ -39,7 +39,7 @@ class AVA_Pay_Events {
 		// outcome: 'verified' | 'failed' | 'unverifiable' | 'policy_blocked' | 'error'
 		//   failed         the agent presented credentials that did not verify
 		//   unverifiable   the verifier could not complete its checks (a trust
-		//                  root was unreachable), so nothing was proved either
+		//                  root could not be consulted), so nothing was proved either
 		//                  way. Fails closed like 'failed', but must never be
 		//                  counted or shown as a rejection.
 		//   policy_blocked verified, but merchant settings rejected it

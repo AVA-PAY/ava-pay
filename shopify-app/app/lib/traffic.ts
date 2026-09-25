@@ -45,7 +45,8 @@ export interface TrafficKpis {
   /** Verified, but merchant settings rejected it. */
   policyBlocked: number;
   /**
-   * The verifier could not complete its checks (a trust root was unreachable).
+   * The verifier could not complete its checks (a trust root was unreachable,
+   * redirected, or served something other than a key directory).
    * Not admitted, and NOT a rejection: we never found out. Kept out of every
    * rejection total on purpose.
    */
@@ -126,7 +127,8 @@ export interface TrafficIntelView {
   /** Why agents were rejected. Could-not-check reasons are NOT in here. */
   failureReasons: ReasonStat[];
   /**
-   * Why verifications could not be completed (unreachable directories, an
+   * Why verifications could not be completed (directories that were
+   * unreachable, redirected or served under the wrong media type; an
    * unreachable API). Separate from failureReasons because these say nothing
    * about the agents: they are a health signal about the trust roots.
    */

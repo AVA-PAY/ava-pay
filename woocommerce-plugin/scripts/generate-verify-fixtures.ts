@@ -23,7 +23,11 @@ import { StaticAgentDirectory } from '../../src/verifier/agent-directory.js';
 import type { AgentDirectory, AgentRecord } from '../../src/verifier/agent-directory.js';
 import { VisaAgentVerifier } from '../../src/verifier/visa.js';
 import { Ap2AgentVerifier } from '../../src/verifier/ap2.js';
-import { StaticSignatureAgentKeys, WebBotAuthVerifier } from '../../src/verifier/web-bot-auth.js';
+import {
+  FetchingKeyDirectoryResolver,
+  StaticSignatureAgentKeys,
+  WebBotAuthVerifier,
+} from '../../src/verifier/web-bot-auth.js';
 import { VisaTapVerifier } from '../../src/verifier/visa-tap.js';
 import { MultiProtocolVerifier } from '../../src/verifier/multi.js';
 import { generateAgentKeyPair, signWithVisa, signWithWebBotAuth } from '../../src/sdk/index.js';
@@ -105,13 +109,28 @@ async function main(): Promise<void> {
     (_m, first8: string) => `:${first8.split('').reverse().join('')}`,
   );
 
+  // A well-formed WBA signature declaring another protocol's tag. Dispatched to
+  // Web Bot Auth by its Signature-Agent header; rejected conclusively.
+  const foreignTag = signWithWebBotAuth({
+    method: 'GET',
+    url: VERIFY_URL,
+    signatureAgent: SIGNATURE_AGENT,
+    privateKey: keyPair.privateKey,
+    tag: 'other-protocol',
+  });
+
   const noCredentials: SignedPayload = {
     method: 'GET',
     url: VERIFY_URL,
     headers: { host: MERCHANT_HOST, 'user-agent': 'definitely-not-an-agent/1.0' },
   };
 
-  const cases: Array<{ name: string; note: string; request: SignedPayload; app?: 'unreachableDirectory' }> = [
+  const cases: Array<{
+    name: string;
+    note: string;
+    request: SignedPayload;
+    app?: 'unreachableDirectory' | 'htmlDirectory';
+  }> = [
     {
       name: 'ava_tap_mandate_backed',
       note: 'AVA TAP profile, Ed25519, buyer mandate — expects trusted with mandate',
@@ -143,6 +162,20 @@ async function main(): Promise<void> {
       request: strip(mandateBacked),
       app: 'unreachableDirectory',
     },
+    {
+      name: 'web_bot_auth_foreign_tag',
+      note: 'Well-formed WBA signature with tag="other-protocol": expects foreign_signature_tag with conclusive=true',
+      request: strip(foreignTag),
+    },
+    {
+      // Could-not-check from the media-type gate: the directory answers 200
+      // with the real JWK Set, but as text/html, so it is never parsed. The
+      // plugin must file this as unverifiable, not as a blocked agent.
+      name: 'web_bot_auth_directory_wrong_media_type',
+      note: 'Valid WBA request, directory serving its JWK Set as text/html: expects key_directory_unsupported_media_type with conclusive=false',
+      request: strip(identityOnly),
+      app: 'htmlDirectory',
+    },
   ];
 
   // A second server whose only difference is a directory that cannot answer.
@@ -163,9 +196,35 @@ async function main(): Promise<void> {
   });
   await unreachableDirectoryApp.ready();
 
+  // A third server whose Web Bot Auth resolver fetches a directory that serves
+  // the right keys under the wrong media type.
+  const htmlDirectoryApp = await buildServer({
+    verifier: new MultiProtocolVerifier({
+      visa: new VisaAgentVerifier({ directory }),
+      visaTap: new VisaTapVerifier({ directory }),
+      ap2: new Ap2AgentVerifier({ directory }),
+      webBotAuth: new WebBotAuthVerifier({
+        resolver: new FetchingKeyDirectoryResolver({
+          allowedOrigins: [SIGNATURE_AGENT],
+          fetchImpl: (async () =>
+            new Response(JSON.stringify({ keys: [jwk] }), {
+              headers: { 'content-type': 'text/html; charset=utf-8' },
+            })) as unknown as typeof fetch,
+        }),
+      }),
+    }),
+    logger: false,
+  });
+  await htmlDirectoryApp.ready();
+
   const fixtures = [];
   for (const c of cases) {
-    const target = 'unreachableDirectory' === c.app ? unreachableDirectoryApp : app;
+    const target =
+      c.app === 'unreachableDirectory'
+        ? unreachableDirectoryApp
+        : c.app === 'htmlDirectory'
+          ? htmlDirectoryApp
+          : app;
     const res = await target.inject({ method: 'POST', url: '/verify', payload: c.request });
     fixtures.push({
       name: c.name,
@@ -178,6 +237,7 @@ async function main(): Promise<void> {
 
   await app.close();
   await unreachableDirectoryApp.close();
+  await htmlDirectoryApp.close();
 
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(

@@ -107,7 +107,10 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
       process.env.VISA_JWKS_URL ? { url: process.env.VISA_JWKS_URL } : {},
     );
     const wbaOrigins = wbaAllowedOrigins();
-    const wbaKeys = new FetchingKeyDirectoryResolver({ allowedOrigins: wbaOrigins });
+    const wbaKeys = new FetchingKeyDirectoryResolver({
+      allowedOrigins: wbaOrigins,
+      onWarning: (message) => app.log.warn(message),
+    });
 
     const directory =
       opts.directory ?? buildDefaultDirectory(directoryStorage, visaJwks, wbaKeys, wbaOrigins);

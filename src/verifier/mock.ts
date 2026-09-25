@@ -1,5 +1,6 @@
 import type { AgentVerifier } from './interface.js';
 import type { IncomingRequest, VerificationResult } from '../types.js';
+import { rejection } from '../types.js';
 import type { AgentDirectory } from './agent-directory.js';
 import { decodeMandate, isMerchantAllowed, MandateParseError, safeHost } from './mandate.js';
 
@@ -33,71 +34,57 @@ export class MockAgentVerifier implements AgentVerifier {
     const mandateRaw = request.headers['x-ava-mandate'];
 
     if (!agentId || !signature || !mandateRaw) {
-      return {
-        trusted: false,
-        reason: 'missing_agent_credentials',
-        message: 'Required headers x-ava-agent-id, x-ava-signature, x-ava-mandate are missing.',
-        conclusive: true,
-      };
+      return rejection(
+        'missing_agent_credentials',
+        'Required headers x-ava-agent-id, x-ava-signature, x-ava-mandate are missing.',
+      );
     }
 
     const record = await this.directory.resolve(agentId);
     if (!record) {
-      return {
-        trusted: false,
-        reason: 'unknown_agent',
-        message: `Agent "${agentId}" is not registered.`,
-        conclusive: true,
-      };
+      return rejection(
+        'unknown_agent',
+        `Agent "${agentId}" is not registered.`,
+      );
     }
     if (record.revoked) {
-      return {
-        trusted: false,
-        reason: 'revoked_agent',
-        message: `Agent "${agentId}" has been revoked.`,
-        conclusive: true,
-      };
+      return rejection(
+        'revoked_agent',
+        `Agent "${agentId}" has been revoked.`,
+      );
     }
 
     if (signature === 'bad') {
-      return {
-        trusted: false,
-        reason: 'invalid_signature',
-        message: 'Cryptographic signature did not verify against the registered key.',
-        conclusive: true,
-      };
+      return rejection(
+        'invalid_signature',
+        'Cryptographic signature did not verify against the registered key.',
+      );
     }
 
     let mandate;
     try {
       mandate = decodeMandate(mandateRaw);
     } catch (err) {
-      return {
-        trusted: false,
-        reason: 'malformed_mandate',
-        message: err instanceof MandateParseError ? err.message : 'Mandate could not be parsed.',
-        conclusive: true,
-      };
+      return rejection(
+        'malformed_mandate',
+        err instanceof MandateParseError ? err.message : 'Mandate could not be parsed.',
+      );
     }
 
     const now = this.now();
     if (mandate.exp <= now) {
-      return {
-        trusted: false,
-        reason: 'mandate_expired',
-        message: `Mandate ${mandate.id} expired at ${mandate.exp} (now=${now}).`,
-        conclusive: true,
-      };
+      return rejection(
+        'mandate_expired',
+        `Mandate ${mandate.id} expired at ${mandate.exp} (now=${now}).`,
+      );
     }
 
     const merchantHost = safeHost(request.url);
     if (!isMerchantAllowed(mandate, merchantHost)) {
-      return {
-        trusted: false,
-        reason: 'mandate_merchant_mismatch',
-        message: `Mandate ${mandate.id} does not authorize purchases on ${merchantHost ?? '(unknown host)'}.`,
-        conclusive: true,
-      };
+      return rejection(
+        'mandate_merchant_mismatch',
+        `Mandate ${mandate.id} does not authorize purchases on ${merchantHost ?? '(unknown host)'}.`,
+      );
     }
 
     const buyerInfo = mandate.buyer ?? { buyerId: `buyer_for_${mandate.id}` };

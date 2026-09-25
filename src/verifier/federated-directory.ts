@@ -1,5 +1,10 @@
 import { createPublicKey, type KeyObject } from 'node:crypto';
-import { parseKeyDirectory, type WebBotAuthKey } from '@ava-pay/agent/protocol/web-bot-auth';
+import {
+  classifyKeyDirectoryMediaType,
+  JWK_SET_MEDIA_TYPE,
+  parseKeyDirectory,
+  type WebBotAuthKey,
+} from '@ava-pay/agent/protocol/web-bot-auth';
 import type { AgentDirectory, AgentRecord, ResolveHints } from './agent-directory.js';
 import type { VisaJwksResolver } from './visa-tap.js';
 import { readBounded, type SignatureAgentKeyResolver } from './web-bot-auth.js';
@@ -217,10 +222,15 @@ export class WbaPublishedKeySource implements FederatedSource {
         sawOutage = true;
         continue;
       }
-      if (resolution.status === 'unavailable' || resolution.status === 'redirected') {
-        // A redirected directory is as unresolvable as a down one for this
-        // chain's purposes (-02 Section 5.5), so it skips rather than counting
-        // as a definitive miss that would let a later root be shadowed.
+      if (
+        resolution.status === 'unavailable'
+        || resolution.status === 'redirected'
+        || resolution.status === 'unsupported_media_type'
+      ) {
+        // A redirected directory, or one served under a media type we do not
+        // parse, is as unresolvable as a down one for this chain's purposes
+        // (-02 Section 5.5), so it skips rather than counting as a definitive
+        // miss that would let a later root be shadowed.
         sawOutage = true;
         continue;
       }
@@ -278,6 +288,8 @@ export interface JwksUriKeySourceOptions {
   timeoutMs?: number;
   /** Maximum response size. Default 64 KiB. */
   maxResponseBytes?: number;
+  /** Receives operator-facing warnings (plain application/json). Default console.warn. */
+  onWarning?: (message: string) => void;
 }
 
 /**
@@ -287,6 +299,11 @@ export interface JwksUriKeySourceOptions {
  * and the (key, domain) pair records the URL itself. Discipline mirrors the WBA
  * directory fetcher: https only, allowlisted URLs, a redirect is an error (-02
  * Section 5.5 forbids following one), bounded, honoring the published key window.
+ *
+ * Media type: parsed only when served as application/jwk-set+json (RFC 7517,
+ * the natural type of a jwks_uri), the registered directory type, or plain
+ * application/json with a warning. Any other type is an outage for this URL,
+ * never a parse, so a key set inside an HTML page cannot stand in for one.
  */
 export class JwksUriKeySource implements FederatedSource {
   readonly name: string;
@@ -297,6 +314,7 @@ export class JwksUriKeySource implements FederatedSource {
   private readonly skew: number;
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
+  private readonly onWarning: (message: string) => void;
 
   constructor(opts: JwksUriKeySourceOptions) {
     for (const url of opts.urls) {
@@ -312,6 +330,7 @@ export class JwksUriKeySource implements FederatedSource {
     this.skew = opts.clockSkewSeconds ?? 30;
     this.timeoutMs = opts.timeoutMs ?? 5_000;
     this.maxBytes = opts.maxResponseBytes ?? 64 * 1024;
+    this.onWarning = opts.onWarning ?? ((message) => console.warn(message));
   }
 
   async resolve(agentId: string, hints?: ResolveHints): Promise<AgentRecord | null> {
@@ -369,6 +388,17 @@ export class JwksUriKeySource implements FederatedSource {
       // 'error'` above already refuses a hop; this refuses every other status,
       // including a 2xx that carries no key set.
       if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+      const contentType = res.headers.get('content-type');
+      const mediaClass = classifyKeyDirectoryMediaType(contentType);
+      if (mediaClass === 'other') {
+        await res.body?.cancel().catch(() => {});
+        throw new Error(`unsupported media type: ${contentType ?? 'no Content-Type'}`);
+      }
+      if (mediaClass === 'json') {
+        this.onWarning(
+          `JWKS ${url} is served as application/json; expected ${JWK_SET_MEDIA_TYPE}.`,
+        );
+      }
       const body = await readBounded(res, this.maxBytes);
       return parseKeyDirectory(JSON.parse(body));
     } finally {

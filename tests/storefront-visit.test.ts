@@ -6,6 +6,7 @@ import { InMemoryReplayGuard } from '../src/verifier/replay.js';
 import { DEMO_AGENT_ID, DEMO_AGENT_PUBLIC_JWK } from '../src/directory/seed-demo.js';
 import type { IncomingRequest } from '../src/types.js';
 import { buildStorefrontVisitUrl } from '../shopify-app/app/lib/storefront-visit.server.js';
+import { buildTestVisitRequest } from '../shopify-app/app/lib/test-visit-request.js';
 import {
   FORWARDED_HEADERS,
   VISIT_SOURCE_HEADER,
@@ -192,5 +193,45 @@ describe('simulate-verified-agent.mjs --emit-url', () => {
       buildSignedAgentRequest(SHOP, { body: '' }).headers,
     );
     expect(new URL(url).searchParams.get(VISIT_SOURCE_HEADER)).toBeNull();
+  });
+});
+
+/**
+ * Content-Digest over an empty body. The embed forwards signed headers into a
+ * bodyless POST, so the verifier has to hold the digest to the empty body that
+ * arrived. Before this was checked, a signature whose digest covered a cart
+ * verified on that path even though the cart never arrived.
+ */
+describe('Content-Digest on the bodyless proxy path', () => {
+  it('still verifies the storefront visit, which signs over the empty body', async () => {
+    const request = deliverThroughEmbed(SHOP, buildStorefrontVisitUrl(SHOP));
+    const result = await verifier().verify({ ...request, body: '' });
+    expect(result.trusted).toBe(true);
+  });
+
+  it('still verifies the Settings test visit, which signs the body it sends', async () => {
+    const result = await verifier().verify(buildTestVisitRequest(SHOP));
+    expect(result.trusted).toBe(true);
+  });
+
+  it('rejects a signature whose digest covered a body that did not arrive', async () => {
+    // The test visit signs a real cart. Forward its headers with no body, as
+    // the embed would, and the digest no longer describes the request.
+    const signed = buildTestVisitRequest(SHOP);
+    expect(signed.body).toBeTruthy();
+    for (const body of [undefined, '']) {
+      const bodyless: IncomingRequest = {
+        method: signed.method,
+        url: signed.url,
+        headers: signed.headers,
+        ...(body !== undefined ? { body } : {}),
+      };
+      const result = await verifier().verify(bodyless);
+      expect(result).toMatchObject({
+        trusted: false,
+        reason: 'content_digest_mismatch',
+        conclusive: true,
+      });
+    }
   });
 });

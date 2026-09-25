@@ -279,6 +279,30 @@ describe('unverifiable is never counted as a rejection', () => {
     ]);
   });
 
+  it('files the refined reasons under the breakdown their outcome belongs to', () => {
+    const view = buildTrafficView(
+      [
+        event({ outcome: 'failed', reason: 'foreign_signature_tag' }),
+        event({ outcome: 'failed', reason: 'signature_created_in_future' }),
+        event({ outcome: 'failed', reason: 'signature_created_in_future' }),
+        event({ outcome: 'failed', reason: 'signature_agent_not_origin' }),
+        event({ outcome: 'unverifiable', reason: 'key_directory_unsupported_media_type' }),
+        event({ outcome: 'unverifiable', reason: 'key_directory_redirected' }),
+      ],
+      [],
+      NOW,
+    );
+    expect(view.failureReasons).toEqual([
+      { reason: 'signature_created_in_future', count: 2 },
+      { reason: 'foreign_signature_tag', count: 1 },
+      { reason: 'signature_agent_not_origin', count: 1 },
+    ]);
+    expect(view.unavailableReasons).toEqual([
+      { reason: 'key_directory_unsupported_media_type', count: 1 },
+      { reason: 'key_directory_redirected', count: 1 },
+    ]);
+  });
+
   it('passes the outcome through to the recent table for its own badge', () => {
     const view = buildTrafficView([unverifiable()], [], NOW);
     expect(view.recent[0]!.outcome).toBe('unverifiable');

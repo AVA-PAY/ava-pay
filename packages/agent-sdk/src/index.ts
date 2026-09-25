@@ -93,6 +93,7 @@ export type {
   TapVerificationDetail,
   OperatorRecord,
 } from './types.js';
+export { REASON_CONCLUSIVE, COULD_NOT_CHECK_REASONS, rejection } from './types.js';
 
 // AP2 protocol re-exports for users implementing custom AP2 logic
 export { computeCheckoutHash } from './protocol/ap2/mandates.js';

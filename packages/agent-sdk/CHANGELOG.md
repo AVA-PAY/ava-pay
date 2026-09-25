@@ -6,6 +6,46 @@ This package is a pre-1.0 developer preview, so a minor version may tighten
 verification behaviour. Type-level changes are called out as additive or
 breaking on each entry.
 
+## [Unreleased]
+
+Not published. Additive at the type level: nothing exported by 0.3.0 was
+removed or changed shape, and the new union members are additions. A consumer
+that switches exhaustively over `VerificationFailureReason` will see the new
+members as a compile error, which is the intended signal.
+
+### Added
+
+- `REASON_CONCLUSIVE`, a table fixing each failure reason's outcome: `true`
+  (invalid, the verifier checked and the request failed) or `false`
+  (unverified, the verifier could not complete its checks). It is declared
+  `satisfies Record<VerificationFailureReason, boolean>`, so a reason added to
+  the union without an entry does not compile. `COULD_NOT_CHECK_REASONS` lists
+  the `false` entries.
+- `rejection(reason, message)`, which builds a failure result whose
+  `conclusive` comes from the table. It takes no flag, so a caller cannot pair
+  a reason with the other outcome.
+- Thirteen failure reasons. Twelve split conditions that Web Bot Auth used to
+  report as `malformed_signature_header` or `signature_expired`:
+  `signature_input_malformed`, `signature_value_malformed`,
+  `signature_parameter_missing`, `foreign_signature_tag`,
+  `duplicate_covered_component`, `required_component_not_covered`,
+  `covered_component_missing`, `signature_created_in_future`,
+  `signature_agent_malformed`, `signature_agent_ambiguous`,
+  `signature_agent_member_missing`, `signature_agent_not_origin`. One is new:
+  `key_directory_unsupported_media_type` (could-not-check).
+- `SignatureParseError.code` and `WebBotAuthParseError.code`, naming which
+  part of the input an error is about, so a verifier can map it to a reason
+  without reading the message. Both default to their previous meaning.
+- `classifyKeyDirectoryMediaType()` and `JWK_SET_MEDIA_TYPE` in
+  `protocol/web-bot-auth`.
+
+### Changed
+
+- `signature_created_in_future` replaces `signature_expired` for a `created`
+  ahead of the verifier clock in every verifier that checks it (Web Bot Auth,
+  Visa TAP, the AVA TAP profile). `signature_expired` now means actual expiry
+  only.
+
 ## [0.3.0] - 2026-09-04
 
 Everything below has accumulated since 0.2.0 (published 2026-07-12). The type

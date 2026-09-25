@@ -173,10 +173,14 @@ class AVA_Pay_Verify_Flow {
 	/**
 	 * Did the verifier complete its checks?
 	 *
-	 * `conclusive` is additive on the API's VerificationResult: false ONLY on
-	 * could-not-check paths (a trust root was unreachable, e.g.
-	 * directory_unavailable or key_directory_unavailable), true when the
-	 * request was definitively rejected. Absent reads as true, matching the
+	 * `conclusive` is additive on the API's VerificationResult, and the API
+	 * fixes it per reason in its REASON_CONCLUSIVE table
+	 * (packages/agent-sdk/src/types.ts): false for the could-not-check reasons
+	 * that table lists (today directory_unavailable, key_directory_unavailable,
+	 * key_directory_redirected, key_directory_unsupported_media_type), true
+	 * when the request was definitively rejected. This port reads the flag and
+	 * keeps no copy of the list, so a could-not-check reason added to the API
+	 * later needs no plugin release to be classified correctly. Absent reads as true, matching the
 	 * API's own forward-compatibility rule, so verdicts minted or cached
 	 * before the field existed keep their old meaning instead of silently
 	 * becoming "could not check".

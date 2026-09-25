@@ -33,6 +33,8 @@ import type { IncomingRequest, Mandate } from '../src/types.js';
 const FIXED_NOW = 1_750_000_000;
 const AGENT_ORIGIN = 'https://agent.example';
 const MERCHANT_URL = 'https://shop.example.com/products/tool-1234';
+/** A key directory response served under its registered media type. */
+const DIRECTORY_TYPE = { headers: { 'content-type': 'application/http-message-signatures-directory+json' } };
 
 function jwksFor(...keys: AgentKeyPair[]): { keys: object[] } {
   return {
@@ -207,23 +209,40 @@ describe('WebBotAuthVerifier', () => {
     expect(result).toMatchObject({ trusted: false, reason: 'signature_expired' });
   });
 
-  it('rejects a future-dated signature → signature_expired', async () => {
+  it('rejects a future-dated signature → signature_created_in_future, not signature_expired', async () => {
     const signed = sign({ created: FIXED_NOW + 3600, expires: FIXED_NOW + 7200 });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'signature_expired' });
+    expect(result).toMatchObject({
+      trusted: false,
+      reason: 'signature_created_in_future',
+      conclusive: true,
+    });
   });
 
-  it('rejects a missing expires parameter → malformed_signature_header', async () => {
+  it('keeps signature_expired for actual expiry', async () => {
+    const signed = sign({ created: FIXED_NOW - 1000, expires: FIXED_NOW - 500 });
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_expired', conclusive: true });
+  });
+
+  it('tolerates created up to the skew ahead of the clock (the boundary of the split)', async () => {
+    const atSkew = await verifier.verify(toIncoming(sign({ created: FIXED_NOW + 30, expires: FIXED_NOW + 90 })));
+    expect(atSkew.trusted).toBe(true);
+    const pastSkew = await verifier.verify(toIncoming(sign({ created: FIXED_NOW + 31, expires: FIXED_NOW + 90 })));
+    expect(pastSkew).toMatchObject({ trusted: false, reason: 'signature_created_in_future' });
+  });
+
+  it('rejects a missing expires parameter → signature_parameter_missing', async () => {
     const signed = sign({ expires: null });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_parameter_missing', conclusive: true });
   });
 
-  it('rejects a wrong or missing tag → malformed_signature_header', async () => {
-    for (const tag of ['something-else', null] as const) {
-      const result = await verifier.verify(toIncoming(sign({ tag })));
-      expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
-    }
+  it('rejects a foreign tag → foreign_signature_tag, and a missing one → signature_parameter_missing', async () => {
+    const foreign = await verifier.verify(toIncoming(sign({ tag: 'something-else' })));
+    expect(foreign).toMatchObject({ trusted: false, reason: 'foreign_signature_tag', conclusive: true });
+    const absent = await verifier.verify(toIncoming(sign({ tag: null })));
+    expect(absent).toMatchObject({ trusted: false, reason: 'signature_parameter_missing', conclusive: true });
   });
 
   it('accepts an omitted alg (directory key pins ed25519) but rejects a contradicting one', async () => {
@@ -237,23 +256,23 @@ describe('WebBotAuthVerifier', () => {
   it('requires signature-agent to be covered by the signature', async () => {
     const signed = sign({ components: ['@authority', '@method', '@path'] });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'required_component_not_covered' });
     if (!result.trusted) expect(result.message).toContain('signature-agent');
   });
 
-  it('requires @authority or @target-uri in the cover set', async () => {
+  it('requires @authority or @target-uri in the cover set → required_component_not_covered', async () => {
     const signed = sign({ components: ['@method', '@path', 'signature-agent'] });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'required_component_not_covered', conclusive: true });
   });
 
-  it('rejects a non-https Signature-Agent → malformed_signature_header', async () => {
+  it('rejects a non-https Signature-Agent → signature_agent_not_origin', async () => {
     // Signer refuses http origins? It doesn't care — but the verifier must.
     const signed = sign();
     signed.headers['signature-agent'] = '"http://agent.example"';
     const result = await verifier.verify(toIncoming(signed));
     // Header no longer matches the signed value, but the parse gate fires first.
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_agent_not_origin', conclusive: true });
   });
 
   it('separates "no credentials at all" from "signed but no Signature-Agent"', async () => {
@@ -360,7 +379,7 @@ describe('WebBotAuthVerifier', () => {
     expect(result.message).toContain('impostor.example');
   });
 
-  it('refuses a keyed component whose member is absent rather than falling back', async () => {
+  it('refuses a keyed component whose member is absent rather than falling back → signature_agent_member_missing', async () => {
     // The signature says it covers member "absent". There is no such member, so
     // there is nothing to attribute to; picking the only member present would
     // be attributing the signature to something it never covered.
@@ -370,7 +389,7 @@ describe('WebBotAuthVerifier', () => {
       '"signature-agent";key="absent"',
     );
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_agent_member_missing', conclusive: true });
     if (result.trusted) throw new Error('unreachable');
     expect(result.message).toContain('no member keyed "absent"');
   });
@@ -714,7 +733,7 @@ describe('FetchingKeyDirectoryResolver', () => {
   }
 
   it('never fetches origins outside the allowlist (SSRF guard)', async () => {
-    const { impl, calls } = fakeFetch(() => new Response(directoryBody));
+    const { impl, calls } = fakeFetch(() => new Response(directoryBody, DIRECTORY_TYPE));
     const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
     expect(await resolver.resolve('https://internal.metadata.example')).toEqual({
       status: 'not_allowed',
@@ -723,7 +742,7 @@ describe('FetchingKeyDirectoryResolver', () => {
   });
 
   it('fetches, parses, and caches an allowlisted directory', async () => {
-    const { impl, calls } = fakeFetch(() => new Response(directoryBody));
+    const { impl, calls } = fakeFetch(() => new Response(directoryBody, DIRECTORY_TYPE));
     const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
 
     const first = await resolver.resolve(ORIGIN);
@@ -738,7 +757,8 @@ describe('FetchingKeyDirectoryResolver', () => {
   it('reports unavailable on HTTP errors, junk bodies, and thrown fetches', async () => {
     for (const handler of [
       () => new Response('nope', { status: 404 }),
-      () => new Response('<!doctype html><html></html>'), // SPA shell, like claude.ai today
+      // Junk under the right media type: parsed, fails, so unavailable.
+      () => new Response('<!doctype html><html></html>', DIRECTORY_TYPE),
       () => {
         throw new Error('network down');
       },
@@ -755,7 +775,7 @@ describe('FetchingKeyDirectoryResolver', () => {
     const huge = JSON.stringify({ keys: [], pad: 'x'.repeat(100_000) });
     const resolver = new FetchingKeyDirectoryResolver({
       allowedOrigins: [ORIGIN],
-      fetchImpl: fakeFetch(() => new Response(huge)).impl,
+      fetchImpl: fakeFetch(() => new Response(huge, DIRECTORY_TYPE)).impl,
     });
     expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
   });
@@ -767,7 +787,7 @@ describe('FetchingKeyDirectoryResolver', () => {
     const ORIGIN2 = 'https://cdn.agent.example';
     const { impl, calls } = fakeFetch((url) =>
       url.startsWith(ORIGIN2)
-        ? new Response(directoryBody) // following this hop would be the bug
+        ? new Response(directoryBody, DIRECTORY_TYPE) // following this hop would be the bug
         : new Response(null, {
             status: 301,
             headers: { location: `${ORIGIN2}/.well-known/http-message-signatures-directory` },
@@ -851,6 +871,7 @@ describe('WebBotAuthVerifier Appendix B proof-of-possession (real crypto)', () =
     return (async () =>
       new Response(body, {
         headers: {
+          ...DIRECTORY_TYPE.headers,
           'content-digest': proof['content-digest'],
           'signature-input': proof['signature-input'],
           signature: proof.signature,
@@ -893,6 +914,7 @@ describe('WebBotAuthVerifier Appendix B proof-of-possession (real crypto)', () =
     const plain = (async () =>
       new Response(
         JSON.stringify({ keys: [keys.publicKey.export({ format: 'jwk' })] }),
+        DIRECTORY_TYPE,
       )) as unknown as typeof fetch;
     const res = await fetchingResolver(plain).resolve(ORIGIN);
     if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
@@ -1031,7 +1053,7 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
   // parameters) has already been added to the signature base, produce an
   // error." We used to build the base anyway, and a signature made over that
   // base then verified.
-  it('refuses a Signature-Input that covers the same component identifier twice', async () => {
+  it('refuses a Signature-Input that covers the same component identifier twice → duplicate_covered_component', async () => {
     const signed = signWithWebBotAuth({
       method: 'GET',
       url: MERCHANT_URL,
@@ -1043,7 +1065,7 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
     // The signer produced a real signature over the repeated base, so this is
     // rejected on the rule and not because the crypto failed.
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'duplicate_covered_component', conclusive: true });
     if (result.trusted) throw new Error('unreachable');
     expect(result.message).toMatch(/more than once/);
   });
@@ -1061,7 +1083,7 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
   // NV-13. §5.2.2: "A verifier MUST NOT attribute a signature to a member that
   // signature does not cover." With several usable members and no label match
   // we used to take the first one in header order and verify against it.
-  it('refuses to attribute a signature when several Signature-Agent members could match', async () => {
+  it('refuses to attribute a signature when several Signature-Agent members could match → signature_agent_ambiguous', async () => {
     const signed = signWithWebBotAuth({
       method: 'GET',
       url: MERCHANT_URL,
@@ -1074,7 +1096,7 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
     signed.headers['signature-agent'] =
       `first="${AGENT_ORIGIN}", second="https://other-agent.example"`;
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_agent_ambiguous', conclusive: true });
     if (result.trusted) throw new Error('unreachable');
     expect(result.message).toMatch(/cannot be attributed/);
   });
@@ -1092,7 +1114,7 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
   // an origin ... and a verifier MUST ignore a member carrying anything else".
   // We used to take url.origin and discard the path, then verify the request
   // and report binding="domain" for it.
-  it('refuses a directory-type Signature-Agent that carries a path', async () => {
+  it('refuses a directory-type Signature-Agent that carries a path → signature_agent_not_origin', async () => {
     const signed = signWithWebBotAuth({
       method: 'GET',
       url: MERCHANT_URL,
@@ -1101,7 +1123,7 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
       created: FIXED_NOW - 5,
     });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'malformed_signature_header' });
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_agent_not_origin', conclusive: true });
     if (result.trusted) throw new Error('unreachable');
     expect(result.message).toMatch(/not an origin serialization/);
   });
