@@ -21,6 +21,7 @@ require_once $core . 'class-ava-pay-policy.php';
 require_once $core . 'class-ava-pay-agent-hint.php';
 require_once $core . 'class-ava-pay-commerce.php';
 require_once $core . 'class-ava-pay-verify-flow.php';
+require_once $core . 'class-ava-pay-forwarded-headers.php';
 require_once $core . 'class-ava-pay-rate-limiter.php';
 
 /**

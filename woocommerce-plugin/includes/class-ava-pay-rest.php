@@ -8,12 +8,14 @@
  * carry the signed payload — Signature, Signature-Input, Content-Digest,
  * x-ava-mandate, and anything else the agent attaches.
  *
- * We pass that request through to AVA Pay /verify EXACTLY as we received it:
- * no header allowlist, no JSON wrapper. The only construction we do is
- * reconstructing the canonical URL + Host the agent signed against from the
- * site's own configuration (rest_url), never from the spoofable incoming
- * Host header — the same trust move the Shopify app makes by rebuilding the
- * host from the Shopify-validated session.shop.
+ * We hand AVA Pay /verify the request as we received it, with one
+ * construction: the canonical URL + Host the agent signed against, rebuilt
+ * from the site's own configuration (rest_url), never from the spoofable
+ * incoming Host header. That is the same trust move the Shopify app makes by
+ * rebuilding the host from the Shopify-validated session.shop. What leaves
+ * the site is narrower than what arrives: AVA_Pay_Api_Client::verify()
+ * forwards only the headers the verifier needs (AVA_Pay_Forwarded_Headers),
+ * while this controller keeps the full map for its own reads.
  *
  * Failure mode: if AVA Pay is unreachable or the agent fails verification,
  * we fail closed (allow: false) and record the outcome. Storefront JS treats
@@ -150,16 +152,23 @@ class AVA_Pay_Rest {
 		$event    = $decision['event'];
 		$response = $decision['response'];
 
-		if ( $response['allow'] && $decision['mint_discount_pct'] > 0 ) {
-			$coupon = AVA_Pay_Coupons::mint( $decision['mint_discount_pct'] );
-			if ( null !== $coupon ) {
-				$event['discount_code'] = $coupon['code'];
-				$response['discount']   = array(
-					'code'       => $coupon['code'],
-					'percentage' => $coupon['percentage'],
-				);
-			}
+		$coupon = ( $response['allow'] && $decision['mint_discount_pct'] > 0 )
+			? AVA_Pay_Coupons::mint( $decision['mint_discount_pct'] )
+			: null;
+		if ( null !== $coupon ) {
+			$response['discount'] = array(
+				'code'       => $coupon['code'],
+				'percentage' => $coupon['percentage'],
+			);
 		}
+		// The row records a discount only when a coupon exists; see
+		// AVA_Pay_Verify_Flow::settle_discount().
+		$event = AVA_Pay_Verify_Flow::settle_discount(
+			$event,
+			$decision['mint_discount_pct'],
+			$coupon,
+			self::site_host( $signed_url )
+		);
 
 		AVA_Pay_Events::record_verification( $event );
 
@@ -186,6 +195,17 @@ class AVA_Pay_Rest {
 		// else; those are site credentials, not agent material, and must
 		// not leave the site.
 		return AVA_Pay_Verify_Flow::strip_sensitive_headers( $headers );
+	}
+
+	/**
+	 * The store's host, for log lines (the twin logs the Shopify shop domain).
+	 *
+	 * @param string $signed_url Canonical signed URL.
+	 * @return string
+	 */
+	private static function site_host( $signed_url ) {
+		$host = wp_parse_url( $signed_url, PHP_URL_HOST );
+		return is_string( $host ) ? $host : '';
 	}
 
 	private static function rate_limiter() {

@@ -63,7 +63,8 @@ jobs:
       - name: Golden-file freshness (PHP port must track the TS decision logic)
         run: |
           npx tsx woocommerce-plugin/scripts/generate-policy-golden.ts
-          git diff --exit-code woocommerce-plugin/tests/fixtures/policy-golden.json
+          npx tsx woocommerce-plugin/scripts/generate-forwarding-golden.ts
+          git diff --exit-code woocommerce-plugin/tests/fixtures/policy-golden.json woocommerce-plugin/tests/fixtures/forwarding-golden.json
       - name: PHPUnit
         working-directory: woocommerce-plugin
         run: |

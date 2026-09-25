@@ -2,7 +2,7 @@
 
 Drop-in Shopify app that calls the AVA Pay `/verify` endpoint, applies a one-time discount to verified AI shopping agents, and gives the merchant a settings page to control the policy.
 
-**Now supporting real Visa Trusted Agent Protocol agents.** The proxy passes the agent's RFC 9421 signed request through to AVA Pay verbatim — `Signature`, `Signature-Input`, `Content-Digest`, `Host`, `x-ava-mandate`, and any other headers the agent sends. No allowlist, no JSON repackaging.
+**Now supporting real Visa Trusted Agent Protocol agents.** The proxy forwards the agent's RFC 9421 signed request to AVA Pay with only the headers verification needs: `Signature`, `Signature-Input`, `Signature-Agent`, every header the signature covers, the protocol headers the verifier reads by name (`x-ava-mandate`, the AP2 mandate chains, `Content-Digest`, and `Content-Type` alongside a body), and the rebuilt `Host`. Anything else the request carried, such as `X-Forwarded-For`, an uncovered `User-Agent`, or Shopify's `X-Shopify-*` headers, stays in the app. See `app/lib/forwarded-headers.ts`.
 
 ## Architecture in 30 seconds
 
@@ -136,7 +136,7 @@ Host: your-dev-store.myshopify.com
 x-ava-mandate: <base64 JSON mandate>
 ```
 
-The proxy reads those headers off the actual HTTP request — no allowlist, no JSON wrapper — reconstructs the URL the agent signed, and forwards verbatim to AVA Pay `/verify`. If trusted, the proxy mints a one-time discount code and returns `{ allow: true, discount: { code, percentage } }`. The agent uses the code at checkout.
+The proxy reads those headers off the actual HTTP request, reconstructs the URL the agent signed, and forwards them to AVA Pay `/verify`, minus any header the verifier does not need (see above). If trusted, the proxy mints a one-time discount code and returns `{ allow: true, discount: { code, percentage } }`. The agent uses the code at checkout.
 
 ### Storefront script (testing / lightweight integrations)
 

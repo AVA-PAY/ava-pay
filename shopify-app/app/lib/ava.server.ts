@@ -1,4 +1,5 @@
 import type { IncomingRequest, VerificationResult } from './ava-types.js';
+import { minimizeForwardedHeaders } from './forwarded-headers.js';
 
 /**
  * Thin client around the AVA Pay /verify endpoint.
@@ -8,9 +9,13 @@ import type { IncomingRequest, VerificationResult } from './ava-types.js';
  *   - handles network/timeout failures with a typed result instead of throws,
  *     so the proxy route never crashes the storefront when AVA is briefly down
  *   - pinned timeout keeps us inside Shopify's app proxy budget
+ *   - the one place headers leave the store, so every caller (proxy verify,
+ *     storefront visit, Settings test visit) forwards only what the verifier
+ *     needs; see forwarded-headers.ts
  *
- * The mock verifier is on the API side; this client is identical regardless
- * of whether we're talking to the mock or the real Visa-backed implementation.
+ * The client speaks to the API's production verifier. The API's
+ * MockAgentVerifier reads headers (x-ava-agent-id, x-ava-signature) this client
+ * no longer forwards unless a signature covers them.
  */
 
 export interface AvaPayClientOptions {
@@ -41,7 +46,18 @@ export class AvaPayClient {
     this.fetcher = opts.fetcher ?? fetch;
   }
 
+  /**
+   * `request.headers` may be the full incoming map; only the minimized set is
+   * sent. Callers keep their own copy for local reads.
+   */
   async verify(request: IncomingRequest): Promise<AvaCallResult> {
+    const outbound: IncomingRequest = {
+      ...request,
+      headers: minimizeForwardedHeaders(request.headers, {
+        hasBody: request.body !== undefined && request.body !== '',
+      }),
+    };
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -49,7 +65,7 @@ export class AvaPayClient {
       const res = await this.fetcher(`${this.baseUrl}/verify`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(request),
+        body: JSON.stringify(outbound),
         signal: controller.signal,
       });
 

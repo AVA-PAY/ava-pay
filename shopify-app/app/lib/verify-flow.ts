@@ -47,7 +47,10 @@ export interface ProxyResponseBody {
   reason: string;
 }
 
-/** The VerificationEvent row, minus the fields only the route knows (shop, discountCode). */
+/**
+ * The VerificationEvent row, minus shop. The discount fields are set only by
+ * settleDiscount(), once a code actually exists.
+ */
 export interface VerificationEventDraft {
   platform: string | null;
   protocol: string | null;
@@ -55,12 +58,16 @@ export interface VerificationEventDraft {
   reason: string | null;
   identityOnly?: boolean;
   discountPct?: number;
+  discountCode?: string;
 }
 
 export interface VerifyDecision {
   event: VerificationEventDraft;
   response: ProxyResponseBody;
-  /** Percentage to mint a discount code for. 0 means no code. */
+  /**
+   * Percentage to mint a discount code for. 0 means no code. The event does
+   * not carry it: what the policy wanted is not a discount until one exists.
+   */
   mintDiscountPct: number;
 }
 
@@ -160,9 +167,43 @@ export function decideVerification(
       outcome: 'verified',
       reason: null,
       identityOnly,
-      discountPct: decision.discountPct,
     },
     response: { allow: true, reason: 'verified' },
     mintDiscountPct: decision.discountPct,
   };
+}
+
+/**
+ * Put the discount on the event row only when a code was actually minted.
+ *
+ * A row that says 10% with no code behind it tells the merchant an agent got
+ * a discount it never received. When the policy wanted a discount and minting
+ * failed, the row keeps its verdict (the perk is separate from the
+ * verification) and records no discount, and one structured line goes to the
+ * service log. The minter logs its own cause (Admin API status, userErrors)
+ * just before; `reason` here is what this layer knows, that no code came back.
+ */
+export function settleDiscount(
+  event: VerificationEventDraft,
+  mintDiscountPct: number,
+  minted: { code: string; percentage: number } | null,
+  report: { shop: string; log?: (line: string) => void },
+): VerificationEventDraft {
+  if (minted) {
+    return { ...event, discountPct: minted.percentage, discountCode: minted.code };
+  }
+  if (mintDiscountPct > 0) {
+    // eslint-disable-next-line no-console
+    const log = report.log ?? ((line: string) => console.error(line));
+    log(
+      JSON.stringify({
+        event: 'discount.mint_failed',
+        shop: report.shop,
+        reason: 'mint_returned_null',
+        discountPct: mintDiscountPct,
+      }),
+    );
+  }
+  const { discountPct: _pct, discountCode: _code, ...rest } = event;
+  return rest;
 }

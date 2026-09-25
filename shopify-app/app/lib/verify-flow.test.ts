@@ -1,9 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import { decideVerification, isConclusive, REASON_UNVERIFIABLE } from './verify-flow.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  decideVerification,
+  isConclusive,
+  REASON_UNVERIFIABLE,
+  settleDiscount,
+} from './verify-flow.js';
 import type { MerchantPolicyInput } from './policy.js';
 import type { AvaCallResult } from './ava.server.js';
 import { REASON_CONCLUSIVE } from './ava-types.js';
 import type { VerificationFailureReason, VerificationResult } from './ava-types.js';
+
+const SHOP = 'ava-pay-test-store.myshopify.com';
 
 /** Headers as a Web Bot Auth request presents them. */
 const WBA_HEADERS: Record<string, string> = {
@@ -187,7 +194,7 @@ describe('decideVerification', () => {
     expect(d.event.identityOnly).toBe(true);
     expect(d.event.platform).toBe('https://chatgpt.com');
     expect(d.event.protocol).toBe('web-bot-auth');
-    expect(d.event.discountPct).toBe(0);
+    expect(d.event).not.toHaveProperty('discountPct');
     expect(d.mintDiscountPct).toBe(0);
   });
 
@@ -196,7 +203,8 @@ describe('decideVerification', () => {
     expect(d.response.allow).toBe(true);
     expect(d.event.outcome).toBe('verified');
     expect(d.event.identityOnly).toBe(false);
-    expect(d.event.discountPct).toBe(10);
+    // What the policy wants is an instruction to mint, not yet a discount.
+    expect(d.event).not.toHaveProperty('discountPct');
     expect(d.mintDiscountPct).toBe(10);
   });
 
@@ -227,14 +235,69 @@ describe('decideVerification', () => {
    */
   it('keeps the verdict independent of whether a code can be minted', () => {
     const d = decideVerification(settings(), verdict(MANDATE_BACKED), TAP_HEADERS);
-    // Replaying the route's compose step with minting having failed.
-    const discount = null;
-    const response = { ...d.response, ...(discount ? { discount } : {}) };
-    const event = { ...d.event, ...(discount ? { discountCode: 'x' } : {}) };
+    const event = settleDiscount(d.event, d.mintDiscountPct, null, { shop: SHOP, log: () => {} });
 
-    expect(response).toEqual({ allow: true, reason: 'verified' });
+    expect(d.response).toEqual({ allow: true, reason: 'verified' });
     expect(event.outcome).toBe('verified');
+    expect(event.reason).toBeNull();
+    expect(event.identityOnly).toBe(false);
+  });
+});
+
+describe('settleDiscount', () => {
+  const minted = { code: 'AVA-ABCD2345', percentage: 10 };
+
+  function wanted() {
+    return decideVerification(settings(), verdict(MANDATE_BACKED), TAP_HEADERS);
+  }
+
+  it('records the percentage and code when a code was minted', () => {
+    const d = wanted();
+    const log = vi.fn();
+    const event = settleDiscount(d.event, d.mintDiscountPct, minted, { shop: SHOP, log });
+
+    expect(event).toMatchObject({
+      outcome: 'verified',
+      discountPct: 10,
+      discountCode: 'AVA-ABCD2345',
+    });
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('records no discount and logs one structured line when minting fails', () => {
+    const d = wanted();
+    const log = vi.fn();
+    const event = settleDiscount(d.event, d.mintDiscountPct, null, { shop: SHOP, log });
+
+    expect(event).not.toHaveProperty('discountPct');
     expect(event).not.toHaveProperty('discountCode');
-    expect(event.discountPct).toBe(10);
+    expect(event.outcome).toBe('verified');
+    expect(d.response).toEqual({ allow: true, reason: 'verified' });
+
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual({
+      event: 'discount.mint_failed',
+      shop: SHOP,
+      reason: 'mint_returned_null',
+      discountPct: 10,
+    });
+  });
+
+  it('logs nothing when the policy wanted no discount', () => {
+    const d = decideVerification(settings(), verdict(IDENTITY_ONLY), WBA_HEADERS);
+    const log = vi.fn();
+    const event = settleDiscount(d.event, d.mintDiscountPct, null, { shop: SHOP, log });
+
+    expect(event).not.toHaveProperty('discountPct');
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('never trusts a percentage already on the draft', () => {
+    const d = wanted();
+    const event = settleDiscount({ ...d.event, discountPct: 50 }, d.mintDiscountPct, null, {
+      shop: SHOP,
+      log: () => {},
+    });
+    expect(event).not.toHaveProperty('discountPct');
   });
 });

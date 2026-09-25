@@ -43,8 +43,8 @@ class AVA_Pay_Verify_Flow {
 	 * @param array $headers  Lower-cased incoming request headers.
 	 * @return array {
 	 *     @type array $event    VerificationEvent row (outcome, reason, platform,
-	 *                           protocol, identity_only, discount_pct). The caller
-	 *                           adds discount_code after minting.
+	 *                           protocol, identity_only). The discount fields are
+	 *                           added by settle_discount() once a coupon exists.
 	 *     @type array $response Body for the storefront: {allow, reason}.
 	 *     @type int   $mint_discount_pct Coupon percentage to mint (0 = none).
 	 * }
@@ -160,7 +160,6 @@ class AVA_Pay_Verify_Flow {
 				'protocol'      => $protocol,
 				'reason'        => null,
 				'identity_only' => $identity_only,
-				'discount_pct'  => $decision['discountPct'],
 			),
 			'response'          => array(
 				'allow'  => true,
@@ -168,6 +167,50 @@ class AVA_Pay_Verify_Flow {
 			),
 			'mint_discount_pct' => (int) $decision['discountPct'],
 		);
+	}
+
+	/**
+	 * Put the discount on the event row only when a coupon was actually
+	 * minted. Port of settleDiscount() in shopify-app lib/verify-flow.ts.
+	 *
+	 * A row that says 10% with no coupon behind it tells the merchant an
+	 * agent got a discount it never received. When the policy wanted a
+	 * discount and minting failed, the row keeps its verdict (the perk is
+	 * separate from the verification) and records no discount, and one
+	 * structured line goes to the PHP error log. AVA_Pay_Coupons::mint()
+	 * logs its own cause; `reason` here is what this layer knows, that no
+	 * coupon came back.
+	 *
+	 * @param array         $event     Event row from decide().
+	 * @param int           $mint_pct  Percentage the policy wanted (0 = none).
+	 * @param array|null    $coupon    {code, percentage} from mint(), or null.
+	 * @param string        $shop      Store host, for the log line.
+	 * @param callable|null $log       Line sink; defaults to error_log.
+	 * @return array Event row.
+	 */
+	public static function settle_discount( array $event, $mint_pct, $coupon, $shop, $log = null ) {
+		unset( $event['discount_pct'], $event['discount_code'] );
+		if ( is_array( $coupon ) && isset( $coupon['code'], $coupon['percentage'] ) ) {
+			$event['discount_pct']  = (int) $coupon['percentage'];
+			$event['discount_code'] = (string) $coupon['code'];
+			return $event;
+		}
+		if ( (int) $mint_pct > 0 ) {
+			$line = (string) json_encode( // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- core is WordPress-free by contract.
+				array(
+					'event'       => 'discount.mint_failed',
+					'shop'        => (string) $shop,
+					'reason'      => 'mint_returned_null',
+					'discountPct' => (int) $mint_pct,
+				)
+			);
+			if ( null === $log ) {
+				error_log( $line ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			} else {
+				call_user_func( $log, $line );
+			}
+		}
+		return $event;
 	}
 
 	/**
@@ -200,13 +243,12 @@ class AVA_Pay_Verify_Flow {
 	}
 
 	/**
-	 * Headers that must NEVER be forwarded to the verification API. The
-	 * Shopify twin passes all headers too, but Shopify's app proxy strips
-	 * cookies before the app sees them — WordPress does not, and the
-	 * storefront embed calls the endpoint same-origin, so without this
-	 * denylist logged-in WP/Woo session cookies (and any Authorization
-	 * header WP synthesizes) would ship off-site inside the /verify payload.
-	 * None of these are ever part of an agent's signature base.
+	 * Site credentials, dropped from the header map as soon as the REST
+	 * layer collects it. WordPress hands the endpoint logged-in session
+	 * cookies (the storefront embed calls it same-origin) and any
+	 * Authorization header it synthesizes. AVA_Pay_Forwarded_Headers already
+	 * keeps them from leaving the site unless a signature names them; this
+	 * denylist holds even then, and keeps them out of the local map too.
 	 */
 	const SENSITIVE_HEADERS = array( 'cookie', 'authorization', 'x-wp-nonce' );
 
