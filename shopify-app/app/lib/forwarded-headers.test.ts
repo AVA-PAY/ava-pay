@@ -138,6 +138,24 @@ describe('minimizeForwardedHeaders', () => {
     ]);
   });
 
+  it('never forwards credentials, even when the signature covers them', () => {
+    const headers = wba({
+      components: ['@authority', 'signature-agent', 'cookie', 'authorization'],
+      extraHeaders: { cookie: '_shopify_y=abc', authorization: 'Bearer secret' },
+    });
+    expect(coveredHeaderFields(headers['signature-input'])).toEqual([
+      'signature-agent',
+      'cookie',
+      'authorization',
+    ]);
+
+    const out = minimizeForwardedHeaders(
+      { ...headers, 'proxy-authorization': 'Basic x', 'x-wp-nonce': 'n' },
+      { hasBody: false },
+    );
+    expect(names(out)).toEqual(['host', 'signature', 'signature-agent', 'signature-input']);
+  });
+
   it('lower-cases names on the way out', () => {
     const out = minimizeForwardedHeaders({ Host: SHOP, 'X-Ava-Mandate': 'e30=' }, { hasBody: false });
     expect(out).toEqual({ host: SHOP, 'x-ava-mandate': 'e30=' });

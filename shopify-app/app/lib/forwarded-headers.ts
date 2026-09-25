@@ -15,6 +15,9 @@
  *       components: PROTOCOL_HEADERS always, BODY_HEADERS when a body travels;
  *   (d) host, which the caller has already rebuilt from a trusted source.
  *
+ * NEVER_FORWARD is applied last and wins over all of the above, coverage
+ * included: credentials never leave the store.
+ *
  * If Signature-Input is absent or unreadable, (b) is empty and the verifier
  * still gets (a), (c) and (d), enough to return its honest reason (missing
  * credentials, or a malformed input).
@@ -53,6 +56,15 @@ export const PROTOCOL_HEADERS = [
 
 /** (c) Forwarded only alongside a body. */
 export const BODY_HEADERS = ['content-type'] as const;
+
+/**
+ * Credentials, never forwarded, even when a Signature-Input names them as
+ * covered. An agent that covers the shopper's cookies is misconfigured or
+ * hostile; its request fails at the API with the covered component missing,
+ * which is the intended outcome. This does not rely on any caller stripping
+ * them first.
+ */
+export const NEVER_FORWARD = ['cookie', 'authorization', 'proxy-authorization', 'x-wp-nonce'] as const;
 
 /**
  * Split a Structured Fields Dictionary into its member texts at top-level
@@ -132,6 +144,7 @@ export function minimizeForwardedHeaders(
   const keep = new Set<string>([...SIGNATURE_HEADERS, ...PROTOCOL_HEADERS, 'host']);
   if (options.hasBody) for (const name of BODY_HEADERS) keep.add(name);
   for (const field of coveredHeaderFields(lower['signature-input']) ?? []) keep.add(field);
+  for (const name of NEVER_FORWARD) keep.delete(name);
 
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(lower)) {

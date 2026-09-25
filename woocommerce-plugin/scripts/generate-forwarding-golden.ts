@@ -52,6 +52,7 @@ const signatureInputs: Record<string, string> = {
   whitespace_padding: `  sig1=(  "x-a"   "x-b"  )${P}  `,
   no_params: `sig1=("x-a")`,
   params_without_semicolon: `sig1=("x-a")garbage`,
+  covers_credentials: `sig1=("@authority" "cookie" "authorization" "proxy-authorization" "x-wp-nonce" "x-a")${P}`,
   created_hex: `sig1=("x-a");created=0x10`,
   created_exponent: `sig1=("x-a");created=1e3`,
   created_quoted: `sig1=("x-a");created="1790345533"`,
@@ -220,6 +221,28 @@ const minimizeCases: Array<{ name: string; headers: Record<string, string>; hasB
       host: HOST,
       signature: SIG,
       'signature-input': signatureInputs.custom_header as string,
+    },
+  },
+  {
+    name: 'covered_cookie_and_authorization',
+    hasBody: false,
+    headers: {
+      ...PROXY_NOISE,
+      host: HOST,
+      signature: SIG,
+      'signature-input': `sig1=("@authority" "cookie" "authorization")${P}`,
+    },
+  },
+  {
+    name: 'covered_credentials_all',
+    hasBody: false,
+    headers: {
+      ...PROXY_NOISE,
+      host: HOST,
+      signature: SIG,
+      'signature-input': signatureInputs.covers_credentials as string,
+      'proxy-authorization': 'Basic xyz',
+      'x-a': 'kept',
     },
   },
   {

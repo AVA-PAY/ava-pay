@@ -18,6 +18,9 @@
  *       components: PROTOCOL_HEADERS always, BODY_HEADERS when a body travels;
  *   (d) host, which the REST layer has already rebuilt from rest_url().
  *
+ * NEVER_FORWARD is applied last and wins over all of the above, coverage
+ * included: credentials never leave the site.
+ *
  * If Signature-Input is absent or unreadable, (b) is empty and the verifier
  * still gets (a), (c) and (d), enough to return its honest reason.
  *
@@ -61,6 +64,16 @@ class AVA_Pay_Forwarded_Headers {
 	/** (c) Forwarded only alongside a body. */
 	const BODY_HEADERS = array( 'content-type' );
 
+	/**
+	 * Credentials, never forwarded, even when a Signature-Input names them as
+	 * covered. An agent that covers the shopper's cookies is misconfigured or
+	 * hostile; its request fails at the API with the covered component
+	 * missing, which is the intended outcome. The REST handler's
+	 * strip_sensitive_headers() also drops these, but this client-side choke
+	 * point does not rely on its caller for that.
+	 */
+	const NEVER_FORWARD = array( 'cookie', 'authorization', 'proxy-authorization', 'x-wp-nonce' );
+
 	/** What JavaScript's String.prototype.trim removes, in the ASCII range. */
 	const JS_WHITESPACE = " \t\n\r\x0B\x0C";
 
@@ -103,6 +116,7 @@ class AVA_Pay_Forwarded_Headers {
 		if ( null !== $covered ) {
 			$keep = array_merge( $keep, $covered );
 		}
+		$keep = array_diff( $keep, self::NEVER_FORWARD );
 		$keep = array_flip( $keep );
 
 		$out = array();

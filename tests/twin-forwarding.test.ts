@@ -255,6 +255,24 @@ describe('Shopify twin: minimized forwarding still verifies', () => {
     expect(result.protocol).toBe('ap2');
   });
 
+  it('a signature covering the cookie fails at the API: credentials never travel', async () => {
+    const signed = signWithWebBotAuth({
+      method: 'POST',
+      url: SIGNED_URL,
+      signatureAgent: AGENT_ORIGIN,
+      signatureAgentFormat: 'dictionary',
+      components: ['@authority', 'signature-agent', 'cookie'],
+      extraHeaders: { cookie: APP_PROXY_HEADERS.cookie as string },
+      privateKey: wbaKeys.privateKey,
+    });
+    const result = await verify(throughAppProxy(signed));
+
+    expect(lastSentNames()).toEqual(['host', 'signature', 'signature-agent', 'signature-input']);
+    // Intended: an agent covering the shopper's cookies is misconfigured or
+    // hostile, and the verifier reports the covered header it did not get.
+    expect(result).toMatchObject({ trusted: false, reason: 'covered_component_missing' });
+  });
+
   it('an unreadable Signature-Input still reaches the verifier and gets the same honest reason', async () => {
     const request = throughAppProxy({
       method: 'POST',

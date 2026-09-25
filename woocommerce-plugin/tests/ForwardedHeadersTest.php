@@ -117,6 +117,25 @@ final class ForwardedHeadersTest extends TestCase {
 		$this->assertArrayNotHasKey( 'user-agent', AVA_Pay_Forwarded_Headers::minimize( $this->wba(), false ) );
 	}
 
+	public function test_credentials_are_never_forwarded_even_when_covered(): void {
+		$headers = $this->wba(
+			array(
+				'authorization'       => 'Bearer secret',
+				'proxy-authorization' => 'Basic x',
+			),
+			'"@authority" "signature-agent";key="sig1" "cookie" "authorization"'
+		);
+		$this->assertSame(
+			array( 'signature-agent', 'cookie', 'authorization' ),
+			AVA_Pay_Forwarded_Headers::covered_header_fields( $headers['signature-input'] )
+		);
+		$this->assertSame(
+			array( 'host', 'signature', 'signature-agent', 'signature-input' ),
+			self::names( AVA_Pay_Forwarded_Headers::minimize( $headers, false ) ),
+			'the client does not rely on the REST handler having stripped them'
+		);
+	}
+
 	public function test_unreadable_signature_input_forwards_the_fixed_set_only(): void {
 		$headers = array_merge(
 			self::BROWSER_HEADERS,
