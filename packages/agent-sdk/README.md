@@ -1,11 +1,17 @@
 # @ava-pay/agent
 
-> **Status: developer preview (0.3.x).** The API surface may change before
-> 1.0. **0.3.0 is additive at the type level but stricter at verification
-> time**: it carries three security fixes to the Web Bot Auth and RFC 9421
+> **Status: developer preview (0.4.x).** The API surface may change before
+> 1.0. **0.4.0 is the floor for anyone verifying Web Bot Auth requests whose
+> key directory serves Appendix B proofs**: 0.3.x classifies chatgpt.com's
+> directory proof `invalid`, so a verifier built on it rejects every
+> ChatGPT-signed request (`key_proof_invalid`). That failure was closed;
+> nothing that should have failed was accepted. 0.4.0 is additive at the type
+> level. Direct callers of `verifyDirectoryProofs` must now pass the
+> response's `Content-Digest` header, or an offered proof is `invalid`.
+>
+> (0.3.0 carried three security fixes to the Web Bot Auth and RFC 9421
 > parsers, two of which let requests that must never verify come back
-> `trusted: true`. Anyone building a verifier on these primitives should treat
-> 0.3.0 as the floor. See [CHANGELOG.md](./CHANGELOG.md).
+> `trusted: true`. Do not run anything older.) See [CHANGELOG.md](./CHANGELOG.md).
 >
 > (0.2.0 was a breaking release: the AP2 v0.1 Intent/Cart API
 > `buildAp2Headers`, `signIntentMandate`, `signCartMandate` was removed in
@@ -183,11 +189,15 @@ import { verifyChain, checkCheckoutConstraints } from '@ava-pay/agent/protocol/a
 
 ### Types
 - `Mandate`, `BuyerInfo`, `IncomingRequest`, `VerificationResult`, `VerificationFailureReason`
-- `VerifiedProtocol`, `VerifiedAgentIdentity`, `TapVerificationDetail`
-- `VerificationResult` carries an optional `conclusive` flag on both branches;
-  false means a trust root could not be reached, not that the request was
-  rejected. `trusted` stays false either way, so fail-closed behavior is
-  unchanged. Read an absent value as conclusive.
+- `VerifiedProtocol`, `VerifiedAgentIdentity`, `TapVerificationDetail`, `OperatorRecord`
+- `VerificationResult` carries an optional `conclusive` flag on both branches.
+  Each failure reason's value is fixed by the exported `REASON_CONCLUSIVE`
+  table, which is the list of reasons and their outcomes: `false` means the
+  verifier could not complete its checks (the reasons are also exported as
+  `COULD_NOT_CHECK_REASONS`), `true` means the request was definitively
+  rejected. `trusted` stays false either way, so fail-closed behavior never
+  depends on the flag. Read an absent value as conclusive. `rejection(reason,
+  message)` builds a failure result whose flag comes from the table.
 - `VerifiedAgentIdentity.binding` is `'domain'` for a key found through the
   reserved well-known directory path and `'url-only'` for one declared via
   `jwks_uri`/`cimd`, which proves key continuity at a URL with no origin
