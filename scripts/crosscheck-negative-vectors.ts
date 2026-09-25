@@ -85,9 +85,9 @@ class VectorDirectoryResolver implements SignatureAgentKeyResolver {
     } catch {
       return { status: 'unavailable' };
     }
-    // The set publishes no Appendix B possession proofs (no live directory
-    // serves them), so 'absent' is the honest status and our default grace
-    // tolerates it. Same posture as production.
+    // The set publishes no Appendix B possession proofs, so 'absent' is the
+    // honest status and our default grace tolerates it. Same posture as
+    // production for a directory that serves none.
     return {
       status: 'ok',
       keys: keys.map((k): ResolvedDirectoryKey => ({ ...k, proof: 'absent' })),
