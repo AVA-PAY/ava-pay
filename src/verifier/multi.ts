@@ -47,6 +47,16 @@ export interface MultiProtocolVerifierOptions {
    * which case results are byte-for-byte what the verifiers returned.
    */
   operator?: OperatorSource;
+  /**
+   * Identity of the public demo agent (seed-demo's DEMO_AGENT_ID), whose
+   * private key is published on purpose. A verified result for this identity
+   * is demoted to identity-only before it leaves: mandate, buyer info and
+   * discount hint are stripped and `demo: true` is set, because anyone can
+   * sign as this agent, including a self-made mandate. Enforced here, at the
+   * one seam every protocol's verdict passes through, so no per-protocol
+   * verifier can forget it. Default none (results untouched).
+   */
+  demoAgentId?: string;
 }
 
 export class MultiProtocolVerifier implements AgentVerifier {
@@ -85,13 +95,38 @@ export class MultiProtocolVerifier implements AgentVerifier {
   }
 
   /**
-   * Attach operator provenance to a verified result. Failed and inconclusive
-   * results never reach the source: annotateWithOperator re-checks that itself,
-   * so the invariant holds even if this call site changes.
+   * Attach operator provenance to a verified result, then apply the demo-agent
+   * demotion. Failed and inconclusive results never reach the source:
+   * annotateWithOperator re-checks that itself, so the invariant holds even if
+   * this call site changes.
    */
-  private annotate(result: VerificationResult): Promise<VerificationResult> {
-    return annotateWithOperator(result, this.impls.operator, originOf(result));
+  private async annotate(result: VerificationResult): Promise<VerificationResult> {
+    const annotated = await annotateWithOperator(result, this.impls.operator, originOf(result));
+    return demoteDemoResult(annotated, this.impls.demoAgentId);
   }
+}
+
+/**
+ * The demo-agent gate: a verified result whose identity is the public demo
+ * agent keeps `trusted: true` (the landing-page demo and merchants' test
+ * visits still read "verified") but loses everything a discount could hang
+ * off. The demo private key is published, so a mandate, buyer info or
+ * discount hint on such a result is self-made by whoever signed the request
+ * and must never leave the engine. The additive `demo: true` lets updated
+ * callers label the visit; callers that predate the flag read the result as
+ * identity-only, whose default discount tier is 0.
+ *
+ * Exported for direct unit testing; production reaches it only through
+ * MultiProtocolVerifier.
+ */
+export function demoteDemoResult(
+  result: VerificationResult,
+  demoAgentId: string | undefined,
+): VerificationResult {
+  if (demoAgentId === undefined || !result.trusted) return result;
+  if (result.agent?.id !== demoAgentId) return result;
+  const { mandate: _mandate, buyerInfo: _buyerInfo, discount: _discount, ...kept } = result;
+  return { ...kept, demo: true };
 }
 
 /**

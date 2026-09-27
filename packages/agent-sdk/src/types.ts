@@ -398,6 +398,16 @@ export type VerificationResult =
       /** Real Visa TAP only: intent + validated consumer/payment context. */
       tap?: TapVerificationDetail;
       /**
+       * Set when the verified identity is AVA Pay's public demo agent, whose
+       * private key is published on purpose (the landing-page demo, the
+       * merchant test visit). The signature is real and `trusted` stays true,
+       * but anyone can sign as this agent, so the engine strips the mandate,
+       * buyer info and discount hint before the result leaves: a demo result
+       * is always identity-only and never authorizes a discount. Absent on
+       * every other result, never `false`.
+       */
+      demo?: true;
+      /**
        * Accountability provenance for the verified origin, attached AFTER
        * verification by an optional OperatorSource. Advisory only: it never
        * changed `trusted` or `conclusive`, and its absence means "not looked

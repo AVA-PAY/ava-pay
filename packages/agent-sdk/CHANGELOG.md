@@ -6,6 +6,19 @@ This package is a pre-1.0 developer preview, so a minor version may tighten
 verification behaviour. Type-level changes are called out as additive or
 breaking on each entry.
 
+## [Unreleased]
+
+### Added
+
+- `demo?: true` on the verified branch of `VerificationResult` (additive).
+  Set by AVA Pay's engine when the verified identity is the public demo agent
+  (`agent_demo_public`), whose private key is published by design. A demo
+  result stays `trusted: true` but is always identity-only: the engine strips
+  the mandate, buyer info and discount hint before the result leaves, because
+  anyone can sign as the demo agent, including a self-made mandate. Callers
+  that predate the flag read such results as identity-only, whose default
+  discount tier is 0.
+
 ## [0.4.0] - 2026-09-25
 
 **Upgrade note.** Anyone verifying Web Bot Auth requests whose key directory

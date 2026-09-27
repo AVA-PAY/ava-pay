@@ -2,8 +2,19 @@
  * AVA Pay landing-page demo.
  *
  * Browser-side: imports the bundled public demo agent's private key, then
- * signs a real Visa TAP (RFC 9421) request or an AP2 mandate chain (compact
- * JWS), POSTs to /verify, and renders the verdict.
+ * signs a real Visa TAP-style (RFC 9421) request, POSTs it to /verify, and
+ * renders the verdict.
+ *
+ * The verifier deliberately demotes this agent: the verdict is trusted (the
+ * point of the demo) but flagged demo, with no mandate and no discount,
+ * because the private key below is public and anything it signs is
+ * self-attested. The mandate shown under the verdict is therefore the one
+ * THIS PAGE signed, labelled as such, not something the verifier vouched for.
+ *
+ * The AP2 demo was removed with the demo-agent demotion: it still signed the
+ * retired v0.1 wire format, and a faithful v0.2 dSD-JWT chain would mean
+ * duplicating the SDK's chain builder in this dependency-free file. The API
+ * test suite proves the demo key can produce a valid v0.2 chain server side.
  *
  * The demo agent is pre-seeded into the hosted directory at server boot
  * (see src/directory/seed-demo.ts). Both halves of the keypair are public:
@@ -77,7 +88,6 @@ async function loadDirectory() {
 }
 
 async function runDemo() {
-  const protocol = document.querySelector('input[name="protocol"]:checked').value;
   const buyerName = $('#buyerName').value.trim() || 'Alex';
   const spendCap = Math.max(1, Number($('#spendCap').value));
   const cartTotal = Math.max(0.01, Number($('#cartTotal').value));
@@ -93,25 +103,22 @@ async function runDemo() {
     // 1. Import the bundled demo agent's private key.
     const privateKey = await getDemoPrivateKey();
 
-    // 2. Sign a real request in the chosen protocol.
+    // 2. Sign a real RFC 9421 request. Keep the mandate the page created so
+    // the verdict can show it labelled as page-signed input, never as
+    // something the verifier vouched for.
     signedOut.textContent = 'Signing request…';
-    let signed;
-    if (protocol === 'visa') {
-      signed = await signVisa({ privateKey, buyerName, spendCap, cartTotal });
-    } else {
-      signed = await signAp2({ privateKey, buyerName, spendCap, cartTotal });
-    }
-    signedOut.textContent = formatSigned(signed);
+    const { request, mandate } = await signVisa({ privateKey, buyerName, spendCap, cartTotal });
+    signedOut.textContent = formatSigned(request);
 
     // 3. POST it to /verify and render the verdict.
     verdictOut.textContent = 'Calling /verify…';
     const verifyRes = await fetch('/verify', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(signed),
+      body: JSON.stringify(request),
     });
     const verdict = await verifyRes.json();
-    verdictOut.innerHTML = formatVerdict(verifyRes.status, verdict);
+    verdictOut.innerHTML = formatVerdict(verifyRes.status, verdict, mandate);
 
     // Refresh the directory view to confirm the demo agent is registered.
     loadDirectory();
@@ -174,81 +181,23 @@ async function signVisa({ privateKey, buyerName, spendCap, cartTotal }) {
   const sigB64 = arrayBufferToBase64(sigBytes);
 
   return {
-    method: 'POST',
-    url: MERCHANT_URL,
-    headers: {
-      ...headerMap,
-      'signature-input': `sig1=${sigInputValue}`,
-      signature: `sig1=:${sigB64}:`,
+    request: {
+      method: 'POST',
+      url: MERCHANT_URL,
+      headers: {
+        ...headerMap,
+        'signature-input': `sig1=${sigInputValue}`,
+        signature: `sig1=:${sigB64}:`,
+      },
+      body,
     },
-    body,
+    mandate,
   };
 }
 
 async function sha256ContentDigest(body) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body));
   return `sha-256=:${arrayBufferToBase64(buf)}:`;
-}
-
-// ─── AP2 (compact JWS) ──────────────────────────────────────────────────────
-
-async function signAp2({ privateKey, buyerName, spendCap, cartTotal }) {
-  const now = Math.floor(Date.now() / 1000);
-  const totalMinor = Math.round(cartTotal * 100);
-  const intentJti = `intent_${Date.now()}`;
-
-  const intentClaims = {
-    iss: DEMO_AGENT_ID,
-    iat: now - 5,
-    exp: now + 600,
-    jti: intentJti,
-    ap2: {
-      type: 'intent',
-      sub: 'buyer_browser_demo',
-      spend_limit: { value: spendCap * 100, currency: 'USD' },
-      allowed_merchants: [MERCHANT_HOST],
-    },
-  };
-  const cartClaims = {
-    iss: DEMO_AGENT_ID,
-    iat: now - 1,
-    exp: now + 60,
-    jti: `cart_${Date.now()}`,
-    ap2: {
-      type: 'cart',
-      intent_ref: intentJti,
-      merchant: MERCHANT_HOST,
-      items: [{ sku: 'TOOL-1234', qty: 1, price: totalMinor }],
-      total: { value: totalMinor, currency: 'USD' },
-    },
-  };
-
-  const intentJws = await signCompactJws(intentClaims, privateKey);
-  const cartJws = await signCompactJws(cartClaims, privateKey);
-
-  return {
-    method: 'POST',
-    url: MERCHANT_URL,
-    headers: {
-      host: MERCHANT_HOST,
-      'ap2-attestation': intentJws,
-      'ap2-cart-mandate': cartJws,
-    },
-    body: '',
-  };
-}
-
-async function signCompactJws(payload, privateKey) {
-  const header = { alg: 'EdDSA', typ: 'JWT', kid: DEMO_AGENT_ID };
-  const headerB64 = b64UrlEncode(new TextEncoder().encode(JSON.stringify(header)));
-  const payloadB64 = b64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
-  const signingInput = `${headerB64}.${payloadB64}`;
-  const sig = await crypto.subtle.sign(
-    { name: 'Ed25519' },
-    privateKey,
-    new TextEncoder().encode(signingInput),
-  );
-  return `${signingInput}.${b64UrlEncode(new Uint8Array(sig))}`;
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -258,12 +207,6 @@ function arrayBufferToBase64(buf) {
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
-}
-
-function b64UrlEncode(bytes) {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 function formatSigned(signed) {
@@ -279,14 +222,28 @@ function formatSigned(signed) {
   return lines.join('\n');
 }
 
-function formatVerdict(status, body) {
+/**
+ * Render the verifier's verdict, without letting the page's own input pass as
+ * the verifier's word. The verifier strips the mandate from demo results (the
+ * demo key is public, so its mandates are self-made), so the mandate printed
+ * here is the one THIS PAGE signed, labelled as exactly that.
+ */
+function formatVerdict(status, body, signedMandate) {
   const lines = [];
   if (body.trusted) {
     lines.push(`<span class="verdict-good">HTTP ${status} ✓ trusted</span>`);
-    lines.push(`buyer: ${escapeHtml(body.buyerInfo.displayName ?? body.buyerInfo.buyerId)}`);
-    lines.push(`mandate: ${escapeHtml(body.mandate.id)} (cap $${body.mandate.maxAmountMinor / 100} ${escapeHtml(body.mandate.currency)})`);
-    if (body.discount !== undefined) lines.push(`discount hint: ${(body.discount * 100).toFixed(1)}%`);
+    if (body.agent && body.agent.id) lines.push(`agent: ${escapeHtml(body.agent.id)}`);
+    if (body.protocol) lines.push(`protocol: ${escapeHtml(body.protocol)}`);
+    if (signedMandate) {
+      lines.push(
+        `mandate signed by this page (demo input, not verifier output): ` +
+        `${escapeHtml(signedMandate.id)} (cap $${signedMandate.maxAmountMinor / 100} ${escapeHtml(signedMandate.currency)})`,
+      );
+    }
     lines.push(`decision ttl: ${body.ttlSeconds}s`);
+    if (body.demo) {
+      lines.push('Demo agent: verified, but demo visits never earn a discount.');
+    }
   } else {
     lines.push(`<span class="verdict-bad">HTTP ${status} ✗ blocked</span>`);
     lines.push(`reason: ${escapeHtml(body.reason)}`);
