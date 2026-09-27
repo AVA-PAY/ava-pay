@@ -106,6 +106,49 @@ final class EventsTest extends TestCase {
 		$this->assertSame( '0.4.0', get_option( 'ava_pay_db_version' ) );
 	}
 
+	public function test_install_schedules_one_daily_purge_and_deactivation_removes_it(): void {
+		$GLOBALS['ava_test_cron'] = array();
+		AVA_Pay_Events::install();
+		$first = $GLOBALS['ava_test_cron'][ AVA_Pay_Events::PURGE_HOOK ];
+		$this->assertSame( 'daily', $first['recurrence'] );
+		AVA_Pay_Events::install();
+		AVA_Pay_Events::schedule_purge();
+		$this->assertSame( $first, $GLOBALS['ava_test_cron'][ AVA_Pay_Events::PURGE_HOOK ], 'never scheduled twice' );
+		AVA_Pay_Events::unschedule_purge();
+		$this->assertArrayNotHasKey( AVA_Pay_Events::PURGE_HOOK, $GLOBALS['ava_test_cron'] );
+	}
+
+	public function test_purge_deletes_only_old_page_view_rows(): void {
+		$GLOBALS['ava_test_filters'] = array();
+		$before                      = time();
+		$this->assertSame( 0, AVA_Pay_Events::purge_page_visits() );
+		$this->assertCount( 1, $this->wpdb->queries );
+		$sql = $this->wpdb->queries[0];
+		$this->assertStringStartsWith( 'DELETE FROM `wp_ava_pay_verification_events` WHERE source = \'page_view\' AND created_at < \'', $sql );
+		$this->assertStringEndsWith( "' LIMIT 5000", $sql );
+		preg_match( "/created_at < '([^']+)'/", $sql, $m );
+		$cutoff = strtotime( $m[1] . ' UTC' );
+		$this->assertEqualsWithDelta( $before - 90 * 86400, $cutoff, 2, '90 days by default' );
+		$this->assertStringNotContainsString( 'verify_endpoint', $sql );
+	}
+
+	public function test_purge_retention_filter_and_batches(): void {
+		$GLOBALS['ava_test_filters'] = array( 'ava_pay_page_visit_retention_days' => 7 );
+		$this->wpdb->query_results   = array( 5000, 5000, 12 );
+		$before                      = time();
+		$this->assertSame( 10012, AVA_Pay_Events::purge_page_visits() );
+		$this->assertCount( 3, $this->wpdb->queries, 'stops after the first short batch' );
+		preg_match( "/created_at < '([^']+)'/", $this->wpdb->queries[0], $m );
+		$this->assertEqualsWithDelta( $before - 7 * 86400, strtotime( $m[1] . ' UTC' ), 2 );
+
+		$GLOBALS['ava_test_filters'] = array( 'ava_pay_page_visit_retention_days' => 0 );
+		$this->wpdb->queries         = array();
+		AVA_Pay_Events::purge_page_visits();
+		preg_match( "/created_at < '([^']+)'/", $this->wpdb->queries[0], $m );
+		$this->assertEqualsWithDelta( time() - 86400, strtotime( $m[1] . ' UTC' ), 2, 'floored at one day, never "delete everything"' );
+		$GLOBALS['ava_test_filters'] = array();
+	}
+
 	public function test_the_verify_endpoint_row_is_marked_verify_endpoint(): void {
 		AVA_Pay_Events::record_verification(
 			array(

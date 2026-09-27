@@ -8,7 +8,7 @@
  *   - per agent (the Signature-Agent origin, else the keyid), 30 a minute and
  *     2,000 a day by default, so one busy or misbehaving agent cannot use up
  *     the site's share;
- *   - per site, 120 a minute and 10,000 a day by default. The agent label is
+ *   - per site, 20 a minute and 2,000 a day by default. The agent label is
  *     read from headers nobody has verified yet, so a flood that rotates it
  *     would get a fresh per-agent budget on every request. The site layer is
  *     what still bounds that flood, and it is checked first, so a rotating
@@ -18,8 +18,12 @@
  * counter never carries over into the next window whatever its TTL does.
  *
  * Over budget, the visit is not verified and not recorded as a row; instead
- * a per-day "not checked" tally is kept by agent label (capped, see
- * SKIP_LABELS_MAX) so the merchant can see that visits were skipped.
+ * a per-day "not checked" tally is kept by agent label and reason (capped,
+ * see SKIP_LABELS_MAX) so the merchant can see that visits were skipped. The
+ * same tally takes the two other reasons a visit goes unchecked: another
+ * verification was in flight (SKIP_BUSY, see AVA_Pay_Visit_Lock), or the
+ * label is backing off after its last check could not complete (SKIP_BACKOFF,
+ * see in_backoff()).
  *
  * Storage and clock are injected (transients and time() in production,
  * arrays in tests). Like the verify endpoint's limiter, counts are
@@ -39,9 +43,24 @@ class AVA_Pay_Visit_Budget {
 	const DEFAULT_LIMITS = array(
 		'agent_per_minute' => 30,
 		'agent_per_day'    => 2000,
-		'site_per_minute'  => 120,
-		'site_per_day'     => 10000,
+		'site_per_minute'  => 20,
+		'site_per_day'     => 2000,
 	);
+
+	/** Why a visit was not checked, as tallied by count_skip(). */
+	const SKIP_BUDGET  = 'budget';
+	const SKIP_BUSY    = 'busy';
+	const SKIP_BACKOFF = 'backoff';
+	const SKIP_REASONS = array( self::SKIP_BUDGET, self::SKIP_BUSY, self::SKIP_BACKOFF );
+
+	/**
+	 * How long a label is skipped after a check ended in error or
+	 * unverifiable (filter: ava_pay_page_visit_backoff_seconds). A label
+	 * rotation defeats it; it exists so one dead or slow directory is not
+	 * asked again on every visit, not as a bound on hostile traffic, which
+	 * is the lock's job.
+	 */
+	const DEFAULT_BACKOFF_SECONDS = 600;
 
 	/**
 	 * Distinct agent labels kept per day in the "not checked" tally. The
@@ -122,14 +141,16 @@ class AVA_Pay_Visit_Budget {
 	}
 
 	/**
-	 * Add one to today's "not checked (budget)" tally for $label.
+	 * Add one to today's "not checked" tally for $label and $reason.
 	 *
-	 * @param string|null $label Agent label, null when the request named none.
+	 * @param string|null $label  Agent label, null when the request named none.
+	 * @param string      $reason One of SKIP_REASONS (anything else counts as budget).
 	 */
-	public function count_skip( $label ) {
-		$now   = (int) call_user_func( $this->now );
-		$key   = self::skip_key( gmdate( 'Ymd', $now ) );
-		$tally = call_user_func( $this->get, $key );
+	public function count_skip( $label, $reason = self::SKIP_BUDGET ) {
+		$now    = (int) call_user_func( $this->now );
+		$key    = self::skip_key( gmdate( 'Ymd', $now ) );
+		$reason = in_array( $reason, self::SKIP_REASONS, true ) ? $reason : self::SKIP_BUDGET;
+		$tally  = call_user_func( $this->get, $key );
 		if ( ! is_array( $tally ) ) {
 			$tally = array();
 		}
@@ -137,31 +158,98 @@ class AVA_Pay_Visit_Budget {
 		if ( ! isset( $tally[ $label ] ) && count( $tally ) >= self::SKIP_LABELS_MAX ) {
 			$label = self::OTHER_LABEL;
 		}
-		$tally[ $label ] = ( isset( $tally[ $label ] ) ? (int) $tally[ $label ] : 0 ) + 1;
+		if ( ! isset( $tally[ $label ] ) || ! is_array( $tally[ $label ] ) ) {
+			$tally[ $label ] = array();
+		}
+		$tally[ $label ][ $reason ] = ( isset( $tally[ $label ][ $reason ] ) ? (int) $tally[ $label ][ $reason ] : 0 ) + 1;
 		call_user_func( $this->set, $key, $tally, self::SKIP_TTL_SECONDS );
 	}
 
 	/**
 	 * "Not checked" tallies summed over the last $days UTC days, today
-	 * included. The empty-string label is the request that named no agent.
+	 * included, by label (all reasons together). The empty-string label is
+	 * the request that named no agent.
 	 *
 	 * @param int $days Number of days.
 	 * @return array<string,int>
 	 */
 	public function skips( $days ) {
-		$now = (int) call_user_func( $this->now );
 		$out = array();
+		foreach ( $this->skip_cells( $days ) as $cell ) {
+			list( $label, , $count ) = $cell;
+			$out[ $label ]           = ( isset( $out[ $label ] ) ? $out[ $label ] : 0 ) + $count;
+		}
+		return $out;
+	}
+
+	/**
+	 * The same tallies by reason, for the line under the counts table.
+	 *
+	 * @param int $days Number of days.
+	 * @return array<string,int> Every SKIP_REASONS key, zero when none.
+	 */
+	public function skip_reasons( $days ) {
+		$out = array_fill_keys( self::SKIP_REASONS, 0 );
+		foreach ( $this->skip_cells( $days ) as $cell ) {
+			$out[ $cell[1] ] += $cell[2];
+		}
+		return $out;
+	}
+
+	/**
+	 * Is $bucket backing off after a check that could not complete?
+	 *
+	 * @param string $bucket Agent bucket.
+	 * @return bool
+	 */
+	public function in_backoff( $bucket ) {
+		$until = call_user_func( $this->get, self::backoff_key( $bucket ) );
+		return false !== $until && (int) $until > (int) call_user_func( $this->now );
+	}
+
+	/**
+	 * Skip $bucket for $seconds from now.
+	 *
+	 * @param string $bucket  Agent bucket.
+	 * @param int    $seconds Backoff length; 0 or less does nothing.
+	 */
+	public function start_backoff( $bucket, $seconds = self::DEFAULT_BACKOFF_SECONDS ) {
+		$seconds = (int) $seconds;
+		if ( $seconds <= 0 ) {
+			return;
+		}
+		$until = (int) call_user_func( $this->now ) + $seconds;
+		call_user_func( $this->set, self::backoff_key( $bucket ), $until, $seconds );
+	}
+
+	/**
+	 * Every stored tally cell in the window, as [label, reason, count]. A
+	 * day stored by 0.4.0 before skip reasons existed (label => int) reads
+	 * as budget, the only reason there was.
+	 *
+	 * @param int $days Number of days.
+	 * @return array<int,array{0:string,1:string,2:int}>
+	 */
+	private function skip_cells( $days ) {
+		$now   = (int) call_user_func( $this->now );
+		$cells = array();
 		for ( $i = 0; $i < (int) $days; $i++ ) {
 			$tally = call_user_func( $this->get, self::skip_key( gmdate( 'Ymd', $now - $i * 86400 ) ) );
 			if ( ! is_array( $tally ) ) {
 				continue;
 			}
-			foreach ( $tally as $label => $count ) {
-				$label         = (string) $label;
-				$out[ $label ] = ( isset( $out[ $label ] ) ? $out[ $label ] : 0 ) + (int) $count;
+			foreach ( $tally as $label => $by_reason ) {
+				if ( ! is_array( $by_reason ) ) {
+					$by_reason = array( self::SKIP_BUDGET => (int) $by_reason );
+				}
+				foreach ( $by_reason as $reason => $count ) {
+					if ( in_array( $reason, self::SKIP_REASONS, true ) ) {
+						$cells[] = array( (string) $label, $reason, (int) $count );
+					}
+				}
 			}
 		}
-		return $out;
+		return $cells;
 	}
 
 	/**
@@ -182,5 +270,13 @@ class AVA_Pay_Visit_Budget {
 	 */
 	private static function skip_key( $ymd ) {
 		return 'ava_pay_vskip_' . $ymd;
+	}
+
+	/**
+	 * @param string $bucket Agent bucket.
+	 * @return string
+	 */
+	private static function backoff_key( $bucket ) {
+		return 'ava_pay_vneg_' . md5( (string) $bucket );
 	}
 }

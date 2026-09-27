@@ -20,6 +20,26 @@ if ( ! defined( 'ARRAY_A' ) ) {
 
 $GLOBALS['ava_test_options'] = array();
 $GLOBALS['ava_test_dbdelta'] = array();
+$GLOBALS['ava_test_cron']    = array();
+$GLOBALS['ava_test_filters'] = array();
+
+function apply_filters( $hook, $value ) {
+	return array_key_exists( $hook, $GLOBALS['ava_test_filters'] ) ? $GLOBALS['ava_test_filters'][ $hook ] : $value;
+}
+function wp_next_scheduled( $hook ) {
+	return isset( $GLOBALS['ava_test_cron'][ $hook ] ) ? $GLOBALS['ava_test_cron'][ $hook ]['time'] : false;
+}
+function wp_schedule_event( $time, $recurrence, $hook ) {
+	$GLOBALS['ava_test_cron'][ $hook ] = array(
+		'time'       => $time,
+		'recurrence' => $recurrence,
+	);
+	return true;
+}
+function wp_clear_scheduled_hook( $hook ) {
+	unset( $GLOBALS['ava_test_cron'][ $hook ] );
+	return 1;
+}
 
 function esc_html( $text ) {
 	return htmlspecialchars( (string) $text, ENT_QUOTES, 'UTF-8' );
@@ -50,12 +70,37 @@ function update_option( $name, $value, $autoload = null ) {
 	return true;
 }
 
-/** Records inserts; the event class needs nothing else from $wpdb here. */
+/** Records inserts and queries; the event class needs nothing else from $wpdb here. */
 final class Ava_Test_Wpdb {
 	/** @var string */
 	public $prefix = 'wp_';
 	/** @var array<int,array{0:string,1:array}> */
 	public $inserts = array();
+	/** @var string[] Prepared SQL passed to query(). */
+	public $queries = array();
+	/** @var int[] Row counts query() returns, in order; 0 once exhausted. */
+	public $query_results = array();
+
+	/** Enough of prepare() to read back: %i and %s quoted, %d as int. */
+	public function prepare( $sql, ...$args ) {
+		$i = 0;
+		return preg_replace_callback(
+			'/%[isd]/',
+			static function ( $m ) use ( &$i, $args ) {
+				$v = $args[ $i++ ];
+				if ( '%i' === $m[0] ) {
+					return '`' . $v . '`';
+				}
+				return '%d' === $m[0] ? (string) (int) $v : "'" . addslashes( (string) $v ) . "'";
+			},
+			$sql
+		);
+	}
+
+	public function query( $sql ) {
+		$this->queries[] = $sql;
+		return array() === $this->query_results ? 0 : array_shift( $this->query_results );
+	}
 
 	public function get_charset_collate() {
 		return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci';

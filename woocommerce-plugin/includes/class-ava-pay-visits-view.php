@@ -20,12 +20,14 @@ class AVA_Pay_Visits_View {
 	 *     @type bool   $enabled      The page-visit setting.
 	 *     @type string $settings_url AVA Pay settings page.
 	 *     @type array  $periods      days => AVA_Pay_Visit_Report::summarize() output.
+	 *     @type array  $skipped      days => AVA_Pay_Visit_Budget::skip_reasons() output.
 	 *     @type array  $recent       Rows {time, platform, protocol, outcome, reason, path}.
 	 * }
 	 */
 	public static function render( array $report ) {
 		$periods = isset( $report['periods'] ) ? $report['periods'] : array();
 		$recent  = isset( $report['recent'] ) ? $report['recent'] : array();
+		$skipped = isset( $report['skipped'] ) ? $report['skipped'] : array();
 
 		$seen = ! empty( $recent );
 		foreach ( $periods as $rows ) {
@@ -64,7 +66,7 @@ class AVA_Pay_Visits_View {
 						);
 						?>
 					</h2>
-					<?php self::render_counts( $rows ); ?>
+					<?php self::render_counts( $rows, isset( $skipped[ $days ] ) ? $skipped[ $days ] : array() ); ?>
 				<?php endforeach; ?>
 
 				<h2><?php esc_html_e( 'Recent visits', 'ava-pay-for-woocommerce' ); ?></h2>
@@ -75,9 +77,10 @@ class AVA_Pay_Visits_View {
 	}
 
 	/**
-	 * @param array $rows AVA_Pay_Visit_Report::summarize() output.
+	 * @param array $rows    AVA_Pay_Visit_Report::summarize() output.
+	 * @param array $skipped AVA_Pay_Visit_Budget::skip_reasons() output.
 	 */
-	private static function render_counts( array $rows ) {
+	private static function render_counts( array $rows, array $skipped ) {
 		if ( empty( $rows ) ) {
 			echo '<p>' . esc_html__( 'No signed agent visits in this period.', 'ava-pay-for-woocommerce' ) . '</p>';
 			return;
@@ -106,7 +109,17 @@ class AVA_Pay_Visits_View {
 				<?php endforeach; ?>
 			</tbody>
 		</table>
-		<p class="description"><?php esc_html_e( 'Not checked (budget): signed visits that were not verified because the agent or the site had reached its verification budget for the minute or the day. Days are counted in UTC.', 'ava-pay-for-woocommerce' ); ?></p>
+		<p class="description">
+			<?php
+			printf(
+				/* translators: 1: over-budget count, 2: busy count, 3: backoff count */
+				esc_html__( 'Not checked: %1$s over the verification budget for the minute or the day, %2$s while another check was running (one runs at a time), %3$s skipped for a while after that agent\'s last check could not complete. Days are counted in UTC.', 'ava-pay-for-woocommerce' ),
+				esc_html( number_format_i18n( isset( $skipped['budget'] ) ? (int) $skipped['budget'] : 0 ) ),
+				esc_html( number_format_i18n( isset( $skipped['busy'] ) ? (int) $skipped['busy'] : 0 ) ),
+				esc_html( number_format_i18n( isset( $skipped['backoff'] ) ? (int) $skipped['backoff'] : 0 ) )
+			);
+			?>
+		</p>
 		<?php
 	}
 
@@ -115,7 +128,7 @@ class AVA_Pay_Visits_View {
 	 */
 	private static function render_recent( array $recent ) {
 		if ( empty( $recent ) ) {
-			echo '<p>' . esc_html__( 'No visits recorded yet. Visits that were not checked because of the budget are counted above but not listed.', 'ava-pay-for-woocommerce' ) . '</p>';
+			echo '<p>' . esc_html__( 'No visits recorded yet. Visits that were not checked are counted above but not listed.', 'ava-pay-for-woocommerce' ) . '</p>';
 			return;
 		}
 		$labels = self::outcome_labels();
@@ -161,7 +174,7 @@ class AVA_Pay_Visits_View {
 			'failed'       => __( 'Failed', 'ava-pay-for-woocommerce' ),
 			'unverifiable' => __( 'Unverifiable', 'ava-pay-for-woocommerce' ),
 			'error'        => __( 'Error', 'ava-pay-for-woocommerce' ),
-			'not_checked'  => __( 'Not checked (budget)', 'ava-pay-for-woocommerce' ),
+			'not_checked'  => __( 'Not checked', 'ava-pay-for-woocommerce' ),
 		);
 	}
 

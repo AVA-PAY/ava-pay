@@ -29,6 +29,8 @@ require_once $core . 'class-ava-pay-rate-limiter.php';
 require_once $core . 'class-ava-pay-page-visit.php';
 require_once $core . 'class-ava-pay-visit-budget.php';
 require_once $core . 'class-ava-pay-visit-report.php';
+require_once $core . 'class-ava-pay-visit-lock.php';
+require_once $core . 'class-ava-pay-page-visit-runner.php';
 
 /**
  * Shared fixture access.

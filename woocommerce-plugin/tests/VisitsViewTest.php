@@ -66,13 +66,25 @@ final class VisitsViewTest extends TestCase {
 
 	public function test_counts_tables_show_every_outcome_column(): void {
 		$html = $this->render( $this->hostile_report() );
-		foreach ( array( 'Verified', 'Failed', 'Unverifiable', 'Error', 'Not checked (budget)' ) as $label ) {
+		foreach ( array( 'Verified', 'Failed', 'Unverifiable', 'Error', 'Not checked' ) as $label ) {
 			$this->assertStringContainsString( ">{$label}<", $html );
 		}
 		$this->assertStringContainsString( 'Last 7 days', $html );
 		$this->assertStringContainsString( 'Last 30 days', $html );
 		$this->assertStringContainsString( 'Recent visits', $html );
 		$this->assertStringNotContainsString( 'No signed AI agent has visited your store yet.', $html );
+	}
+
+	public function test_not_checked_reasons_are_spelled_out(): void {
+		$report            = $this->hostile_report();
+		$report['skipped'] = array(
+			7  => array( 'budget' => 3, 'busy' => 2, 'backoff' => 1 ),
+			30 => array( 'budget' => 30, 'busy' => 20, 'backoff' => 10 ),
+		);
+		$html = $this->render( $report );
+		$this->assertStringContainsString( 'Not checked: 3 over the verification budget', $html );
+		$this->assertStringContainsString( '2 while another check was running (one runs at a time), 1 skipped', $html );
+		$this->assertStringContainsString( 'Not checked: 30 over', $html );
 	}
 
 	public function test_empty_state(): void {

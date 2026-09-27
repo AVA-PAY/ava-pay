@@ -29,15 +29,21 @@ $wpdb->query(
 	"DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_ava\\_pay\\_rl\\_%'
 		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_rl\\_%'"
 );
-// Page-visit budget counters and the daily "not checked" tallies, for the
-// same reason: the per-agent keys are md5 hashes of agent labels.
+// Page-visit budget counters, the daily "not checked" tallies and the
+// per-agent backoff marks, for the same reason: the per-agent keys are md5
+// hashes of agent labels.
 $wpdb->query(
 	"DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_ava\\_pay\\_vb\\_%'
 		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_vb\\_%'
 		OR option_name LIKE '\\_transient\\_ava\\_pay\\_vskip\\_%'
-		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_vskip\\_%'"
+		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_vskip\\_%'
+		OR option_name LIKE '\\_transient\\_ava\\_pay\\_vneg\\_%'
+		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_vneg\\_%'"
 );
 // phpcs:enable
 
+wp_clear_scheduled_hook( 'ava_pay_purge_page_visits' );
+
+delete_option( 'ava_pay_page_visit_lock' );
 delete_option( 'ava_pay_settings' );
 delete_option( 'ava_pay_db_version' );

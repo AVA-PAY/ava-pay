@@ -17,6 +17,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class AVA_Pay_Events {
 
+	/** Daily WP-Cron event that drops old page-visit rows. */
+	const PURGE_HOOK = 'ava_pay_purge_page_visits';
+
+	/** Page-visit rows are kept this long (filter: ava_pay_page_visit_retention_days). */
+	const DEFAULT_RETENTION_DAYS = 90;
+
+	/** Rows per DELETE, and the most batches one run takes. */
+	const PURGE_BATCH       = 5000;
+	const PURGE_MAX_BATCHES = 20;
+
 	public static function verification_table() {
 		global $wpdb;
 		return $wpdb->prefix . 'ava_pay_verification_events';
@@ -91,6 +101,8 @@ class AVA_Pay_Events {
 				KEY created_at (created_at)
 			) {$charset_collate};"
 		);
+
+		self::schedule_purge();
 
 		// Autoloaded on purpose: plugins_loaded reads it on EVERY request to
 		// decide whether dbDelta needs a re-run; non-autoloaded it would cost
@@ -229,6 +241,56 @@ class AVA_Pay_Events {
 			ARRAY_A
 		);
 		return $row ? $row : null;
+	}
+
+	/**
+	 * Schedule the daily purge if it is not scheduled. install() calls this,
+	 * so activation and every version upgrade schedule it; admin_init calls
+	 * it too, so a cron array that lost the event is repaired the next time
+	 * the merchant opens the admin.
+	 */
+	public static function schedule_purge() {
+		if ( ! wp_next_scheduled( self::PURGE_HOOK ) ) {
+			wp_schedule_event( time() + 3600, 'daily', self::PURGE_HOOK );
+		}
+	}
+
+	/** Deactivation and uninstall. */
+	public static function unschedule_purge() {
+		wp_clear_scheduled_hook( self::PURGE_HOOK );
+	}
+
+	/**
+	 * Delete page-visit rows older than the retention period. Only
+	 * source = 'page_view': verify-endpoint rows feed order attribution and
+	 * are not this path's to expire. Batched so a large backlog cannot hold
+	 * one long lock on the table.
+	 *
+	 * @return int Rows deleted.
+	 */
+	public static function purge_page_visits() {
+		global $wpdb;
+		$days   = max( 1, (int) apply_filters( 'ava_pay_page_visit_retention_days', self::DEFAULT_RETENTION_DAYS ) );
+		$cutoff = gmdate( 'Y-m-d H:i:s', time() - $days * 86400 );
+
+		$deleted = 0;
+		for ( $i = 0; $i < self::PURGE_MAX_BATCHES; $i++ ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- retention delete on this plugin's own event table.
+			$n = (int) $wpdb->query(
+				$wpdb->prepare(
+					'DELETE FROM %i WHERE source = %s AND created_at < %s LIMIT %d',
+					self::verification_table(),
+					AVA_Pay_Page_Visit::SOURCE,
+					$cutoff,
+					self::PURGE_BATCH
+				)
+			);
+			$deleted += max( 0, $n );
+			if ( $n < self::PURGE_BATCH ) {
+				break;
+			}
+		}
+		return $deleted;
 	}
 
 	/**

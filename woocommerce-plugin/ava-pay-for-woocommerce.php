@@ -39,6 +39,8 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-rate-limiter.p
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-page-visit.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-budget.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-report.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-lock.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-page-visit-runner.php';
 
 // WordPress/WooCommerce integration layer.
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-settings.php';
@@ -53,6 +55,9 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-visits-view.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-admin.php';
 
 register_activation_hook( __FILE__, array( 'AVA_Pay_Events', 'install' ) );
+register_deactivation_hook( __FILE__, array( 'AVA_Pay_Events', 'unschedule_purge' ) );
+add_action( AVA_Pay_Events::PURGE_HOOK, array( 'AVA_Pay_Events', 'purge_page_visits' ) );
+add_action( 'admin_init', array( 'AVA_Pay_Events', 'schedule_purge' ) );
 
 // dbDelta re-runs on version bumps (new columns land without reactivation).
 add_action(

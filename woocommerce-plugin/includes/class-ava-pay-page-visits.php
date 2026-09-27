@@ -16,8 +16,15 @@
  *   2. shutdown, after WordPress has flushed its output buffers (it does so
  *      at priority 1). The response is finished first where the server
  *      supports it (fastcgi_finish_request, litespeed_finish_request), so
- *      the visitor has the whole page before the API is called. Then the
- *      budget, then one /verify call with a 3 second timeout, then one row.
+ *      the visitor has the whole page before the API is called. Then
+ *      AVA_Pay_Page_Visit_Runner: backoff, the one-at-a-time lock, the
+ *      budget, one /verify call with a 2 second timeout, one row.
+ *
+ * Hostile traffic: anyone can send made-up signature headers whose
+ * Signature-Agent points at a slow server, and a check holds its PHP worker
+ * until the API answers or the timeout ends it. The lock means at most one
+ * worker is held that way at a time, for at most the timeout (2 s); every
+ * other signed request costs a few quick queries after its response.
  *
  * On servers without a finish-request function the call still happens, with
  * the same short timeout: the page bytes have been flushed, but the
@@ -33,7 +40,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class AVA_Pay_Page_Visits {
 
 	/** /verify timeout for this path, seconds (filter: ava_pay_page_visit_timeout). */
-	const TIMEOUT_SECONDS = 3;
+	const TIMEOUT_SECONDS = 2;
+
+	/**
+	 * Lock lifetime beyond the timeout: time for the budget read and the
+	 * row insert, so a live holder's lock never expires under it.
+	 */
+	const LOCK_MARGIN_SECONDS = 3;
 
 	/** After wp_ob_end_flush_all(), which WordPress hooks to shutdown at 1. */
 	const SHUTDOWN_PRIORITY = 1000;
@@ -114,25 +127,71 @@ class AVA_Pay_Page_Visits {
 		try {
 			self::finish_response();
 
-			$headers = $pending['incoming']['headers'];
-			$budget  = self::budget();
-			if ( ! $budget->admit( AVA_Pay_Page_Visit::budget_bucket( $headers ) ) ) {
-				$budget->count_skip( AVA_Pay_Page_Visit::agent_label( $headers ) );
-				return;
-			}
-
 			$settings = AVA_Pay_Settings::get();
 			$client   = new AVA_Pay_Api_Client(
 				apply_filters( 'ava_pay_api_url', $settings['apiUrl'] ),
 				self::TIMEOUT_SECONDS,
 				'page_view'
 			);
-			$call     = $client->verify( $pending['incoming'] );
 
-			AVA_Pay_Events::record_verification( AVA_Pay_Page_Visit::event( $call, $headers, $pending['path'] ) );
+			AVA_Pay_Page_Visit_Runner::run(
+				$pending,
+				self::budget(),
+				self::lock( $client->timeout() + self::LOCK_MARGIN_SECONDS ),
+				array( $client, 'verify' ),
+				array( 'AVA_Pay_Events', 'record_verification' ),
+				(int) apply_filters( 'ava_pay_page_visit_backoff_seconds', AVA_Pay_Visit_Budget::DEFAULT_BACKOFF_SECONDS )
+			);
 		} catch ( Throwable $e ) {
 			self::log_unhandled( $e );
 		}
+	}
+
+	/**
+	 * The site's page-visit lock, stored as one options row and taken with
+	 * single SQL statements so it is atomic without an object cache (see
+	 * AVA_Pay_Visit_Lock). The options API is not used for it: update_option
+	 * is read-then-write, and its caches would hide another request's row.
+	 *
+	 * @param int $ttl Seconds.
+	 * @return AVA_Pay_Visit_Lock
+	 */
+	public static function lock( $ttl ) {
+		global $wpdb;
+		$name = AVA_Pay_Visit_Lock::OPTION_NAME;
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- an atomic lock must be single uncached statements; see the docblock.
+		$store = array(
+			'add'       => static function ( $value ) use ( $wpdb, $name ) {
+				return 1 === (int) $wpdb->query(
+					$wpdb->prepare(
+						"INSERT IGNORE INTO %i (option_name, option_value, autoload) VALUES (%s, %s, 'off')",
+						$wpdb->options,
+						$name,
+						$value
+					)
+				);
+			},
+			'get'       => static function () use ( $wpdb, $name ) {
+				return $wpdb->get_var( $wpdb->prepare( 'SELECT option_value FROM %i WHERE option_name = %s', $wpdb->options, $name ) );
+			},
+			'swap'      => static function ( $old, $new ) use ( $wpdb, $name ) {
+				return 1 === (int) $wpdb->query(
+					$wpdb->prepare( 'UPDATE %i SET option_value = %s WHERE option_name = %s AND option_value = %s', $wpdb->options, $new, $name, $old )
+				);
+			},
+			'delete_if' => static function ( $value ) use ( $wpdb, $name ) {
+				$wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE option_name = %s AND option_value = %s', $wpdb->options, $name, $value ) );
+			},
+		);
+		// phpcs:enable
+		return new AVA_Pay_Visit_Lock(
+			$store,
+			static function () {
+				return time();
+			},
+			$ttl,
+			bin2hex( random_bytes( 8 ) )
+		);
 	}
 
 	/**

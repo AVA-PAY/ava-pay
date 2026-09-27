@@ -39,15 +39,15 @@ final class VisitBudgetTest extends TestCase {
 			array(
 				'agent_per_minute' => 30,
 				'agent_per_day'    => 2000,
-				'site_per_minute'  => 120,
-				'site_per_day'     => 10000,
+				'site_per_minute'  => 20,
+				'site_per_day'     => 2000,
 			),
 			AVA_Pay_Visit_Budget::DEFAULT_LIMITS
 		);
 	}
 
 	public function test_thirty_a_minute_per_agent_by_default(): void {
-		$budget = $this->budget();
+		$budget = $this->budget( array( 'site_per_minute' => 1000 ) );
 		for ( $i = 0; $i < 30; $i++ ) {
 			$this->assertTrue( $budget->admit( 'https://chatgpt.com' ), "visit {$i}" );
 		}
@@ -67,7 +67,7 @@ final class VisitBudgetTest extends TestCase {
 	}
 
 	public function test_two_thousand_a_day_per_agent_by_default(): void {
-		$budget = $this->budget( array( 'agent_per_minute' => 100000, 'site_per_minute' => 100000 ) );
+		$budget = $this->budget( array( 'agent_per_minute' => 100000, 'site_per_minute' => 100000, 'site_per_day' => 100000 ) );
 		for ( $i = 0; $i < 2000; $i++ ) {
 			$budget->admit( 'https://chatgpt.com' );
 		}
@@ -86,14 +86,14 @@ final class VisitBudgetTest extends TestCase {
 				++$admitted;
 			}
 		}
-		$this->assertSame( 120, $admitted );
+		$this->assertSame( 20, $admitted );
 		$per_agent_keys = array_filter(
 			array_keys( $this->store ),
 			static function ( $k ) {
 				return 0 === strpos( $k, 'ava_pay_vb_' ) && 0 !== strpos( $k, 'ava_pay_vb_site_' );
 			}
 		);
-		$this->assertCount( 240, $per_agent_keys, 'past the site cap no per-agent counters are created' );
+		$this->assertCount( 40, $per_agent_keys, 'past the site cap no per-agent counters are created' );
 	}
 
 	public function test_over_budget_counts_nothing(): void {
@@ -139,6 +139,37 @@ final class VisitBudgetTest extends TestCase {
 		$this->assertSame( 2, $tally['https://fake-0.example'], 'a label already kept keeps counting' );
 		$this->assertSame( 40 - AVA_Pay_Visit_Budget::SKIP_LABELS_MAX, $tally[ AVA_Pay_Visit_Budget::OTHER_LABEL ] );
 		$this->assertSame( 41, array_sum( $tally ) );
+	}
+
+	public function test_skips_are_tallied_by_reason(): void {
+		$budget = $this->budget();
+		$budget->count_skip( 'a', AVA_Pay_Visit_Budget::SKIP_BUDGET );
+		$budget->count_skip( 'a', AVA_Pay_Visit_Budget::SKIP_BUSY );
+		$budget->count_skip( 'a', AVA_Pay_Visit_Budget::SKIP_BUSY );
+		$budget->count_skip( 'b', AVA_Pay_Visit_Budget::SKIP_BACKOFF );
+		$budget->count_skip( 'b', 'made-up' );
+		$this->assertSame( array( 'a' => 3, 'b' => 2 ), $budget->skips( 1 ) );
+		$this->assertSame( array( 'budget' => 2, 'busy' => 2, 'backoff' => 1 ), $budget->skip_reasons( 1 ), 'an unknown reason counts as budget' );
+	}
+
+	public function test_a_day_tallied_before_reasons_existed_reads_as_budget(): void {
+		$this->store[ 'ava_pay_vskip_' . gmdate( 'Ymd', $this->now ) ] = array( 'https://chatgpt.com' => 4 );
+		$budget = $this->budget();
+		$this->assertSame( array( 'https://chatgpt.com' => 4 ), $budget->skips( 1 ) );
+		$this->assertSame( array( 'budget' => 4, 'busy' => 0, 'backoff' => 0 ), $budget->skip_reasons( 1 ) );
+		$budget->count_skip( 'https://chatgpt.com', AVA_Pay_Visit_Budget::SKIP_BUSY );
+		$this->assertSame( array( 'https://chatgpt.com' => 1 ), $budget->skips( 1 ), 'a new tally replaces the legacy cell' );
+	}
+
+	public function test_backoff_marks_expire(): void {
+		$budget = $this->budget();
+		$this->assertFalse( $budget->in_backoff( 'a' ) );
+		$budget->start_backoff( 'a' );
+		$this->assertTrue( $budget->in_backoff( 'a' ) );
+		$this->assertFalse( $budget->in_backoff( 'b' ) );
+		$this->now += AVA_Pay_Visit_Budget::DEFAULT_BACKOFF_SECONDS;
+		$this->assertFalse( $budget->in_backoff( 'a' ) );
+		$this->assertSame( 600, AVA_Pay_Visit_Budget::DEFAULT_BACKOFF_SECONDS );
 	}
 
 	public function test_window_start_is_utc_midnight_days_minus_one_ago(): void {

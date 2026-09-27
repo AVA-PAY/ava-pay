@@ -59,11 +59,13 @@ class AVA_Pay_Admin {
 
 		$budget  = AVA_Pay_Page_Visits::budget();
 		$periods = array();
+		$skipped = array();
 		foreach ( array( 7, 30 ) as $days ) {
 			$periods[ $days ] = AVA_Pay_Visit_Report::summarize(
 				AVA_Pay_Events::page_visit_counts( gmdate( 'Y-m-d H:i:s', $budget->window_start( $days ) ) ),
 				$budget->skips( $days )
 			);
+			$skipped[ $days ] = $budget->skip_reasons( $days );
 		}
 
 		$recent = array();
@@ -84,6 +86,7 @@ class AVA_Pay_Admin {
 				'enabled'      => ! empty( $settings['verifyPageVisits'] ),
 				'settings_url' => admin_url( 'admin.php?page=' . self::PAGE_SLUG ),
 				'periods'      => $periods,
+				'skipped'      => $skipped,
 				'recent'       => $recent,
 			)
 		);

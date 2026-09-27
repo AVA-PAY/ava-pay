@@ -49,6 +49,11 @@ class AVA_Pay_Api_Client {
 			: (int) apply_filters( 'ava_pay_verify_timeout', $timeout );
 	}
 
+	/** @return int The effective timeout, seconds, after its filter. */
+	public function timeout() {
+		return $this->timeout;
+	}
+
 	/**
 	 * POST an IncomingRequest ({method, url, headers, body?}) to /verify.
 	 * `headers` may be the full incoming map; only the minimized set is sent.
