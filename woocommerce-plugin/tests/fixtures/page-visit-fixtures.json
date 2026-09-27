@@ -1,0 +1,174 @@
+{
+  "generatedBy": "woocommerce-plugin/scripts/generate-page-visit-fixtures.ts",
+  "note": "Do not edit by hand. Test keys only.",
+  "created": 1790345533,
+  "webBotAuth": {
+    "origin": "https://agent.example",
+    "publicJwk": {
+      "crv": "Ed25519",
+      "x": "0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc",
+      "kty": "OKP"
+    }
+  },
+  "visaTap": {
+    "keyid": "tap_agent_page_visit",
+    "publicJwk": {
+      "crv": "Ed25519",
+      "x": "oJql9HpnWYAv-VX43C0qFKXJnSO-l_hkEn_5ODRVpPA",
+      "kty": "OKP"
+    }
+  },
+  "cases": [
+    {
+      "name": "wba_port_and_query",
+      "protocol": "web-bot-auth",
+      "server": {
+        "REQUEST_METHOD": "GET",
+        "REQUEST_URI": "/product/widget?color=blue&size=m",
+        "HTTPS": "on",
+        "SERVER_PORT": "8443",
+        "SERVER_NAME": "shop.example",
+        "REMOTE_ADDR": "203.0.113.7",
+        "SCRIPT_NAME": "/index.php",
+        "HTTP_ACCEPT": "text/html,application/xhtml+xml",
+        "HTTP_ACCEPT_LANGUAGE": "en-US,en;q=0.9",
+        "HTTP_ACCEPT_ENCODING": "gzip, br",
+        "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "HTTP_COOKIE": "wordpress_logged_in_x=abc; woocommerce_cart_hash=def",
+        "HTTP_AUTHORIZATION": "Basic dXNlcjpwYXNz",
+        "HTTP_X_FORWARDED_HOST": "attacker.example",
+        "HTTP_X_FORWARDED_PROTO": "http",
+        "HTTP_X_FORWARDED_FOR": "198.51.100.9, 10.0.0.1",
+        "HTTP_HOST": "shop.example:8443",
+        "HTTP_SIGNATURE_AGENT": "sig1=\"https://agent.example\"",
+        "HTTP_SIGNATURE_INPUT": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0x\";tag=\"web-bot-auth\"",
+        "HTTP_SIGNATURE": "sig1=:bsp9mhWwzhe42b1KK0dUlvJP1tCiIejzBjLeyW9ejO+rTaAn1UlA1rilH81oC6Wkxf+hNo1wm7o7/mfHOhaFDQ==:"
+      },
+      "isSsl": true,
+      "expected": {
+        "method": "GET",
+        "url": "https://shop.example:8443/product/widget?color=blue&size=m",
+        "headers": {
+          "host": "shop.example:8443",
+          "signature-agent": "sig1=\"https://agent.example\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0x\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:bsp9mhWwzhe42b1KK0dUlvJP1tCiIejzBjLeyW9ejO+rTaAn1UlA1rilH81oC6Wkxf+hNo1wm7o7/mfHOhaFDQ==:"
+        }
+      },
+      "expectedPath": "/product/widget"
+    },
+    {
+      "name": "wba_bare_string_head",
+      "protocol": "web-bot-auth",
+      "server": {
+        "REQUEST_METHOD": "HEAD",
+        "REQUEST_URI": "/shop/",
+        "HTTPS": "on",
+        "SERVER_PORT": "443",
+        "SERVER_NAME": "shop.example",
+        "REMOTE_ADDR": "203.0.113.7",
+        "SCRIPT_NAME": "/index.php",
+        "HTTP_ACCEPT": "text/html,application/xhtml+xml",
+        "HTTP_ACCEPT_LANGUAGE": "en-US,en;q=0.9",
+        "HTTP_ACCEPT_ENCODING": "gzip, br",
+        "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "HTTP_COOKIE": "wordpress_logged_in_x=abc; woocommerce_cart_hash=def",
+        "HTTP_AUTHORIZATION": "Basic dXNlcjpwYXNz",
+        "HTTP_X_FORWARDED_HOST": "attacker.example",
+        "HTTP_X_FORWARDED_PROTO": "http",
+        "HTTP_X_FORWARDED_FOR": "198.51.100.9, 10.0.0.1",
+        "HTTP_HOST": "shop.example",
+        "HTTP_SIGNATURE_AGENT": "\"https://agent.example\"",
+        "HTTP_SIGNATURE_INPUT": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0y\";tag=\"web-bot-auth\"",
+        "HTTP_SIGNATURE": "sig1=:/k6y1TZzbxfjfriFg5lmdkVrXiKpypDjhH0t5FeYeGWxRGbcRd0i+kfppUfbdf4CJ6LX3wqR5N7FaTH+7xq4CQ==:"
+      },
+      "isSsl": true,
+      "expected": {
+        "method": "HEAD",
+        "url": "https://shop.example/shop/",
+        "headers": {
+          "host": "shop.example",
+          "signature-agent": "\"https://agent.example\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0y\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:/k6y1TZzbxfjfriFg5lmdkVrXiKpypDjhH0t5FeYeGWxRGbcRd0i+kfppUfbdf4CJ6LX3wqR5N7FaTH+7xq4CQ==:"
+        }
+      },
+      "expectedPath": "/shop/"
+    },
+    {
+      "name": "wba_covers_user_agent",
+      "protocol": "web-bot-auth",
+      "server": {
+        "REQUEST_METHOD": "GET",
+        "REQUEST_URI": "/product/caf%C3%A9-mug?ref=chat&q=a%20b",
+        "HTTPS": "on",
+        "SERVER_PORT": "443",
+        "SERVER_NAME": "shop.example",
+        "REMOTE_ADDR": "203.0.113.7",
+        "SCRIPT_NAME": "/index.php",
+        "HTTP_ACCEPT": "text/html,application/xhtml+xml",
+        "HTTP_ACCEPT_LANGUAGE": "en-US,en;q=0.9",
+        "HTTP_ACCEPT_ENCODING": "gzip, br",
+        "HTTP_USER_AGENT": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0",
+        "HTTP_COOKIE": "wordpress_logged_in_x=abc; woocommerce_cart_hash=def",
+        "HTTP_AUTHORIZATION": "Basic dXNlcjpwYXNz",
+        "HTTP_X_FORWARDED_HOST": "attacker.example",
+        "HTTP_X_FORWARDED_PROTO": "http",
+        "HTTP_X_FORWARDED_FOR": "198.51.100.9, 10.0.0.1",
+        "HTTP_HOST": "shop.example",
+        "HTTP_SIGNATURE_AGENT": "sig1=\"https://agent.example\"",
+        "HTTP_SIGNATURE_INPUT": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\" \"user-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0z\";tag=\"web-bot-auth\"",
+        "HTTP_SIGNATURE": "sig1=:twVdrE8XFzP33CQ9fkkgNFgdw8jbcPaVG62f4dYG47IyotF0mmvV4yYEOiBjNblZdzfEhyWzRFJ7vVm2JYsCCw==:"
+      },
+      "isSsl": true,
+      "expected": {
+        "method": "GET",
+        "url": "https://shop.example/product/caf%C3%A9-mug?ref=chat&q=a%20b",
+        "headers": {
+          "user-agent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0",
+          "host": "shop.example",
+          "signature-agent": "sig1=\"https://agent.example\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\" \"user-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0z\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:twVdrE8XFzP33CQ9fkkgNFgdw8jbcPaVG62f4dYG47IyotF0mmvV4yYEOiBjNblZdzfEhyWzRFJ7vVm2JYsCCw==:"
+        }
+      },
+      "expectedPath": "/product/caf%C3%A9-mug"
+    },
+    {
+      "name": "visa_tap_port_and_query",
+      "protocol": "visa-tap",
+      "server": {
+        "REQUEST_METHOD": "GET",
+        "REQUEST_URI": "/product/widget?color=blue",
+        "HTTPS": "on",
+        "SERVER_PORT": "8443",
+        "SERVER_NAME": "shop.example",
+        "REMOTE_ADDR": "203.0.113.7",
+        "SCRIPT_NAME": "/index.php",
+        "HTTP_ACCEPT": "text/html,application/xhtml+xml",
+        "HTTP_ACCEPT_LANGUAGE": "en-US,en;q=0.9",
+        "HTTP_ACCEPT_ENCODING": "gzip, br",
+        "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36",
+        "HTTP_COOKIE": "wordpress_logged_in_x=abc; woocommerce_cart_hash=def",
+        "HTTP_AUTHORIZATION": "Basic dXNlcjpwYXNz",
+        "HTTP_X_FORWARDED_HOST": "attacker.example",
+        "HTTP_X_FORWARDED_PROTO": "http",
+        "HTTP_X_FORWARDED_FOR": "198.51.100.9, 10.0.0.1",
+        "HTTP_HOST": "shop.example:8443",
+        "HTTP_SIGNATURE_INPUT": "sig2=(\"@authority\" \"@path\"); created=1790345533; expires=1790346013; keyId=\"tap_agent_page_visit\"; alg=\"ed25519\"; nonce=\"page-visit-tap-1\"; tag=\"agent-browser-auth\"",
+        "HTTP_SIGNATURE": "sig2=:K2gYUqXMThoaezW5RcQzd29T6LHnOtSRnrnTkZbw3XkxDQbQfZC2FbWh5qzNS5bdK09glhsp04IO/ExRzdGTAQ==:"
+      },
+      "isSsl": true,
+      "expected": {
+        "method": "GET",
+        "url": "https://shop.example:8443/product/widget?color=blue",
+        "headers": {
+          "host": "shop.example:8443",
+          "signature-input": "sig2=(\"@authority\" \"@path\"); created=1790345533; expires=1790346013; keyId=\"tap_agent_page_visit\"; alg=\"ed25519\"; nonce=\"page-visit-tap-1\"; tag=\"agent-browser-auth\"",
+          "signature": "sig2=:K2gYUqXMThoaezW5RcQzd29T6LHnOtSRnrnTkZbw3XkxDQbQfZC2FbWh5qzNS5bdK09glhsp04IO/ExRzdGTAQ==:"
+        }
+      },
+      "expectedPath": "/product/widget"
+    }
+  ]
+}

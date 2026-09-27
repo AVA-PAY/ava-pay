@@ -34,12 +34,24 @@ class AVA_Pay_Api_Client {
 	private $timeout;
 
 	/**
-	 * @param string $base_url AVA Pay API base URL.
-	 * @param int    $timeout  Seconds.
+	 * @param string $base_url       AVA Pay API base URL.
+	 * @param int    $timeout        Seconds.
+	 * @param string $caller         'verify_endpoint' | 'page_view'. Each
+	 *                               caller has its own timeout filter, so
+	 *                               raising the verify endpoint's timeout
+	 *                               cannot lengthen the page-visit path's
+	 *                               (see AVA_Pay_Page_Visits).
 	 */
-	public function __construct( $base_url, $timeout = self::DEFAULT_TIMEOUT_SECONDS ) {
+	public function __construct( $base_url, $timeout = self::DEFAULT_TIMEOUT_SECONDS, $caller = 'verify_endpoint' ) {
 		$this->base_url = rtrim( $base_url, '/' );
-		$this->timeout  = (int) apply_filters( 'ava_pay_verify_timeout', $timeout );
+		$this->timeout  = 'page_view' === $caller
+			? (int) apply_filters( 'ava_pay_page_visit_timeout', $timeout )
+			: (int) apply_filters( 'ava_pay_verify_timeout', $timeout );
+	}
+
+	/** @return int The effective timeout, seconds, after its filter. */
+	public function timeout() {
+		return $this->timeout;
 	}
 
 	/**

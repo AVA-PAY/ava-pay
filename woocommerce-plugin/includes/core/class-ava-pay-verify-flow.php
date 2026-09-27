@@ -120,17 +120,9 @@ class AVA_Pay_Verify_Flow {
 			);
 		}
 
-		$agent    = ( isset( $result['agent'] ) && is_array( $result['agent'] ) ) ? $result['agent'] : null;
-		$platform = ( null !== $agent && isset( $agent['id'] ) && is_string( $agent['id'] ) )
-			? $agent['id']
-			: $platform_hint;
-		if ( isset( $result['protocol'] ) && is_string( $result['protocol'] ) ) {
-			$protocol = $result['protocol'];
-		} elseif ( null !== $agent && isset( $agent['protocol'] ) && is_string( $agent['protocol'] ) ) {
-			$protocol = $agent['protocol'];
-		} else {
-			$protocol = $protocol_hint;
-		}
+		$labels   = self::trusted_labels( $result, $platform_hint, $protocol_hint );
+		$platform = $labels['platform'];
+		$protocol = $labels['protocol'];
 
 		$identity_only = ! ( isset( $result['mandate'] ) && is_array( $result['mandate'] ) );
 
@@ -166,6 +158,34 @@ class AVA_Pay_Verify_Flow {
 				'reason' => 'verified',
 			),
 			'mint_discount_pct' => (int) $decision['discountPct'],
+		);
+	}
+
+	/**
+	 * Platform and protocol for a TRUSTED verdict: what the verifier says the
+	 * agent is, falling back to the request hints only where the verdict is
+	 * silent. Shared by decide() and the page-visit path.
+	 *
+	 * @param array       $result        Decoded trusted VerificationResult.
+	 * @param string|null $platform_hint AVA_Pay_Agent_Hint::extract().
+	 * @param string|null $protocol_hint AVA_Pay_Agent_Hint::sniff_protocol().
+	 * @return array {platform: string|null, protocol: string|null}
+	 */
+	public static function trusted_labels( array $result, $platform_hint, $protocol_hint ) {
+		$agent    = ( isset( $result['agent'] ) && is_array( $result['agent'] ) ) ? $result['agent'] : null;
+		$platform = ( null !== $agent && isset( $agent['id'] ) && is_string( $agent['id'] ) )
+			? $agent['id']
+			: $platform_hint;
+		if ( isset( $result['protocol'] ) && is_string( $result['protocol'] ) ) {
+			$protocol = $result['protocol'];
+		} elseif ( null !== $agent && isset( $agent['protocol'] ) && is_string( $agent['protocol'] ) ) {
+			$protocol = $agent['protocol'];
+		} else {
+			$protocol = $protocol_hint;
+		}
+		return array(
+			'platform' => $platform,
+			'protocol' => $protocol,
 		);
 	}
 

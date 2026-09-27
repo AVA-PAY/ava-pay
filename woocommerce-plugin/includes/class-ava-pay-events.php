@@ -17,6 +17,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class AVA_Pay_Events {
 
+	/** Daily WP-Cron event that drops old page-visit rows. */
+	const PURGE_HOOK = 'ava_pay_purge_page_visits';
+
+	/** Page-visit rows are kept this long (filter: ava_pay_page_visit_retention_days). */
+	const DEFAULT_RETENTION_DAYS = 90;
+
+	/** Rows per DELETE, and the most batches one run takes. */
+	const PURGE_BATCH       = 5000;
+	const PURGE_MAX_BATCHES = 20;
+
 	public static function verification_table() {
 		global $wpdb;
 		return $wpdb->prefix . 'ava_pay_verification_events';
@@ -45,6 +55,12 @@ class AVA_Pay_Events {
 		//   policy_blocked verified, but merchant settings rejected it
 		//   error          the AVA Pay API was unreachable (failed closed)
 		// reason: typed VerificationFailureReason, policy reason, or ava_* client error.
+		// source: 'verify_endpoint' (the REST verify endpoint, and every row
+		//   written before 0.4.0, which the DEFAULT fills in when dbDelta adds
+		//   the column) | 'page_view' (a signed front-end page visit, observed
+		//   only; see AVA_Pay_Page_Visit).
+		// path: page_view rows only. The request path with its query string
+		//   removed; never the query, the IP, the user agent or header values.
 		dbDelta(
 			"CREATE TABLE {$verification_table} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -56,9 +72,12 @@ class AVA_Pay_Events {
 				identity_only TINYINT(1) NOT NULL DEFAULT 0,
 				discount_pct SMALLINT NULL,
 				discount_code VARCHAR(64) NULL,
+				source VARCHAR(20) NULL DEFAULT 'verify_endpoint',
+				path VARCHAR(255) NULL,
 				PRIMARY KEY  (id),
 				KEY created_at (created_at),
-				KEY discount_code (discount_code)
+				KEY discount_code (discount_code),
+				KEY source_created (source, created_at)
 			) {$charset_collate};"
 		);
 
@@ -83,6 +102,8 @@ class AVA_Pay_Events {
 			) {$charset_collate};"
 		);
 
+		self::schedule_purge();
+
 		// Autoloaded on purpose: plugins_loaded reads it on EVERY request to
 		// decide whether dbDelta needs a re-run; non-autoloaded it would cost
 		// an extra uncached SELECT per page load for a tiny string.
@@ -90,10 +111,12 @@ class AVA_Pay_Events {
 	}
 
 	/**
-	 * Record one verification event (one row per verify-agent request).
+	 * Record one verification event: one row per verify-agent request, and
+	 * one per signed page visit that was checked (source page_view).
 	 *
 	 * @param array $event outcome (required), platform, protocol, reason,
-	 *                     identity_only, discount_pct, discount_code.
+	 *                     identity_only, discount_pct, discount_code, source
+	 *                     (defaults to 'verify_endpoint'), path.
 	 */
 	public static function record_verification( array $event ) {
 		global $wpdb;
@@ -106,6 +129,8 @@ class AVA_Pay_Events {
 			'identity_only' => ! empty( $event['identity_only'] ) ? 1 : 0,
 			'discount_pct'  => isset( $event['discount_pct'] ) ? (int) $event['discount_pct'] : null,
 			'discount_code' => isset( $event['discount_code'] ) ? self::truncate( $event['discount_code'], 64 ) : null,
+			'source'        => isset( $event['source'] ) ? self::truncate( $event['source'], 20 ) : 'verify_endpoint',
+			'path'          => isset( $event['path'] ) ? self::truncate( $event['path'], 255 ) : null,
 		);
 
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery -- insert into this plugin's own event table; no core API exists for custom tables.
@@ -216,6 +241,98 @@ class AVA_Pay_Events {
 			ARRAY_A
 		);
 		return $row ? $row : null;
+	}
+
+	/**
+	 * Schedule the daily purge if it is not scheduled. install() calls this,
+	 * so activation and every version upgrade schedule it; admin_init calls
+	 * it too, so a cron array that lost the event is repaired the next time
+	 * the merchant opens the admin.
+	 */
+	public static function schedule_purge() {
+		if ( ! wp_next_scheduled( self::PURGE_HOOK ) ) {
+			wp_schedule_event( time() + 3600, 'daily', self::PURGE_HOOK );
+		}
+	}
+
+	/** Deactivation and uninstall. */
+	public static function unschedule_purge() {
+		wp_clear_scheduled_hook( self::PURGE_HOOK );
+	}
+
+	/**
+	 * Delete page-visit rows older than the retention period. Only
+	 * source = 'page_view': verify-endpoint rows feed order attribution and
+	 * are not this path's to expire. Batched so a large backlog cannot hold
+	 * one long lock on the table.
+	 *
+	 * @return int Rows deleted.
+	 */
+	public static function purge_page_visits() {
+		global $wpdb;
+		$days   = max( 1, (int) apply_filters( 'ava_pay_page_visit_retention_days', self::DEFAULT_RETENTION_DAYS ) );
+		$cutoff = gmdate( 'Y-m-d H:i:s', time() - $days * 86400 );
+
+		$deleted = 0;
+		for ( $i = 0; $i < self::PURGE_MAX_BATCHES; $i++ ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- retention delete on this plugin's own event table.
+			$n = (int) $wpdb->query(
+				$wpdb->prepare(
+					'DELETE FROM %i WHERE source = %s AND created_at < %s LIMIT %d',
+					self::verification_table(),
+					AVA_Pay_Page_Visit::SOURCE,
+					$cutoff,
+					self::PURGE_BATCH
+				)
+			);
+			$deleted += max( 0, $n );
+			if ( $n < self::PURGE_BATCH ) {
+				break;
+			}
+		}
+		return $deleted;
+	}
+
+	/**
+	 * Page-visit rows since $since_gmt, counted by platform and outcome.
+	 *
+	 * @param string $since_gmt 'Y-m-d H:i:s', UTC.
+	 * @return array<int,array{platform:string|null,outcome:string,n:string}>
+	 */
+	public static function page_visit_counts( $since_gmt ) {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin report over this plugin's own event table; must be current.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT platform, outcome, COUNT(*) AS n FROM %i WHERE source = %s AND created_at >= %s GROUP BY platform, outcome',
+				self::verification_table(),
+				AVA_Pay_Page_Visit::SOURCE,
+				$since_gmt
+			),
+			ARRAY_A
+		);
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * The most recent page-visit rows, newest first.
+	 *
+	 * @param int $limit Row cap.
+	 * @return array<int,array{created_at:string,platform:string|null,protocol:string|null,outcome:string,reason:string|null,path:string|null}>
+	 */
+	public static function recent_page_visits( $limit ) {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin report over this plugin's own event table; must be current.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT created_at, platform, protocol, outcome, reason, path FROM %i WHERE source = %s ORDER BY id DESC LIMIT %d',
+				self::verification_table(),
+				AVA_Pay_Page_Visit::SOURCE,
+				(int) $limit
+			),
+			ARRAY_A
+		);
+		return is_array( $rows ) ? $rows : array();
 	}
 
 	/**
