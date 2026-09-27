@@ -1,6 +1,6 @@
 import { createPublicKey, verify as edVerify } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { decideTestVisit, describeTestVisit } from './test-visit.js';
+import { decideTestVisit, describeTestVisit, settingsMandateBackedPct } from './test-visit.js';
 import {
   buildTestVisitRequest,
   DEMO_AGENT_ID,
@@ -115,6 +115,77 @@ describe('buildTestVisitRequest', () => {
   });
 });
 
+/**
+ * What the API actually answers a test visit with since the demo-agent
+ * demotion: trusted, identity-only, demo: true. The mandate the request
+ * carried was stripped server side because the demo key is public.
+ */
+function demoResult(): VerificationResult {
+  return {
+    trusted: true,
+    conclusive: true,
+    protocol: 'ava-tap',
+    agent: { id: DEMO_AGENT_ID, protocol: 'ava-tap' },
+    demo: true,
+    ttlSeconds: 60,
+  };
+}
+
+describe('decideTestVisit on a demo verdict', () => {
+  it('reports 0% at default settings, with the mandate-backed percentage alongside', () => {
+    const req = buildTestVisitRequest(SHOP);
+    const call: AvaCallResult = { ok: true, result: demoResult() };
+
+    const { event, result } = decideTestVisit(settings, call, req);
+
+    expect(event.outcome).toBe('verified');
+    expect(event.source).toBe('test');
+    expect(event.identityOnly).toBe(true);
+    expect(result.demo).toBe(true);
+    expect(result.discountPct).toBe(0);
+    expect(result.mandateBackedPct).toBe(10);
+  });
+
+  it('still reports 0% when the merchant raised the identity-only tier', () => {
+    const req = buildTestVisitRequest(SHOP);
+    const call: AvaCallResult = { ok: true, result: demoResult() };
+
+    const { result } = decideTestVisit(
+      { ...settings, identityOnlyDiscountPct: 15 },
+      call,
+      req,
+    );
+
+    expect(result.demo).toBe(true);
+    expect(result.discountPct).toBe(0);
+  });
+});
+
+describe('settingsMandateBackedPct', () => {
+  it('is the default discount under plain settings', () => {
+    expect(settingsMandateBackedPct(settings)).toBe(10);
+  });
+
+  it('respects the global cap', () => {
+    expect(settingsMandateBackedPct({ ...settings, defaultDiscountPct: 50 })).toBe(20);
+  });
+
+  it('is null when verified agents are switched off', () => {
+    expect(settingsMandateBackedPct({ ...settings, acceptVerifiedAgents: false })).toBeNull();
+  });
+
+  it('honours a per-platform rule for the demo platform', () => {
+    const withPolicy: MerchantPolicyInput = {
+      ...settings,
+      policy: {
+        version: 1,
+        rules: [{ platform: DEMO_AGENT_ID, action: 'allow', offerDiscountPct: 5 }],
+      },
+    };
+    expect(settingsMandateBackedPct(withPolicy, DEMO_AGENT_ID)).toBe(5);
+  });
+});
+
 describe('decideTestVisit', () => {
   it('records a verified visit marked as a test, with no discount code', () => {
     const req = buildTestVisitRequest(SHOP);
@@ -197,10 +268,28 @@ describe('describeTestVisit', () => {
       protocol: null,
       platform: null,
       discountPct: 0,
+      demo: false,
+      mandateBackedPct: null,
     });
     expect(message.tone).toBe('warning');
     expect(message.body).toContain('not a rejection');
     expect(message.title).not.toMatch(/reject|blocked|fail/i);
+  });
+
+  it('tells the merchant a demo verdict never earns a discount, and what a real agent would get', () => {
+    const message = describeTestVisit({
+      outcome: 'verified',
+      reason: null,
+      protocol: 'ava-tap',
+      platform: DEMO_AGENT_ID,
+      discountPct: 0,
+      demo: true,
+      mandateBackedPct: 10,
+    });
+    expect(message.tone).toBe('success');
+    expect(message.title).toBe('Demo agent verified');
+    expect(message.body).toContain('Demo visits never earn a discount');
+    expect(message.body).toContain('a real agent with a buyer mandate would get 10%');
   });
 
   it('says plainly that a verified test visit minted no code', () => {
@@ -210,6 +299,8 @@ describe('describeTestVisit', () => {
       protocol: 'ava-tap',
       platform: DEMO_AGENT_ID,
       discountPct: 10,
+      demo: false,
+      mandateBackedPct: null,
     });
     expect(message.tone).toBe('success');
     expect(message.body).toContain('10%');
@@ -223,6 +314,8 @@ describe('describeTestVisit', () => {
       protocol: null,
       platform: null,
       discountPct: 0,
+      demo: false,
+      mandateBackedPct: null,
     });
     expect(message.title).toContain('Could not reach');
     expect(message.body).toContain('fail closed');

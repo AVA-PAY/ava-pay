@@ -101,6 +101,98 @@ final class VerifyFlowTest extends TestCase {
 		$this->assertSame( 5, $out['mint_discount_pct'] );
 	}
 
+	/** The demo agent's verdict as the API sends it: identity-only, demo true. */
+	private function demo_verdict(): array {
+		return array(
+			'trusted'    => true,
+			'conclusive' => true,
+			'protocol'   => 'ava-tap',
+			'agent'      => array(
+				'id'       => 'agent_demo_public',
+				'protocol' => 'ava-tap',
+			),
+			'demo'       => true,
+			'ttlSeconds' => 60,
+		);
+	}
+
+	public function test_demo_verdict_produces_zero_percent_at_default_settings(): void {
+		$out = $this->decide_body( $this->demo_verdict() );
+
+		$this->assertTrue( $out['response']['allow'] );
+		$this->assertSame( 'verified', $out['response']['reason'] );
+		$this->assertTrue( $out['response']['demo'] );
+		$this->assertSame( 0, $out['mint_discount_pct'] );
+
+		$this->assertSame( 'verified', $out['event']['outcome'] );
+		$this->assertSame( 'test', $out['event']['source'], 'a demo verdict is recorded as a test visit' );
+		$this->assertTrue( $out['event']['identity_only'] );
+	}
+
+	public function test_demo_verdict_never_mints_whatever_the_settings_say(): void {
+		$parsed = AVA_Pay_Agent_Policy::parse(
+			'{"version":1,"rules":[{"platform":"agent_demo_public","action":"allow","offerDiscountPct":20}]}'
+		);
+		$this->assertTrue( $parsed['ok'] );
+		$out = $this->decide_body(
+			$this->demo_verdict(),
+			$this->settings(
+				array(
+					'identityOnlyDiscountPct' => 15,
+					'policy'                  => $parsed['policy'],
+				)
+			)
+		);
+
+		$this->assertTrue( $out['response']['allow'] );
+		$this->assertSame( 0, $out['mint_discount_pct'], 'the demo key is public; every discount knob must be a dead end for it' );
+	}
+
+	public function test_demo_verdict_that_somehow_kept_a_mandate_still_mints_nothing(): void {
+		// Belt over the API-side strip.
+		$body            = $this->demo_verdict();
+		$body['mandate'] = array(
+			'id'               => 'mandate_self_made',
+			'iat'              => 0,
+			'exp'              => 9999999999,
+			'maxAmountMinor'   => 50000,
+			'currency'         => 'USD',
+			'allowedMerchants' => array( '*' ),
+		);
+		$out = $this->decide_body( $body );
+
+		$this->assertTrue( $out['response']['allow'] );
+		$this->assertSame( 0, $out['mint_discount_pct'] );
+		$this->assertSame( 'test', $out['event']['source'] );
+	}
+
+	public function test_demo_flag_on_an_untrusted_verdict_means_nothing(): void {
+		$out = $this->decide_body(
+			array(
+				'trusted' => false,
+				'reason'  => 'invalid_signature',
+				'message' => 'no',
+				'demo'    => true,
+			)
+		);
+
+		$this->assertFalse( $out['response']['allow'] );
+		$this->assertSame( 'failed', $out['event']['outcome'] );
+		$this->assertArrayNotHasKey( 'source', $out['event'], 'an unverified request is never labelled a test visit' );
+	}
+
+	public function test_demo_verdict_blocked_by_policy_is_still_a_test_visit(): void {
+		$out = $this->decide_body(
+			$this->demo_verdict(),
+			$this->settings( array( 'acceptVerifiedAgents' => false ) )
+		);
+
+		$this->assertFalse( $out['response']['allow'] );
+		$this->assertSame( 'policy_blocked', $out['event']['outcome'] );
+		$this->assertSame( 'test', $out['event']['source'] );
+		$this->assertSame( 0, $out['mint_discount_pct'] );
+	}
+
 	public function test_platform_offer_does_not_leak_onto_real_identity_only_traffic(): void {
 		$parsed = AVA_Pay_Agent_Policy::parse(
 			'{"version":1,"rules":[{"platform":"https://agent-demo.ava.example","action":"allow","offerDiscountPct":15}]}'

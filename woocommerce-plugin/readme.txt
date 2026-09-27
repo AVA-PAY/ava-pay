@@ -88,6 +88,9 @@ Privacy policy: https://avalayer.com/privacy
 
 == Changelog ==
 
+= 0.4.1 =
+* Security hardening: verdicts from AVA Pay's public demo agent (the credential behind the landing-page demo, whose signing key is published on purpose) never create a coupon, whatever your discount settings, per-platform rules or identity-only percentage say. The verification API already refuses such verdicts a buyer mandate; this release adds the plugin's own check on top. Demo verify requests are recorded as test visits, and demo page visits are marked `demo_agent` on the Agent visits screen.
+
 = 0.4.0 =
 * New: Agent visits (WooCommerce, Agent visits). When an AI agent loads a page with signed requests, the plugin checks the signature with the AVA Pay API after the page has been sent and shows the result: counts for the last 7 and 30 days by agent platform and outcome (verified, failed, unverifiable, error, not checked), and the last 50 visits with time, platform, outcome, reason and path. The page view itself is never blocked, redirected or given a coupon.
 * New setting: "Verify signed AI agent page visits", on by default.

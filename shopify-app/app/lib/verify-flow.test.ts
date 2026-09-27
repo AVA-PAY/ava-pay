@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   decideVerification,
   isConclusive,
+  isDemoVerdict,
   REASON_UNVERIFIABLE,
   settleDiscount,
 } from './verify-flow.js';
@@ -77,6 +78,82 @@ const MANDATE_BACKED: VerificationResult = {
   },
   ttlSeconds: 60,
 };
+
+/** The demo agent's verdict as the API sends it: identity-only, demo: true. */
+const DEMO_VERDICT: VerificationResult = {
+  trusted: true,
+  conclusive: true,
+  protocol: 'ava-tap',
+  agent: { id: 'agent_demo_public', protocol: 'ava-tap' },
+  demo: true,
+  ttlSeconds: 60,
+};
+
+describe('the demo-agent gate', () => {
+  it('a demo verdict produces 0% at default settings (the identity-only default)', () => {
+    const d = decideVerification(settings(), verdict(DEMO_VERDICT), TAP_HEADERS);
+    expect(d.response).toEqual({ allow: true, reason: 'verified', demo: true });
+    expect(d.event.outcome).toBe('verified');
+    expect(d.event.identityOnly).toBe(true);
+    expect(d.mintDiscountPct).toBe(0);
+  });
+
+  it('never mints for a demo verdict, whatever the settings say', () => {
+    // Every knob that could otherwise pay out: the identity-only tier, and a
+    // per-platform offer for the demo platform. The demo key is public, so
+    // any of these would be free coupons for whoever cares to sign.
+    const generous = settings({
+      identityOnlyDiscountPct: 15,
+      policy: {
+        version: 1,
+        rules: [{ platform: 'agent_demo_public', action: 'allow', offerDiscountPct: 20 }],
+      },
+    });
+    const d = decideVerification(generous, verdict(DEMO_VERDICT), TAP_HEADERS);
+    expect(d.response.allow).toBe(true);
+    expect(d.mintDiscountPct).toBe(0);
+  });
+
+  it('belt over the API strip: a demo verdict that somehow kept a mandate still mints nothing', () => {
+    const withMandate = {
+      ...MANDATE_BACKED,
+      agent: { id: 'agent_demo_public', protocol: 'ava-tap' },
+      demo: true,
+    } as VerificationResult;
+    const d = decideVerification(settings(), verdict(withMandate), TAP_HEADERS);
+    expect(d.response.allow).toBe(true);
+    expect(d.mintDiscountPct).toBe(0);
+  });
+
+  it('an identity-only NON-demo verdict still earns the identity-only tier', () => {
+    const d = decideVerification(
+      settings({ identityOnlyDiscountPct: 15 }),
+      verdict(IDENTITY_ONLY),
+      WBA_HEADERS,
+    );
+    expect(d.response).toEqual({ allow: true, reason: 'verified' });
+    expect(d.mintDiscountPct).toBe(15);
+  });
+});
+
+describe('isDemoVerdict', () => {
+  it('is true only for a trusted verdict the API flagged demo', () => {
+    expect(isDemoVerdict(verdict(DEMO_VERDICT))).toBe(true);
+    expect(isDemoVerdict(verdict(IDENTITY_ONLY))).toBe(false);
+    expect(isDemoVerdict(verdict(MANDATE_BACKED))).toBe(false);
+    expect(isDemoVerdict({ ok: false, error: 'network' })).toBe(false);
+  });
+
+  it('ignores the flag on anything unverified', () => {
+    const bogus = {
+      trusted: false,
+      reason: 'invalid_signature',
+      message: 'no',
+      demo: true,
+    } as unknown as VerificationResult;
+    expect(isDemoVerdict(verdict(bogus))).toBe(false);
+  });
+});
 
 describe('isConclusive', () => {
   it('reads a present boolean', () => {

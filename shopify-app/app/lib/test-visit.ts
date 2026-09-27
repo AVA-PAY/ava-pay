@@ -36,9 +36,10 @@
 
 import type { AvaCallResult } from './ava.server.js';
 import type { IncomingRequest } from './ava-types.js';
-import type { MerchantPolicyInput } from './policy.js';
+import { applyMerchantPolicy, type MerchantPolicyInput } from './policy.js';
 import {
   decideVerification,
+  isDemoVerdict,
   type VerificationEventDraft,
   type VerificationOutcome,
 } from './verify-flow.js';
@@ -53,8 +54,60 @@ export interface TestVisitResult {
   /**
    * Percentage the merchant's policy would apply to this agent. No code is
    * minted for a test visit, so this is what a real visit would have received.
+   * Always 0 for a demo verdict: demo visits never earn a discount.
    */
   discountPct: number;
+  /** The API flagged this verdict as the public demo agent's. */
+  demo: boolean;
+  /**
+   * Demo verdicts only: the percentage the merchant's settings would grant a
+   * REAL agent carrying a buyer mandate, computed by running the same policy
+   * over the verdict with a mandate attached. Null when the verdict is not a
+   * demo one, or when that hypothetical agent would not be admitted at all.
+   */
+  mandateBackedPct: number | null;
+}
+
+/**
+ * The public demo agent's identity, which is also its platform label on the
+ * Traffic page. The signing half lives in test-visit-request.ts (server only,
+ * it re-exports this constant); it is declared here so browser code can name
+ * the platform without importing node:crypto.
+ */
+export const DEMO_AGENT_ID = 'agent_demo_public';
+
+/**
+ * The stand-in buyer mandate behind mandateBackedPct. Sized like the demo
+ * credential's own mandate (before the API started stripping it), so the
+ * number the merchant reads is the one their settings, caps and spend rules
+ * produce for an ordinary mandate-backed visit.
+ */
+const HYPOTHETICAL_MANDATE = {
+  id: 'mandate_hypothetical',
+  iat: 0,
+  exp: 0,
+  maxAmountMinor: 50_000,
+  currency: 'USD',
+  allowedMerchants: ['*'],
+};
+
+/**
+ * What a real, mandate-backed agent would earn under these settings: the same
+ * applyMerchantPolicy the live path runs, over a trusted verdict carrying the
+ * stand-in mandate. Null when that agent would not be admitted at all.
+ * Browser-safe, so the Settings page can print the number next to its
+ * storefront test link.
+ */
+export function settingsMandateBackedPct(
+  settings: MerchantPolicyInput,
+  platform: string | null = DEMO_AGENT_ID,
+): number | null {
+  const decision = applyMerchantPolicy(
+    settings,
+    { trusted: true, mandate: HYPOTHETICAL_MANDATE, ttlSeconds: 0 },
+    platform,
+  );
+  return decision.allow ? decision.discountPct : null;
 }
 
 export interface TestVisitDecision {
@@ -77,6 +130,7 @@ export function decideTestVisit(
   request: IncomingRequest,
 ): TestVisitDecision {
   const { event, mintDiscountPct } = decideVerification(settings, call, request.headers);
+  const demo = isDemoVerdict(call);
   return {
     event: { ...event, source: 'test' },
     result: {
@@ -85,6 +139,8 @@ export function decideTestVisit(
       protocol: event.protocol,
       platform: event.platform,
       discountPct: mintDiscountPct,
+      demo,
+      mandateBackedPct: demo ? settingsMandateBackedPct(settings, event.platform) : null,
     },
   };
 }
@@ -103,6 +159,16 @@ export function describeTestVisit(result: TestVisitResult): {
 } {
   switch (result.outcome) {
     case 'verified':
+      if (result.demo) {
+        return {
+          tone: 'success',
+          title: 'Demo agent verified',
+          body:
+            result.mandateBackedPct !== null
+              ? `Demo agent verified over ${result.protocol ?? 'its signed protocol'}. Demo visits never earn a discount; under your settings a real agent with a buyer mandate would get ${result.mandateBackedPct}%. The visit now appears on the Traffic page, labelled as a test.`
+              : `Demo agent verified over ${result.protocol ?? 'its signed protocol'}. Demo visits never earn a discount. The visit now appears on the Traffic page, labelled as a test.`,
+        };
+      }
       return {
         tone: 'success',
         title: 'Verified',

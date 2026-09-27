@@ -359,6 +359,34 @@ final class PageVisitTest extends TestCase {
 		$this->assertArrayNotHasKey( 'discount_code', $mandated );
 	}
 
+	public function test_demo_verdict_keeps_page_view_source_and_carries_the_flag_in_reason(): void {
+		// The demo credential's page views must be tellable apart from real
+		// agent traffic, but the source column belongs to this path: the
+		// visits screen and the retention purge both select on 'page_view'.
+		// So the flag rides in the reason of the verified row.
+		$row = AVA_Pay_Page_Visit::event(
+			array(
+				'ok'     => true,
+				'result' => array(
+					'trusted'  => true,
+					'protocol' => 'ava-tap',
+					'agent'    => array(
+						'id'       => 'agent_demo_public',
+						'protocol' => 'ava-tap',
+					),
+					'demo'     => true,
+				),
+			),
+			$this->wba_headers(),
+			'/product/widget'
+		);
+		$this->assertSame( 'page_view', $row['source'] );
+		$this->assertSame( 'verified', $row['outcome'] );
+		$this->assertSame( 'demo_agent', $row['reason'] );
+		$this->assertSame( 'agent_demo_public', $row['platform'] );
+		$this->assertTrue( $row['identity_only'] );
+	}
+
 	public function test_every_row_is_marked_page_view_and_stores_nothing_identifying(): void {
 		$row = AVA_Pay_Page_Visit::event(
 			array(
