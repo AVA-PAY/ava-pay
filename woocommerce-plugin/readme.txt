@@ -4,7 +4,7 @@ Tags: ai agents, agentic commerce, bot verification, coupons, security
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.2.0
+Stable tag: 0.3.0
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -64,14 +64,18 @@ No. Discounts are capped by your maximum, identity-only agents get 0% unless you
 This plugin connects to the AVA Pay verification API, operated by Agentic Verification Architecture LLC, to check whether an AI agent's signed request is genuine. Your store cannot verify agent signatures on its own; this API does the cryptographic check against the agent platforms' published keys.
 
 * **Service:** AVA Pay verification API. The plugin sends `POST https://pay.avalayer.com/verify`. The base URL is the "AVA Pay API URL" setting (default `https://pay.avalayer.com`) and can also be changed with the `ava_pay_api_url` filter.
-* **When data is sent:** only when a request is POSTed to the plugin's verify endpoint, `/wp-json/ava-pay/v1/verify-agent`, and passes the local rate limit. That endpoint is how signed agent requests reach the plugin, either directly from the agent or from the storefront script on a page view that carries agent signature parameters. The plugin forwards each such request as received and lets the API decide; a request without valid signature material is rejected there. Nothing is sent on ordinary page views, in the admin, or during checkout.
-* **What is sent:** the incoming request's HTTP method; the canonical URL of the verify endpoint, built from your site's own address rather than from the incoming request; only the request headers verification needs, which are `Signature`, `Signature-Input` and `Signature-Agent`, every header the agent's signature names as covered, the protocol headers the verifier reads by name (`X-Ava-Mandate`, `X-Ava-Discount-Hint`, the AP2 mandate headers, `Content-Digest`, and `Content-Type` when there is a body), and `Host`, replaced by your site's own host; and the request body, if there is one. Every other header is dropped before the request leaves your site, including `X-Forwarded-For` and `User-Agent` (unless the agent's signature covers it). `Cookie`, `Authorization` and `X-WP-Nonce` are never forwarded.
+* **When data is sent:** only when a request is POSTed to the plugin's verify endpoint, `/wp-json/ava-pay/v1/verify-agent`, and passes the local rate limit. That endpoint is how signed agent requests reach the plugin, either directly from the agent or from the storefront script on a page view that carries agent signature parameters. The plugin forwards each such request, with only the headers listed below, and lets the API decide; a request without valid signature material is rejected there. Nothing is sent on ordinary page views, in the admin, or during checkout.
+* **What is sent:** the incoming request's HTTP method; the canonical URL of the verify endpoint, built from your site's own address rather than from the incoming request; only the request headers verification needs, which are `Signature`, `Signature-Input` and `Signature-Agent`, every header the agent's signature names as covered, the protocol headers the verifier reads by name (`X-Ava-Mandate`, `X-Ava-Discount-Hint`, the AP2 mandate headers, `Content-Digest`, and `Content-Type` when there is a body), and `Host`, replaced by your site's own host; and the request body, if there is one. Every other header is dropped before the request leaves your site, including `X-Forwarded-For` and `User-Agent` (unless the agent's signature covers it). `Cookie`, `Authorization`, `Proxy-Authorization` and `X-WP-Nonce` are never forwarded, even when the agent's signature covers them.
 * **What is not sent:** no customer, order, or session data. No cookies, no logged-in user information, no cart contents, and no store settings or policy.
 
 Terms of service: https://avalayer.com/terms
 Privacy policy: https://avalayer.com/privacy
 
 == Changelog ==
+
+= 0.3.0 =
+* Less data leaves your site. When the plugin asks the verification service to check an agent request, it now sends only what verification needs: the agent's signature headers, the headers that signature covers, the protocol headers verification reads, and your site's own host. Every other header is dropped, including `X-Forwarded-For` and `User-Agent` unless the agent's signature covers them. Cookies and credentials are never sent, even when an agent's signature names them (such a request fails verification).
+* A discount is recorded on a verification event only when a coupon was actually created. If creating the coupon fails, the verification result stands, no discount is recorded, and one line is written to the PHP error log.
 
 = 0.2.0 =
 * Honest verdicts: a verification the API could not complete (an unreachable agent directory or key source) is no longer reported as a blocked agent. It is recorded with the new `unverifiable` outcome and answers the storefront with `verification_unavailable`. Fail-closed behaviour is unchanged: such a request is still not admitted.
@@ -80,3 +84,8 @@ Privacy policy: https://avalayer.com/privacy
 
 = 0.1.0 =
 * Initial release: verify endpoint, merchant policy engine (per-platform rules), single-use coupon minting, verification + commerce event recording.
+
+== Upgrade Notice ==
+
+= 0.3.0 =
+Sends less data to the verification service: only the headers verification needs, never cookies or credentials. Recommended for all sites.
