@@ -4,7 +4,7 @@ Tags: ai agents, agentic commerce, bot verification, coupons, security
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.3.0
+Stable tag: 0.4.0
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -21,7 +21,8 @@ This plugin connects your WooCommerce store to the AVA Pay verification API, whi
 * Adds a verify endpoint (`/wp-json/ava-pay/v1/verify-agent`) that proxies signed agent requests to the AVA Pay API. Signatures are verified server-side against the agent platforms' published keys.
 * Applies YOUR policy: accept/reject verified agents, per-platform allow/challenge/block rules, discount caps, and spend limits, kept as a portable JSON policy document.
 * Optionally mints a single-use, expiring WooCommerce coupon for verified agents.
-* Records every verification and every attributed order in local database tables. (This version records the data; a traffic/revenue dashboard is planned, and nothing is displayed yet.)
+* Shows signed AI agent visits to your store. When an AI agent loads a page with its requests signed (ChatGPT's agent does; most crawlers do not), the plugin checks the signature with the AVA Pay API after the page has been sent and lists the result under WooCommerce, Agent visits: counts for the last 7 and 30 days by agent platform and outcome, and the last 50 visits. This only observes: a page view is never blocked, redirected or given a coupon because of it. You can turn it off in the settings.
+* Records every verification and every attributed order in local database tables. (Agent page visits are shown as above; a traffic and revenue dashboard for the verify endpoint and orders is planned, and that data is not displayed yet.)
 
 **Trust model, honestly stated**
 
@@ -41,15 +42,25 @@ This plugin connects your WooCommerce store to the AVA Pay verification API, whi
 
 = Does this slow my store down? =
 
-No. The verify endpoint is only exercised by agent traffic, and the storefront script loads only on page views that carry agent signature parameters.
+Not for human shoppers: a page view without agent signature headers costs one check and nothing else. The verify endpoint is only exercised by agent traffic, and the storefront script loads only on page views that carry agent signature parameters.
+
+For a page view that does carry agent signature headers, the check runs after the page has been generated. On PHP-FPM and LiteSpeed hosts (most hosting) the response is finished first, so the agent is not kept waiting. On other server setups, such as Apache with mod_php, the page has been sent but the connection can stay open for up to about 3 seconds while the check completes. Checks are capped per agent and per site (see the budget question below), and you can turn them off in the settings.
 
 = What data leaves my site? =
 
-Only the agent request that reached the verify endpoint is forwarded to the verification API: its method, its body, and the headers verification needs (the agent's signature headers, the headers that signature covers, and the protocol headers the verifier reads). Cookies, credentials, and other request headers are not forwarded. No customer, order, or session data is sent. See External services below for the full detail.
+Only agent requests are forwarded to the verification API: a request that reached the verify endpoint, and a page view that carried agent signature headers. For each, the plugin sends its method, its URL, its body if it has one (a page view has none), and the headers verification needs (the agent's signature headers, the headers that signature covers, and the protocol headers the verifier reads). Cookies, credentials, and other request headers are not forwarded. No customer, order, or session data is sent. See External services below for the full detail.
 
 = My store is behind Cloudflare or a reverse proxy. Does rate limiting still work? =
 
 The verify endpoint is rate-limited per client IP (REMOTE_ADDR). If your host does not restore the real client IP, all traffic shares the proxy's IP and one rate-limit bucket. Preferably fix real-IP restoration at the server level (mod_remoteip / ngx_http_realip); alternatively, use the `ava_pay_client_ip` filter to supply the client IP from a header only your trusted proxy can set (e.g. CF-Connecting-IP when only Cloudflare can reach the origin).
+
+= I have enabled full-page caching. Will I see agent visits? =
+
+Only for pages that are not served from the cache. A cached page is sent by your host or caching plugin without running WordPress or PHP, so the plugin never sees that visit and it is not shown under Agent visits. A cache that varies on, or bypasses for, the Signature header lets those visits through; most caches do neither by default.
+
+= How many agent visits are checked? =
+
+Up to 30 a minute and 2,000 a day for each agent, and up to 120 a minute and 10,000 a day for the whole site. Visits beyond that are not checked, are not listed, and are counted as "Not checked (budget)" under Agent visits. Developers can change the numbers with the `ava_pay_page_visit_agent_per_minute`, `ava_pay_page_visit_agent_per_day`, `ava_pay_page_visit_site_per_minute` and `ava_pay_page_visit_site_per_day` filters.
 
 = Can agents get discounts without my consent? =
 
@@ -64,14 +75,20 @@ No. Discounts are capped by your maximum, identity-only agents get 0% unless you
 This plugin connects to the AVA Pay verification API, operated by Agentic Verification Architecture LLC, to check whether an AI agent's signed request is genuine. Your store cannot verify agent signatures on its own; this API does the cryptographic check against the agent platforms' published keys.
 
 * **Service:** AVA Pay verification API. The plugin sends `POST https://pay.avalayer.com/verify`. The base URL is the "AVA Pay API URL" setting (default `https://pay.avalayer.com`) and can also be changed with the `ava_pay_api_url` filter.
-* **When data is sent:** only when a request is POSTed to the plugin's verify endpoint, `/wp-json/ava-pay/v1/verify-agent`, and passes the local rate limit. That endpoint is how signed agent requests reach the plugin, either directly from the agent or from the storefront script on a page view that carries agent signature parameters. The plugin forwards each such request, with only the headers listed below, and lets the API decide; a request without valid signature material is rejected there. Nothing is sent on ordinary page views, in the admin, or during checkout.
-* **What is sent:** the incoming request's HTTP method; the canonical URL of the verify endpoint, built from your site's own address rather than from the incoming request; only the request headers verification needs, which are `Signature`, `Signature-Input` and `Signature-Agent`, every header the agent's signature names as covered, the protocol headers the verifier reads by name (`X-Ava-Mandate`, `X-Ava-Discount-Hint`, the AP2 mandate headers, `Content-Digest`, and `Content-Type` when there is a body), and `Host`, replaced by your site's own host; and the request body, if there is one. Every other header is dropped before the request leaves your site, including `X-Forwarded-For` and `User-Agent` (unless the agent's signature covers it). `Cookie`, `Authorization`, `Proxy-Authorization` and `X-WP-Nonce` are never forwarded, even when the agent's signature covers them.
-* **What is not sent:** no customer, order, or session data. No cookies, no logged-in user information, no cart contents, and no store settings or policy.
+* **When data is sent:** in two cases. (1) When a request is POSTed to the plugin's verify endpoint, `/wp-json/ava-pay/v1/verify-agent`, and passes the local rate limit. That endpoint is how signed agent requests reach the plugin, either directly from the agent or from the storefront script on a page view that carries agent signature parameters. (2) When a front-end page request (GET or HEAD) carries agent signature headers (`Signature` and `Signature-Input`), the "Verify signed AI agent page visits" setting is on, and the visit is within the verification budget; this happens after the page has been sent. The plugin forwards each such request, with only the headers listed below, and lets the API decide; a request without valid signature material is rejected there. Nothing is sent for page views without agent signature headers, in the admin, or during checkout.
+* **What is sent:** the incoming request's HTTP method; the URL, which for the verify endpoint is its canonical URL built from your site's own address rather than from the incoming request, and for a page visit is the page's URL as the agent requested it (the `Host` header it sent plus the path and query string); only the request headers verification needs, which are `Signature`, `Signature-Input` and `Signature-Agent`, every header the agent's signature names as covered, the protocol headers the verifier reads by name (`X-Ava-Mandate`, `X-Ava-Discount-Hint`, the AP2 mandate headers, `Content-Digest`, and `Content-Type` when there is a body), and `Host`, replaced by your site's own host on the verify endpoint and sent as received for a page visit; and the request body, if there is one (a page visit has none). Every other header is dropped before the request leaves your site, including `X-Forwarded-For` and `User-Agent` (unless the agent's signature covers it). `Cookie`, `Authorization`, `Proxy-Authorization` and `X-WP-Nonce` are never forwarded, even when the agent's signature covers them.
+* **What is not sent:** no customer, order, or session data. No cookies, no logged-in user information, no cart contents, no visitor IP address, and no store settings or policy.
 
 Terms of service: https://avalayer.com/terms
 Privacy policy: https://avalayer.com/privacy
 
 == Changelog ==
+
+= 0.4.0 =
+* New: Agent visits (WooCommerce, Agent visits). When an AI agent loads a page with signed requests, the plugin checks the signature with the AVA Pay API after the page has been sent and shows the result: counts for the last 7 and 30 days by agent platform and outcome (verified, failed, unverifiable, error, not checked), and the last 50 visits with time, platform, outcome, reason and path. The page view itself is never blocked, redirected or given a coupon.
+* New setting: "Verify signed AI agent page visits", on by default.
+* Page-visit checks are capped at 30 a minute and 2,000 a day per agent, and 120 a minute and 10,000 a day per site, all adjustable with filters. Visits over the cap are counted as not checked instead of being sent.
+* The verification events table gains two columns: `source` (whether a row came from the verify endpoint or a page visit; existing rows are marked as verify endpoint) and `path` (the page path, with the query string removed). No IP address, user agent or header values are stored.
 
 = 0.3.0 =
 * Less data leaves your site. When the plugin asks the verification service to check an agent request, it now sends only what verification needs: the agent's signature headers, the headers that signature covers, the protocol headers verification reads, and your site's own host. Every other header is dropped, including `X-Forwarded-For` and `User-Agent` unless the agent's signature covers them. Cookies and credentials are never sent, even when an agent's signature names them (such a request fails verification).
@@ -86,6 +103,9 @@ Privacy policy: https://avalayer.com/privacy
 * Initial release: verify endpoint, merchant policy engine (per-platform rules), single-use coupon minting, verification + commerce event recording.
 
 == Upgrade Notice ==
+
+= 0.4.0 =
+Shows signed AI agent visits to your store.
 
 = 0.3.0 =
 Sends less data to the verification service: only the headers verification needs, never cookies or credentials. Recommended for all sites.

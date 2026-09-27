@@ -149,8 +149,9 @@ class AVA_Pay_Rest {
 
 		$decision = AVA_Pay_Verify_Flow::decide( $settings, $call, $headers );
 
-		$event    = $decision['event'];
-		$response = $decision['response'];
+		$event           = $decision['event'];
+		$event['source'] = 'verify_endpoint';
+		$response        = $decision['response'];
 
 		$coupon = ( $response['allow'] && $decision['mint_discount_pct'] > 0 )
 			? AVA_Pay_Coupons::mint( $decision['mint_discount_pct'] )

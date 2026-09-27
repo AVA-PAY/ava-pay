@@ -3,7 +3,7 @@
  * Plugin Name: AVA Pay for WooCommerce
  * Plugin URI: https://avalayer.com/pay
  * Description: Verify AI shopping agents (Visa TAP, Web Bot Auth, AP2) on your WooCommerce store. Set the rules, admit trusted agents, optionally mint one-time coupons, and see the traffic.
- * Version: 0.3.0
+ * Version: 0.4.0
  * Author: Agentic Verification Architecture
  * Author URI: https://avalayer.com
  * License: MIT
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'AVA_PAY_WC_VERSION', '0.3.0' );
+define( 'AVA_PAY_WC_VERSION', '0.4.0' );
 define( 'AVA_PAY_WC_PLUGIN_FILE', __FILE__ );
 define( 'AVA_PAY_WC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AVA_PAY_WC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -36,6 +36,9 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-commerce.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-verify-flow.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-forwarded-headers.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-rate-limiter.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-page-visit.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-budget.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-report.php';
 
 // WordPress/WooCommerce integration layer.
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-settings.php';
@@ -45,6 +48,8 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-coupons.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-rest.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-orders.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-frontend.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-page-visits.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-visits-view.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-admin.php';
 
 register_activation_hook( __FILE__, array( 'AVA_Pay_Events', 'install' ) );
@@ -71,4 +76,5 @@ add_action(
 add_action( 'rest_api_init', array( 'AVA_Pay_Rest', 'register_routes' ) );
 add_action( 'init', array( 'AVA_Pay_Orders', 'register' ) );
 add_action( 'init', array( 'AVA_Pay_Frontend', 'register' ) );
+add_action( 'init', array( 'AVA_Pay_Page_Visits', 'register' ) );
 add_action( 'init', array( 'AVA_Pay_Admin', 'register' ) );

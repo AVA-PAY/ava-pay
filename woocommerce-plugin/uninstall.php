@@ -29,6 +29,14 @@ $wpdb->query(
 	"DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_ava\\_pay\\_rl\\_%'
 		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_rl\\_%'"
 );
+// Page-visit budget counters and the daily "not checked" tallies, for the
+// same reason: the per-agent keys are md5 hashes of agent labels.
+$wpdb->query(
+	"DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_ava\\_pay\\_vb\\_%'
+		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_vb\\_%'
+		OR option_name LIKE '\\_transient\\_ava\\_pay\\_vskip\\_%'
+		OR option_name LIKE '\\_transient\\_timeout\\_ava\\_pay\\_vskip\\_%'"
+);
 // phpcs:enable
 
 delete_option( 'ava_pay_settings' );

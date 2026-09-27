@@ -45,6 +45,12 @@ class AVA_Pay_Events {
 		//   policy_blocked verified, but merchant settings rejected it
 		//   error          the AVA Pay API was unreachable (failed closed)
 		// reason: typed VerificationFailureReason, policy reason, or ava_* client error.
+		// source: 'verify_endpoint' (the REST verify endpoint, and every row
+		//   written before 0.4.0, which the DEFAULT fills in when dbDelta adds
+		//   the column) | 'page_view' (a signed front-end page visit, observed
+		//   only; see AVA_Pay_Page_Visit).
+		// path: page_view rows only. The request path with its query string
+		//   removed; never the query, the IP, the user agent or header values.
 		dbDelta(
 			"CREATE TABLE {$verification_table} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -56,9 +62,12 @@ class AVA_Pay_Events {
 				identity_only TINYINT(1) NOT NULL DEFAULT 0,
 				discount_pct SMALLINT NULL,
 				discount_code VARCHAR(64) NULL,
+				source VARCHAR(20) NULL DEFAULT 'verify_endpoint',
+				path VARCHAR(255) NULL,
 				PRIMARY KEY  (id),
 				KEY created_at (created_at),
-				KEY discount_code (discount_code)
+				KEY discount_code (discount_code),
+				KEY source_created (source, created_at)
 			) {$charset_collate};"
 		);
 
@@ -90,10 +99,12 @@ class AVA_Pay_Events {
 	}
 
 	/**
-	 * Record one verification event (one row per verify-agent request).
+	 * Record one verification event: one row per verify-agent request, and
+	 * one per signed page visit that was checked (source page_view).
 	 *
 	 * @param array $event outcome (required), platform, protocol, reason,
-	 *                     identity_only, discount_pct, discount_code.
+	 *                     identity_only, discount_pct, discount_code, source
+	 *                     (defaults to 'verify_endpoint'), path.
 	 */
 	public static function record_verification( array $event ) {
 		global $wpdb;
@@ -106,6 +117,8 @@ class AVA_Pay_Events {
 			'identity_only' => ! empty( $event['identity_only'] ) ? 1 : 0,
 			'discount_pct'  => isset( $event['discount_pct'] ) ? (int) $event['discount_pct'] : null,
 			'discount_code' => isset( $event['discount_code'] ) ? self::truncate( $event['discount_code'], 64 ) : null,
+			'source'        => isset( $event['source'] ) ? self::truncate( $event['source'], 20 ) : 'verify_endpoint',
+			'path'          => isset( $event['path'] ) ? self::truncate( $event['path'], 255 ) : null,
 		);
 
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery -- insert into this plugin's own event table; no core API exists for custom tables.
@@ -216,6 +229,48 @@ class AVA_Pay_Events {
 			ARRAY_A
 		);
 		return $row ? $row : null;
+	}
+
+	/**
+	 * Page-visit rows since $since_gmt, counted by platform and outcome.
+	 *
+	 * @param string $since_gmt 'Y-m-d H:i:s', UTC.
+	 * @return array<int,array{platform:string|null,outcome:string,n:string}>
+	 */
+	public static function page_visit_counts( $since_gmt ) {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin report over this plugin's own event table; must be current.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT platform, outcome, COUNT(*) AS n FROM %i WHERE source = %s AND created_at >= %s GROUP BY platform, outcome',
+				self::verification_table(),
+				AVA_Pay_Page_Visit::SOURCE,
+				$since_gmt
+			),
+			ARRAY_A
+		);
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * The most recent page-visit rows, newest first.
+	 *
+	 * @param int $limit Row cap.
+	 * @return array<int,array{created_at:string,platform:string|null,protocol:string|null,outcome:string,reason:string|null,path:string|null}>
+	 */
+	public static function recent_page_visits( $limit ) {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin report over this plugin's own event table; must be current.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT created_at, platform, protocol, outcome, reason, path FROM %i WHERE source = %s ORDER BY id DESC LIMIT %d',
+				self::verification_table(),
+				AVA_Pay_Page_Visit::SOURCE,
+				(int) $limit
+			),
+			ARRAY_A
+		);
+		return is_array( $rows ) ? $rows : array();
 	}
 
 	/**

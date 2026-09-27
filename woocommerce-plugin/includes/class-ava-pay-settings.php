@@ -34,11 +34,19 @@ class AVA_Pay_Settings {
 	);
 
 	/**
+	 * Woo-only setting (the Shopify app has no page-view path): verify signed
+	 * agent page visits after the page is sent. Default on; see
+	 * AVA_Pay_Page_Visits.
+	 */
+	const DEFAULT_VERIFY_PAGE_VISITS = true;
+
+	/**
 	 * Settings for the verify path: defaults merged over the stored option,
 	 * policy JSON re-validated on every read (corrupt → null).
 	 *
 	 * @return array {apiUrl, acceptVerifiedAgents, defaultDiscountPct,
-	 *                maxDiscountPct, identityOnlyDiscountPct, policy}
+	 *                maxDiscountPct, identityOnlyDiscountPct, policy,
+	 *                verifyPageVisits}
 	 */
 	public static function get() {
 		$stored = get_option( self::OPTION_KEY, array() );
@@ -67,6 +75,9 @@ class AVA_Pay_Settings {
 				isset( $stored['identityOnlyDiscountPct'] ) ? $stored['identityOnlyDiscountPct'] : self::DEFAULTS['identityOnlyDiscountPct']
 			),
 			'policy'                  => self::parse_stored_policy( $policy_json ),
+			'verifyPageVisits'        => isset( $stored['verifyPageVisits'] )
+				? (bool) $stored['verifyPageVisits']
+				: self::DEFAULT_VERIFY_PAGE_VISITS,
 		);
 	}
 

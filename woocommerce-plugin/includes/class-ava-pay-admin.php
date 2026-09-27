@@ -17,8 +17,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class AVA_Pay_Admin {
 
-	const PAGE_SLUG = 'ava-pay';
-	const NONCE     = 'ava_pay_save_settings';
+	const PAGE_SLUG   = 'ava-pay';
+	const VISITS_SLUG = 'ava-pay-visits';
+	const NONCE       = 'ava_pay_save_settings';
+
+	/** Rows in the "Recent visits" table. */
+	const RECENT_VISITS = 50;
 
 	public static function register() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
@@ -32,6 +36,56 @@ class AVA_Pay_Admin {
 			'manage_woocommerce',
 			self::PAGE_SLUG,
 			array( __CLASS__, 'render_page' )
+		);
+		add_submenu_page(
+			'woocommerce',
+			__( 'AVA Pay agent visits', 'ava-pay-for-woocommerce' ),
+			__( 'Agent visits', 'ava-pay-for-woocommerce' ),
+			'manage_woocommerce',
+			self::VISITS_SLUG,
+			array( __CLASS__, 'render_visits_page' )
+		);
+	}
+
+	/**
+	 * WooCommerce, Agent visits: signed agent page visits and what the
+	 * verifier made of them. Read-only. Data is gathered here and every
+	 * value is escaped in AVA_Pay_Visits_View.
+	 */
+	public static function render_visits_page() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to view AVA Pay agent visits.', 'ava-pay-for-woocommerce' ) );
+		}
+
+		$budget  = AVA_Pay_Page_Visits::budget();
+		$periods = array();
+		foreach ( array( 7, 30 ) as $days ) {
+			$periods[ $days ] = AVA_Pay_Visit_Report::summarize(
+				AVA_Pay_Events::page_visit_counts( gmdate( 'Y-m-d H:i:s', $budget->window_start( $days ) ) ),
+				$budget->skips( $days )
+			);
+		}
+
+		$recent = array();
+		foreach ( AVA_Pay_Events::recent_page_visits( self::RECENT_VISITS ) as $row ) {
+			$recent[] = array(
+				'time'     => get_date_from_gmt( (string) $row['created_at'], 'Y-m-d H:i' ),
+				'platform' => (string) $row['platform'],
+				'protocol' => (string) $row['protocol'],
+				'outcome'  => (string) $row['outcome'],
+				'reason'   => (string) $row['reason'],
+				'path'     => (string) $row['path'],
+			);
+		}
+
+		$settings = AVA_Pay_Settings::get();
+		AVA_Pay_Visits_View::render(
+			array(
+				'enabled'      => ! empty( $settings['verifyPageVisits'] ),
+				'settings_url' => admin_url( 'admin.php?page=' . self::PAGE_SLUG ),
+				'periods'      => $periods,
+				'recent'       => $recent,
+			)
 		);
 	}
 
@@ -81,6 +135,16 @@ class AVA_Pay_Admin {
 								<?php esc_html_e( 'Admit agents that pass cryptographic verification', 'ava-pay-for-woocommerce' ); ?>
 							</label>
 							<p class="description"><?php esc_html_e( 'When off, every agent is rejected (recorded as merchant_disabled).', 'ava-pay-for-woocommerce' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Agent page visits', 'ava-pay-for-woocommerce' ); ?></th>
+						<td>
+							<label>
+								<input name="ava_pay_verify_page_visits" type="checkbox" value="1" <?php checked( $settings['verifyPageVisits'] ); ?> />
+								<?php esc_html_e( 'Verify signed AI agent page visits', 'ava-pay-for-woocommerce' ); ?>
+							</label>
+							<p class="description"><?php esc_html_e( 'When a page request carries an AI agent\'s signature headers, the plugin sends that request\'s method, URL and the headers its signature needs (never cookies) to the AVA Pay API after the page has been sent, to check which agent it is; the page view itself is never blocked or changed.', 'ava-pay-for-woocommerce' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -181,6 +245,7 @@ class AVA_Pay_Admin {
 		$patch = array(
 			'apiUrl'                  => $api_url,
 			'acceptVerifiedAgents'    => ! empty( $_POST['ava_pay_accept'] ),
+			'verifyPageVisits'        => ! empty( $_POST['ava_pay_verify_page_visits'] ),
 			'defaultDiscountPct'      => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_default_pct'] ) ? sanitize_text_field( wp_unslash( $_POST['ava_pay_default_pct'] ) ) : 0 ),
 			'maxDiscountPct'          => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_max_pct'] ) ? sanitize_text_field( wp_unslash( $_POST['ava_pay_max_pct'] ) ) : 0 ),
 			'identityOnlyDiscountPct' => AVA_Pay_Policy::clamp_pct( isset( $_POST['ava_pay_identity_pct'] ) ? sanitize_text_field( wp_unslash( $_POST['ava_pay_identity_pct'] ) ) : 0 ),

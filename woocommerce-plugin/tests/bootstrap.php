@@ -4,7 +4,10 @@
  * which are WordPress-free by contract. The WP/WooCommerce integration layer
  * (REST controller, dbDelta storage, WC_Coupon minting, admin page) is thin
  * I/O around these classes and is exercised via wp-env (see the PR
- * QUICKSTART), not here.
+ * QUICKSTART), not here. The exceptions are the two integration classes
+ * whose output is worth pinning without a database (the event table's
+ * schema and rows, the Agent visits markup): their tests load
+ * tests/wp-stubs.php, a handful of WordPress stand-ins, themselves.
  *
  * @package AVA_Pay
  */
@@ -23,6 +26,9 @@ require_once $core . 'class-ava-pay-commerce.php';
 require_once $core . 'class-ava-pay-verify-flow.php';
 require_once $core . 'class-ava-pay-forwarded-headers.php';
 require_once $core . 'class-ava-pay-rate-limiter.php';
+require_once $core . 'class-ava-pay-page-visit.php';
+require_once $core . 'class-ava-pay-visit-budget.php';
+require_once $core . 'class-ava-pay-visit-report.php';
 
 /**
  * Shared fixture access.
