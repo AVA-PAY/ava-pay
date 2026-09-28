@@ -216,6 +216,77 @@ export interface OperatorRecord {
   dnssec: 'valid' | 'invalid' | 'absent' | 'unchecked';
   /** ISO 8601 timestamp of when the source made this observation. */
   observedAt: string;
+  /**
+   * When the SOURCE read this, as distinct from `observedAt`, which is when the observation itself
+   * was made. A registry snapshot can be months old and still be the freshest thing available, so a
+   * reader needs both to judge it. Absent when a source does not distinguish them.
+   */
+  retrievedAt?: string;
+  /**
+   * Set together, and only when the source answered about a DIFFERENT name than it was asked about,
+   * which happens when a registry publishes WHOIS for the registrable parent of a subdomain. Without
+   * these a reader would attribute the operator to `origin` itself.
+   */
+  queriedName?: string;
+  resolvedName?: string;
+  /** Present only when the source served a value past its own freshness window. */
+  stale?: true;
+  /**
+   * How `operator` was derived, for a reader weighing it. A source that cannot say leaves it absent
+   * rather than guessing.
+   */
+  operatorSource?: string;
+  /**
+   * Who the name was registered THROUGH, as the registry reports it, from the same observation as
+   * `operator`. Reproduced, never scored: a brand-protection registrar and a bulk reseller are both
+   * ordinary choices, and which one reassures a reader is the reader's call.
+   */
+  registrar?: string;
+  /**
+   * The nameservers that observation recorded, sorted and capped, so registry order is not preserved.
+   *
+   * Accompanies `operator` rather than standing in for it, and comes from the same observation, which is
+   * what stops the two contradicting each other. It answers a different question: whether the name is
+   * served from its own infrastructure or sits on a registrar's parking set.
+   */
+  nameservers?: readonly string[];
+  /**
+   * The creation date the registry publishes for the registration in this observation, as a DATE with
+   * no time. Not the merchant's age: a name is often much older than whoever holds it now, and a name
+   * that dropped and was re-registered carries the later registration's date.
+   */
+  firstRegistered?: string;
+  /** Every DNSSEC algorithm the zone is signed with. A list, because a zone mid-rollover has two. */
+  dnssecAlgorithms?: readonly string[];
+  /**
+   * Advisory facts about the NETWORK the origin resolves through: who operates the address space, not
+   * who is accountable for the name. Never a trust input, and never a substitute for `operator`: a
+   * CDN or host appears here for most of the web's legitimate commerce.
+   */
+  network?: OperatorNetworkBlock;
+}
+
+/**
+ * Advisory routing context for an origin.
+ *
+ * Every field describes the ADDRESS, never the party accountable for the name. A value appears only
+ * when it is unambiguous: two ASNs is a fact about a multi-homed or anycast origin, and collapsing it
+ * to one would assert something the data does not say, so the scalar is omitted instead.
+ */
+export interface OperatorNetworkBlock {
+  /** Who operates the address space, e.g. "Cloudflare, Inc.". NOT the accountable party. */
+  organisation?: string;
+  /** Abuse contact for the NETWORK, which is not the operator's abuse contact. */
+  abuseContact?: string;
+  asns?: readonly string[];
+  asNames?: readonly string[];
+  prefixes?: readonly string[];
+  rirs?: readonly string[];
+  rpki?: { status: 'valid' | 'invalid' | 'notfound'; roaOrigin?: number; maxLength?: number };
+  anycast?: boolean;
+  moas?: boolean;
+  /** When the source read this routing data. Its own clock, not the network's. */
+  retrievedAt?: string;
 }
 
 export type VerificationResult =
