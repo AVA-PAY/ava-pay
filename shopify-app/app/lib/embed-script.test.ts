@@ -9,6 +9,7 @@ import {
   BANNER_STATE_KEY,
   BANNER_SUFFIX,
   BANNER_WINDOW_MS,
+  DEMO_BANNER_TEXT,
   EMBED_SCRIPT,
 } from './embed-script.js';
 
@@ -20,12 +21,24 @@ import {
  */
 
 /** Everything the script puts in front of a person, and nothing else. */
-const VISIBLE_TEXT = [BANNER_PREFIX, BANNER_SUFFIX, 'Dismiss', 'Dismiss this message'];
+const VISIBLE_TEXT = [
+  BANNER_PREFIX,
+  BANNER_SUFFIX,
+  DEMO_BANNER_TEXT,
+  'Dismiss',
+  'Dismiss this message',
+];
 
 describe('the banner wording', () => {
   it('says what was proved, in plain words, with the code that was applied', () => {
     expect(BANNER_PREFIX + 'AVA-1234' + BANNER_SUFFIX).toBe(
       "This AI agent visit was verified. Discount code AVA-1234 was applied by this store's policy.",
+    );
+  });
+
+  it('says a demo visit verified without claiming a code that was never minted', () => {
+    expect(DEMO_BANNER_TEXT).toBe(
+      'This AI agent visit was verified. It was a demo visit, so no discount was applied.',
     );
   });
 
@@ -50,16 +63,19 @@ describe('the banner wording', () => {
 });
 
 describe('when the banner can appear', () => {
-  it('renders only from a code the verifier already returned', () => {
+  it('renders only from a verdict the verifier already returned', () => {
     // The window widened from one document to an unknown number of them, and
-    // this is the property that had to survive widening it. Two call sites, and
-    // both replay one verdict: `showBanner(live.code)` from the stored window,
-    // `showBanner(bannerCode)` from what a previous show is holding.
-    expect(EMBED_SCRIPT.match(/showBanner\(/g)).toHaveLength(2);
-    expect(EMBED_SCRIPT).toContain('showBanner(live.code)');
-    expect(EMBED_SCRIPT).toContain('showBanner(bannerCode)');
-    expect(EMBED_SCRIPT.match(/^\s*bannerCode = /gm)).toHaveLength(1);
-    expect(EMBED_SCRIPT).toContain('bannerCode = code;');
+    // this is the property that had to survive widening it. Three call sites,
+    // each replaying one verdict: `codeMessage(live.code)` from the stored
+    // window, `bannerMessage` from what a previous show is holding, and the
+    // demo literal behind the `data.demo` verdict check. Nothing else can put
+    // words on the page.
+    expect(EMBED_SCRIPT.match(/showBanner\(/g)).toHaveLength(3);
+    expect(EMBED_SCRIPT).toContain('showBanner(codeMessage(live.code))');
+    expect(EMBED_SCRIPT).toContain('showBanner(bannerMessage)');
+    expect(EMBED_SCRIPT).toContain('if (bannerEnabled()) showBanner(DEMO_MESSAGE);');
+    expect(EMBED_SCRIPT.match(/^\s*bannerMessage = /gm)).toHaveLength(1);
+    expect(EMBED_SCRIPT).toContain('bannerMessage = text;');
   });
 
   it('writes a code into storage in exactly one place, behind the allow check', () => {
@@ -335,6 +351,8 @@ interface Harness {
   flush: () => void;
   guardsRunning: () => number;
   fetch: ReturnType<typeof vi.fn>;
+  /** history.replaceState, which the demo path uses to tidy the address bar. */
+  replaceState: ReturnType<typeof vi.fn>;
   session: Map<string, string>;
   /** Where this document sent the browser, if it sent it anywhere. */
   href: () => string;
@@ -375,6 +393,8 @@ function createSession(seed: Iterable<[string, string]> = []) {
     });
 
     const location = { search: options.search ?? '', pathname: '/', href: '/' };
+    // The demo path tidies the address bar in place instead of navigating.
+    const replaceState = vi.fn();
     const windowListeners: Record<string, Listener[]> = {};
     const sandbox: Record<string, unknown> = {
       window: {
@@ -405,6 +425,7 @@ function createSession(seed: Iterable<[string, string]> = []) {
       URLSearchParams,
       encodeURIComponent,
       fetch: fetchMock,
+      history: { replaceState },
     };
     // A browser too old for the guard still has to get the banner itself.
     if (options.mutationObserver !== false) sandbox.MutationObserver = observers.FakeObserver;
@@ -425,6 +446,7 @@ function createSession(seed: Iterable<[string, string]> = []) {
       banner: () => banners()[0],
       session,
       fetch: fetchMock,
+      replaceState,
       flush: observers.flush,
       guardsRunning: observers.running,
       href: () => location.href,
@@ -549,6 +571,59 @@ describe('the window a verdict opens', () => {
 
     expect(page.state()).toBeNull();
     expect(page.href()).toBe('/discount/AVA-7Q2M4X?redirect=%2F');
+  });
+});
+
+describe('a demo verdict (the merchant\'s own test visit)', () => {
+  const demoVerify = { body: { allow: true, demo: true } };
+
+  it('shows the demo banner on this document, with no code and no redirect', async () => {
+    const page = runEmbed({ search: '?signature=abc&signature-input=def', verify: demoVerify });
+    await settle();
+    page.flush();
+
+    expect(page.banner()?.children[0]?.textContent).toBe(DEMO_BANNER_TEXT);
+    // Nothing minted: no window opened, no applied marker, browser not sent
+    // to the discount endpoint.
+    expect(page.state()).toBeNull();
+    expect(page.session.get('ava_pay_applied')).toBeUndefined();
+    expect(page.href()).toBe('/');
+  });
+
+  it('takes the single-use signed parameters out of the address bar in place', async () => {
+    const page = runEmbed({
+      search: '?signature=abc&signature-input=def&utm_source=x',
+      verify: demoVerify,
+    });
+    await settle();
+
+    expect(page.replaceState).toHaveBeenCalledWith(null, '', '/?utm_source=x');
+  });
+
+  it('shows nothing when the merchant switched the banner off, and still stays codeless', async () => {
+    const page = runEmbed({
+      search: '?signature=abc',
+      bannerSetting: 'false',
+      verify: demoVerify,
+    });
+    await settle();
+    page.flush();
+
+    expect(page.banner()).toBeUndefined();
+    expect(page.state()).toBeNull();
+    expect(page.href()).toBe('/');
+  });
+
+  it('never mints from a demo verdict even if a code somehow rides along', async () => {
+    // The app never sends this shape; if it ever did, demo still wins.
+    const page = runEmbed({
+      search: '?signature=abc',
+      verify: { body: { allow: true, demo: true, discount: { code: CODE } } },
+    });
+    await settle();
+
+    expect(page.state()).toBeNull();
+    expect(page.href()).toBe('/');
   });
 });
 

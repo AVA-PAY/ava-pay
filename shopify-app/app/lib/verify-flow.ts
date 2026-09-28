@@ -45,6 +45,12 @@ export interface ProxyResponseBody {
     percentage: number;
   };
   reason: string;
+  /**
+   * The verdict came from AVA Pay's public demo agent (API `demo: true`).
+   * Demo visits verify but never earn a discount, so the storefront can show
+   * the verification banner without a code. Absent otherwise.
+   */
+  demo?: true;
 }
 
 /**
@@ -88,6 +94,18 @@ export interface VerifyDecision {
  */
 export function isConclusive(result: VerificationResult): boolean {
   return typeof result.conclusive === 'boolean' ? result.conclusive : true;
+}
+
+/**
+ * Did AVA Pay's public demo agent send this? True only for a verdict the API
+ * both trusted and flagged `demo: true` (the flag is meaningless on anything
+ * unverified). The API already strips the mandate and discount hint from
+ * such verdicts; this predicate is the plugin's own belt on top: a demo
+ * verdict never mints a coupon whatever the merchant's settings say, and the
+ * row it records is a test visit, never organic agent traffic.
+ */
+export function isDemoVerdict(call: AvaCallResult): boolean {
+  return call.ok && call.result.trusted && call.result.demo === true;
 }
 
 export function decideVerification(
@@ -143,6 +161,7 @@ export function decideVerification(
   const platform = result.agent?.id ?? platformHint;
   const protocol = result.protocol ?? result.agent?.protocol ?? protocolHint;
   const identityOnly = !result.mandate;
+  const demo = result.demo === true;
 
   const decision = applyMerchantPolicy(settings, result, platform);
 
@@ -168,8 +187,12 @@ export function decideVerification(
       reason: null,
       identityOnly,
     },
-    response: { allow: true, reason: 'verified' },
-    mintDiscountPct: decision.discountPct,
+    response: { allow: true, reason: 'verified', ...(demo ? { demo: true as const } : {}) },
+    // A demo verdict never mints, whatever the settings say: not the default
+    // discount (the API stripped the mandate), not the identity-only tier,
+    // not a per-platform offer. The demo key is public, so a coupon here
+    // would be free for anyone to farm by raising any of those knobs.
+    mintDiscountPct: demo ? 0 : decision.discountPct,
   };
 }
 

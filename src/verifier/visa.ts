@@ -301,6 +301,10 @@ export class VisaAgentVerifier implements AgentVerifier {
       // 'ava-tap' = AVA's TAP-style profile. Visa's real wire format is
       // handled by VisaTapVerifier and labeled 'visa-tap'.
       protocol: 'ava-tap',
+      // The identity the signature proved: the directory-resolved keyid.
+      // Additive; the other verifiers already set it, and the dispatcher's
+      // demo-agent gate reads it, so this result must name who verified.
+      agent: { id: agentId, protocol: 'ava-tap' },
       buyerInfo,
       mandate,
       ...(discountHint !== undefined ? { discount: discountHint } : {}),

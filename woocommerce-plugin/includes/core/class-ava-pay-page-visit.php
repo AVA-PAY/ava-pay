@@ -255,7 +255,12 @@ class AVA_Pay_Page_Visit {
 		$row['platform']      = $labels['platform'];
 		$row['protocol']      = $labels['protocol'];
 		$row['outcome']       = 'verified';
-		$row['reason']        = null;
+		// This path never mints anything, so the demo flag costs nothing here,
+		// but the merchant still deserves to see which page views were the
+		// public demo credential rather than a real agent. The source column
+		// must stay 'page_view' (the screen and the purge select on it), so
+		// the flag rides in the otherwise-null reason of a verified row.
+		$row['reason']        = AVA_Pay_Verify_Flow::is_demo( $result ) ? 'demo_agent' : null;
 		$row['identity_only'] = ! ( isset( $result['mandate'] ) && is_array( $result['mandate'] ) );
 		return $row;
 	}

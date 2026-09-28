@@ -125,18 +125,23 @@ class AVA_Pay_Verify_Flow {
 		$protocol = $labels['protocol'];
 
 		$identity_only = ! ( isset( $result['mandate'] ) && is_array( $result['mandate'] ) );
+		$demo          = self::is_demo( $result );
 
 		$decision = AVA_Pay_Policy::apply_merchant_policy( $settings, $result, $platform );
 
 		if ( empty( $decision['allow'] ) ) {
+			$event = array(
+				'outcome'       => 'policy_blocked',
+				'platform'      => $platform,
+				'protocol'      => $protocol,
+				'reason'        => $decision['reason'],
+				'identity_only' => $identity_only,
+			);
+			if ( $demo ) {
+				$event['source'] = 'test';
+			}
 			return array(
-				'event'             => array(
-					'outcome'       => 'policy_blocked',
-					'platform'      => $platform,
-					'protocol'      => $protocol,
-					'reason'        => $decision['reason'],
-					'identity_only' => $identity_only,
-				),
+				'event'             => $event,
 				'response'          => array(
 					'allow'  => false,
 					'reason' => $decision['reason'],
@@ -145,20 +150,53 @@ class AVA_Pay_Verify_Flow {
 			);
 		}
 
-		return array(
-			'event'             => array(
-				'outcome'       => 'verified',
-				'platform'      => $platform,
-				'protocol'      => $protocol,
-				'reason'        => null,
-				'identity_only' => $identity_only,
-			),
-			'response'          => array(
-				'allow'  => true,
-				'reason' => 'verified',
-			),
-			'mint_discount_pct' => (int) $decision['discountPct'],
+		$event = array(
+			'outcome'       => 'verified',
+			'platform'      => $platform,
+			'protocol'      => $protocol,
+			'reason'        => null,
+			'identity_only' => $identity_only,
 		);
+		if ( $demo ) {
+			$event['source'] = 'test';
+		}
+		$response = array(
+			'allow'  => true,
+			'reason' => 'verified',
+		);
+		if ( $demo ) {
+			$response['demo'] = true;
+		}
+		return array(
+			'event'             => $event,
+			'response'          => $response,
+			// A demo verdict never mints, whatever the settings say: not the
+			// default discount (the API stripped the mandate), not the
+			// identity-only tier, not a per-platform offer. The demo key is
+			// public, so a coupon here would be free for anyone to farm by
+			// raising any of those knobs.
+			'mint_discount_pct' => $demo ? 0 : (int) $decision['discountPct'],
+		);
+	}
+
+	/**
+	 * Did AVA Pay's public demo agent send this? True only for a verdict the
+	 * API both trusted and flagged `demo: true` (the flag is meaningless on
+	 * anything unverified). The API already strips the mandate and discount
+	 * hint from such verdicts; this predicate is the plugin's own belt on top:
+	 * a demo verdict never mints a coupon whatever the merchant's settings
+	 * say, and the row it records is a test visit (source 'test' on the verify
+	 * endpoint, reason 'demo_agent' on a page-visit row), never organic agent
+	 * traffic. Port of isDemoVerdict() in shopify-app lib/verify-flow.ts,
+	 * reading the decoded result rather than the client wrapper.
+	 *
+	 * @param array $result Decoded VerificationResult.
+	 * @return bool
+	 */
+	public static function is_demo( array $result ) {
+		return ! empty( $result['trusted'] )
+			&& isset( $result['demo'] )
+			&& true === $result['demo'];
 	}
 
 	/**

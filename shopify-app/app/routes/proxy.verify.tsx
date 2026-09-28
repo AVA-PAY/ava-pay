@@ -7,6 +7,7 @@ import prisma from '../db.server.js';
 import type { IncomingRequest } from '../lib/ava-types.js';
 import {
   decideVerification,
+  isDemoVerdict,
   settleDiscount,
   type ProxyResponseBody,
 } from '../lib/verify-flow.js';
@@ -127,7 +128,12 @@ async function handleVerify({ request }: ActionFunctionArgs) {
   // Whether the merchant sent this themselves from Settings. Honoured only for
   // a marker that was inside a signature the verifier accepted, so a passing
   // visitor cannot label their own request a test; see resolveVisitSource.
-  const source = resolveVisitSource(headers, verifyCall.ok && verifyCall.result.trusted);
+  // A demo-agent verdict is a test visit by definition, marker or not: the
+  // demo credential exists only for demos and merchant self-checks, so its
+  // rows must never read as organic agent traffic.
+  const source = isDemoVerdict(verifyCall)
+    ? 'test'
+    : resolveVisitSource(headers, verifyCall.ok && verifyCall.result.trusted);
 
   await prisma.verificationEvent.create({
     data: { shop, ...recorded, source },

@@ -12,10 +12,12 @@
  *      merchant's own "View a test agent visit on your storefront" link.
  *
  *   2. Show the shopper what happened, when it is worth saying. The banner is
- *      reachable from exactly one state: a trusted verdict that minted a
- *      discount code. Every failure, every could-not-check verdict and every
- *      verified visit that earned no code stays silent on the storefront, so
- *      nothing the buyer reads can outrun what was actually proved.
+ *      reachable from exactly two states: a trusted verdict that minted a
+ *      discount code, and a trusted DEMO verdict (the merchant's own test
+ *      visit), which never mints and says so. Every failure, every
+ *      could-not-check verdict and every other verified visit that earned no
+ *      code stays silent on the storefront, so nothing the buyer reads can
+ *      outrun what was actually proved.
  *
  * Constraints this file is written to, and a review will check: vanilla DOM,
  * inline styles, no dependencies, its own container at a high z-index, fixed
@@ -29,6 +31,15 @@
 /** Banner text. Deliberately free of any app or company name (5.1.4). */
 export const BANNER_PREFIX = 'This AI agent visit was verified. Discount code ';
 export const BANNER_SUFFIX = " was applied by this store's policy.";
+
+/**
+ * What a demo verdict shows. A demo visit verifies like real traffic but
+ * never earns a discount (the demo credential's private key is public), so
+ * the banner proves the path works without claiming a code that was never
+ * minted.
+ */
+export const DEMO_BANNER_TEXT =
+  'This AI agent visit was verified. It was a demo visit, so no discount was applied.';
 
 /** Attribute the app embed block uses to carry its banner_enabled setting. */
 export const BANNER_SETTING_ATTRIBUTE = 'data-agent-banner';
@@ -141,7 +152,8 @@ const DISMISS_STYLE = [
  * at run time, so nothing merchant-supplied can end up inside the source.
  */
 export const EMBED_SCRIPT = `(() => {
-  // AVA Pay embed v0.4 - Visa TAP / RFC 9421, plus the verification banner.
+  // AVA Pay embed v0.5 - Visa TAP / RFC 9421, the verification banner, and
+  // the codeless demo banner for the merchant's own test visit.
   if (window.__avaPayLoaded) return;
   window.__avaPayLoaded = true;
 
@@ -238,10 +250,16 @@ export const EMBED_SCRIPT = `(() => {
     }));
   };
 
+  // The sentence a minted code shows. Demo verdicts have their own literal:
+  // no code exists, so no message may imply one.
+  const codeMessage = (code) =>
+    ${JSON.stringify(BANNER_PREFIX)} + code + ${JSON.stringify(BANNER_SUFFIX)};
+  const DEMO_MESSAGE = ${JSON.stringify(DEMO_BANNER_TEXT)};
+
   // What the banner is showing, once it has shown. Held here so a restore does
-  // not have to go back to storage: this is the code from the one verdict that
-  // produced it, and putting the same element back is not a second claim.
-  let bannerCode = null;
+  // not have to go back to storage: this is the message from the one verdict
+  // that produced it, and putting the same element back is not a second claim.
+  let bannerMessage = null;
   let bannerElement = null;
   let bannerDismissed = false;
   let bannerObserver = null;
@@ -283,8 +301,8 @@ export const EMBED_SCRIPT = `(() => {
     if (document.body) bannerObserver.observe(document.body, { childList: true });
   };
 
-  const showBanner = (code) => {
-    if (!code || bannerDismissed) return;
+  const showBanner = (text) => {
+    if (!text || bannerDismissed) return;
     if (document.getElementById(BANNER_ID)) return;
 
     const banner = document.createElement('div');
@@ -294,7 +312,7 @@ export const EMBED_SCRIPT = `(() => {
     banner.style.cssText = '${BANNER_STYLE}';
 
     const message = document.createElement('span');
-    message.textContent = ${JSON.stringify(BANNER_PREFIX)} + code + ${JSON.stringify(BANNER_SUFFIX)};
+    message.textContent = text;
 
     const dismiss = document.createElement('button');
     dismiss.type = 'button';
@@ -316,19 +334,19 @@ export const EMBED_SCRIPT = `(() => {
     banner.appendChild(dismiss);
     document.documentElement.appendChild(banner);
 
-    bannerCode = code;
+    bannerMessage = text;
     bannerElement = banner;
     startBannerGuard();
   };
 
   // A bfcache restore replays the page from a snapshot instead of loading it,
   // so nothing in this script runs again and any guard that was running is
-  // gone. Re-show from the held code, which showBanner will decline if the
+  // gone. Re-show from the held message, which showBanner will decline if the
   // restored snapshot still has the banner in it. This is the same document
   // coming back, not a new one, so it is not a navigation to count.
   window.addEventListener('pageshow', () => {
-    if (bannerDismissed || !bannerCode) return;
-    showBanner(bannerCode);
+    if (bannerDismissed || !bannerMessage) return;
+    showBanner(bannerMessage);
   });
 
   const apply = async () => {
@@ -338,7 +356,7 @@ export const EMBED_SCRIPT = `(() => {
     const live = readWindow();
     if (live && bannerEnabled()) {
       countNavigation(live);
-      showBanner(live.code);
+      showBanner(codeMessage(live.code));
     }
 
     const agentHeaders = collectAgentHeaders();
@@ -360,6 +378,17 @@ export const EMBED_SCRIPT = `(() => {
     if (!res.ok) return;
     const data = await res.json().catch(() => null);
     if (!data || !data.allow) return;
+
+    // The merchant's own test visit: verified, deliberately codeless. Show
+    // the banner on this document (no discount redirect follows), and drop
+    // the single-use signed parameters from the address bar so a reload does
+    // not turn into a replay-rejection row on the Traffic page. No window is
+    // opened in storage: there is no redirect chain to survive.
+    if (data.demo) {
+      if (bannerEnabled()) showBanner(DEMO_MESSAGE);
+      try { history.replaceState(null, '', cleanTarget()); } catch (e) { /* address bar keeps the params */ }
+      return;
+    }
 
     const code = data.discount && data.discount.code;
     if (!code || store.get(APPLIED_KEY)) return;

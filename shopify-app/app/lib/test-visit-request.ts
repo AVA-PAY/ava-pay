@@ -16,19 +16,23 @@
 import { createPrivateKey } from 'node:crypto';
 import { signWithVisa, type Mandate } from '@ava-pay/agent';
 import type { IncomingRequest } from './ava-types.js';
+import { DEMO_AGENT_ID } from './test-visit.js';
 
 /**
  * AVA Pay's public demo agent, seeded into the hosted directory as
- * `agent_demo_public` (src/directory/seed-demo.ts in the API repo).
+ * `agent_demo_public` (src/directory/seed-demo.ts in the API repo). The id
+ * itself is declared in test-visit.ts, browser-safe, and re-exported here for
+ * the server-side importers.
  *
  * The private key is public on purpose and carries no authority beyond being
  * verifiable, which is what makes a self-contained demo possible. Real agents
- * hold keys nobody else has. The same pair is in public/app.js (the landing
- * page demo) and scripts/simulate-verified-agent.mjs; rotating it means
- * changing all of them together, and test-visit.test.ts checks that this
- * private half still derives the seeded public half.
+ * hold keys nobody else has, and the API demotes every verdict on this one to
+ * an identity-only demo: true result. The same pair is in public/app.js (the
+ * landing page demo) and scripts/simulate-verified-agent.mjs; rotating it
+ * means changing all of them together, and test-visit.test.ts checks that
+ * this private half still derives the seeded public half.
  */
-export const DEMO_AGENT_ID = 'agent_demo_public';
+export { DEMO_AGENT_ID };
 export const DEMO_AGENT_PUBLIC_X = 'yKCkvxtkVtmYT1xK0FFuvQPFAQqQ_z6Zg9q6VKsJTU4';
 export const DEMO_AGENT_PRIVATE_JWK = {
   kty: 'OKP',

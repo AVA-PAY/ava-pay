@@ -30,7 +30,12 @@ import {
   type ShopSettings,
 } from '../lib/settings.server.js';
 import { sendTestVisit } from '../lib/test-visit.server.js';
-import { describeTestVisit, type TestVisitResult } from '../lib/test-visit.js';
+import {
+  DEMO_AGENT_ID,
+  describeTestVisit,
+  settingsMandateBackedPct,
+  type TestVisitResult,
+} from '../lib/test-visit.js';
 import { themeAppEmbedDeepLink, themeListUrl } from '../lib/theme-embed.js';
 import { buildStorefrontVisitUrl } from '../lib/storefront-visit.server.js';
 
@@ -244,12 +249,18 @@ export default function SettingsPage() {
     submit(fd, { method: 'post' });
   };
 
-  // The banner reports an applied discount, so settings that grant no discount
-  // mean a verified visit with nothing to display. Worth saying before someone
-  // presses the button and reads silence as a broken widget. Policy rules can
-  // still grant one, which is why this hedges rather than promises.
-  const storefrontBannerUnlikely =
-    !current.acceptVerifiedAgents || current.defaultDiscountPct === 0;
+  // The test visit is a demo credential, and demo verdicts never mint a code,
+  // so the storefront shows the codeless demo banner whenever the agent is
+  // admitted at all. The only setting that silences it outright is turning
+  // verified agents away. Policy rules can still block the demo platform,
+  // which is why the wording hedges rather than promises.
+  const storefrontBannerUnlikely = !current.acceptVerifiedAgents;
+
+  // What a real, mandate-backed agent would get under the SAVED settings,
+  // through the same policy computation the live path runs (global caps and
+  // any per-platform rule for the demo platform included). Null when such an
+  // agent would not be admitted.
+  const mandateBackedPct = settingsMandateBackedPct(current, DEMO_AGENT_ID);
 
   const testVisit =
     actionData?.intent === 'test-visit' && actionData.testVisit
@@ -449,19 +460,20 @@ export default function SettingsPage() {
                 <Text as="h3" variant="headingSm">On your storefront</Text>
                 <Text as="p" tone="subdued">
                   Opens your storefront home page carrying a freshly signed demo agent
-                  credential. The app embed forwards it, the verifier checks it, and if
-                  your policy grants a discount the code is applied and the confirmation
-                  banner appears on the page. This one is a real storefront visit: it
-                  creates a real single-use discount code in your store and records a real
-                  row on the Traffic page, marked as a test. Turn the app embed on first,
-                  or the page has nothing to forward.
+                  credential. The app embed forwards it, the verifier checks it, and the
+                  verification banner appears on the page. Demo visits never earn a
+                  discount, so no discount code is created
+                  {mandateBackedPct !== null
+                    ? `; under your settings a real agent with a buyer mandate would get ${mandateBackedPct}%`
+                    : ''}
+                  . The visit records a real row on the Traffic page, marked as a test.
+                  Turn the app embed on first, or the page has nothing to forward.
                 </Text>
                 {storefrontBannerUnlikely ? (
                   <Banner tone="info" title="This visit will not show the banner">
                     <p>
-                      {current.acceptVerifiedAgents
-                        ? 'Your default discount is 0%, so a verified agent earns no code and there is nothing for the banner to report. Set a percentage above and Save first, unless a policy rule already grants one.'
-                        : 'Accept verified agents is off, so every agent is turned away and nothing is shown on the storefront. Turn it on and Save first.'}
+                      Accept verified agents is off, so every agent is turned away and
+                      nothing is shown on the storefront. Turn it on and Save first.
                     </p>
                   </Banner>
                 ) : null}

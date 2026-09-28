@@ -36,7 +36,7 @@ import {
   type DirectoryStorage,
 } from './directory/storage.js';
 import { StorageBackedAgentDirectory } from './directory/storage-directory.js';
-import { seedDemoAgent } from './directory/seed-demo.js';
+import { DEMO_AGENT_ID, seedDemoAgent } from './directory/seed-demo.js';
 import { InMemoryReplayGuard } from './verifier/replay.js';
 
 export interface BuildServerOptions {
@@ -140,7 +140,17 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
     const visaTap = new VisaTapVerifier({ directory, replayGuard, visaJwks });
     const ap2 = new Ap2AgentVerifier({ directory, replayGuard });
     const webBotAuth = new WebBotAuthVerifier({ resolver: wbaKeys, replayGuard });
-    verifier = new MultiProtocolVerifier({ visa, visaTap, ap2, webBotAuth });
+    // Always name the demo agent, not only when the landing page is served:
+    // its published private key can sign a request wherever the record is
+    // resolvable, so the demotion must not depend on how this instance is
+    // mounted. Harmless when the identity never verifies.
+    verifier = new MultiProtocolVerifier({
+      visa,
+      visaTap,
+      ap2,
+      webBotAuth,
+      demoAgentId: DEMO_AGENT_ID,
+    });
   }
 
   await app.register(verifyRoute, { verifier });
