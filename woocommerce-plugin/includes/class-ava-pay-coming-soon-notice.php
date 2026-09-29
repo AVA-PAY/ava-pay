@@ -43,9 +43,9 @@ class AVA_Pay_Coming_Soon_Notice {
 	 */
 	public static function render( $mode, $settings_url, $on_visits_page ) {
 		if ( AVA_Pay_Coming_Soon::MODE_SITE === $mode ) {
-			$hidden = __( 'Your store is in Coming soon mode. Visitors who are not logged in, including AI agents, see a placeholder page instead of your site.', 'ava-pay-for-woocommerce' );
+			$hidden = __( 'Your store is in Coming soon mode. Everyone except store managers, AI agents included, sees a placeholder page instead of your site.', 'ava-pay-for-woocommerce' );
 		} elseif ( AVA_Pay_Coming_Soon::MODE_STORE === $mode ) {
-			$hidden = __( 'Your store is in Coming soon mode. Visitors who are not logged in, including AI agents, see a placeholder page instead of your store pages.', 'ava-pay-for-woocommerce' );
+			$hidden = __( 'Your store is in Coming soon mode. Everyone except store managers, AI agents included, sees a placeholder page instead of your store pages.', 'ava-pay-for-woocommerce' );
 		} else {
 			return;
 		}
@@ -56,7 +56,7 @@ class AVA_Pay_Coming_Soon_Notice {
 		<div class="notice notice-warning inline ava-pay-coming-soon">
 			<p>
 				<?php echo esc_html( $hidden ); ?>
-				<?php esc_html_e( 'You see the store normally because you are logged in.', 'ava-pay-for-woocommerce' ); ?>
+				<?php esc_html_e( 'You see the store normally because you are a store manager.', 'ava-pay-for-woocommerce' ); ?>
 				<?php echo esc_html( $listed ); ?>
 				<a href="<?php echo esc_url( $settings_url ); ?>"><?php esc_html_e( 'Set Site visibility to Live', 'ava-pay-for-woocommerce' ); ?></a>.
 			</p>

@@ -20,9 +20,9 @@ require_once __DIR__ . '/../includes/class-ava-pay-admin.php';
 
 final class ComingSoonNoticeTest extends TestCase {
 
-	const SITE_TEXT    = 'Your store is in Coming soon mode. Visitors who are not logged in, including AI agents, see a placeholder page instead of your site.';
-	const STORE_TEXT   = 'Your store is in Coming soon mode. Visitors who are not logged in, including AI agents, see a placeholder page instead of your store pages.';
-	const LOGGED_IN    = 'You see the store normally because you are logged in.';
+	const SITE_TEXT    = 'Your store is in Coming soon mode. Everyone except store managers, AI agents included, sees a placeholder page instead of your site.';
+	const STORE_TEXT   = 'Your store is in Coming soon mode. Everyone except store managers, AI agents included, sees a placeholder page instead of your store pages.';
+	const LOGGED_IN    = 'You see the store normally because you are a store manager.';
 	const LISTED_HERE  = 'Agents that visit are still listed here, but they see the placeholder, not your products.';
 	const LISTED_THERE = 'Agents that visit are still listed under Agent visits, but they see the placeholder, not your products.';
 	const LINK         = '<a href="https://shop.example/wp-admin/admin.php?page=wc-settings&amp;tab=site-visibility">Set Site visibility to Live</a>.';
