@@ -66,8 +66,15 @@ jobs:
           npx tsx woocommerce-plugin/scripts/generate-forwarding-golden.ts
           npx tsx woocommerce-plugin/scripts/generate-page-visit-fixtures.ts
           git diff --exit-code woocommerce-plugin/tests/fixtures/policy-golden.json woocommerce-plugin/tests/fixtures/forwarding-golden.json woocommerce-plugin/tests/fixtures/page-visit-fixtures.json
+      - name: Fetch WooCommerce (the Coming soon pin in ComingSoonGateTest)
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/woocommerce.zip" https://downloads.wordpress.org/plugin/woocommerce.zip
+          unzip -q "$RUNNER_TEMP/woocommerce.zip" -d "$RUNNER_TEMP"
+          grep -m1 'Version:' "$RUNNER_TEMP/woocommerce/woocommerce.php"
       - name: PHPUnit
         working-directory: woocommerce-plugin
+        env:
+          AVA_PAY_WC_SOURCE: ${{ runner.temp }}/woocommerce
         run: |
           composer install --no-interaction --no-progress
           ./vendor/bin/phpunit

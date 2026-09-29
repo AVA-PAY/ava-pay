@@ -83,11 +83,13 @@ class AVA_Pay_Admin {
 		$settings = AVA_Pay_Settings::get();
 		AVA_Pay_Visits_View::render(
 			array(
-				'enabled'      => ! empty( $settings['verifyPageVisits'] ),
-				'settings_url' => admin_url( 'admin.php?page=' . self::PAGE_SLUG ),
-				'periods'      => $periods,
-				'skipped'      => $skipped,
-				'recent'       => $recent,
+				'enabled'             => ! empty( $settings['verifyPageVisits'] ),
+				'settings_url'        => admin_url( 'admin.php?page=' . self::PAGE_SLUG ),
+				'coming_soon'         => AVA_Pay_Coming_Soon::mode( 'get_option' ),
+				'site_visibility_url' => admin_url( AVA_Pay_Coming_Soon::SETTINGS_PATH ),
+				'periods'             => $periods,
+				'skipped'             => $skipped,
+				'recent'              => $recent,
 			)
 		);
 	}
@@ -118,6 +120,7 @@ class AVA_Pay_Admin {
 				<div class="notice notice-<?php echo esc_attr( $notice['type'] ); ?>"><p><?php echo esc_html( $notice['message'] ); ?></p></div>
 			<?php endforeach; ?>
 			<?php self::render_signed_url_warnings(); ?>
+			<?php AVA_Pay_Coming_Soon_Notice::maybe_render( false ); ?>
 
 			<form method="post">
 				<?php wp_nonce_field( self::NONCE ); ?>

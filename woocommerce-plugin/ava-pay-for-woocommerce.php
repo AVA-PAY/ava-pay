@@ -3,7 +3,7 @@
  * Plugin Name: AVA Pay for WooCommerce
  * Plugin URI: https://avalayer.com/pay
  * Description: Verify AI shopping agents (Visa TAP, Web Bot Auth, AP2) on your WooCommerce store. Set the rules, admit trusted agents, optionally mint one-time coupons, and see the traffic.
- * Version: 0.4.0
+ * Version: 0.4.1
  * Author: Agentic Verification Architecture
  * Author URI: https://avalayer.com
  * License: MIT
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'AVA_PAY_WC_VERSION', '0.4.0' );
+define( 'AVA_PAY_WC_VERSION', '0.4.1' );
 define( 'AVA_PAY_WC_PLUGIN_FILE', __FILE__ );
 define( 'AVA_PAY_WC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AVA_PAY_WC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -41,6 +41,7 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-budget.p
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-report.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-lock.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-page-visit-runner.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-coming-soon.php';
 
 // WordPress/WooCommerce integration layer.
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-settings.php';
@@ -52,6 +53,7 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-orders.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-frontend.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-page-visits.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-visits-view.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-coming-soon-notice.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-admin.php';
 
 register_activation_hook( __FILE__, array( 'AVA_Pay_Events', 'install' ) );
