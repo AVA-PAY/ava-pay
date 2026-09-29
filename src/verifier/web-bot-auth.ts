@@ -16,6 +16,7 @@ import {
   KEY_DIRECTORY_MEDIA_TYPE,
   KEY_DIRECTORY_PATH,
   parseKeyDirectory,
+  readKeyDirectory,
   parseSignatureAgent,
   verifyDirectoryProofs,
   WEB_BOT_AUTH_TAG,
@@ -49,7 +50,9 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  *   5. Covered components must include @authority or @target-uri (binds the
  *      signature to this merchant; spec MUST).
  *   6. Resolve the origin's key directory (allowlist → fetch → JWKS), find
- *      the key whose RFC 7638 thumbprint equals keyid, check its nbf/exp.
+ *      the key whose RFC 7638 thumbprint equals keyid, falling back to the
+ *      advertised kid with a warning (the label is a selector, never the
+ *      identity), and check its nbf/exp.
  *   7. Verify Ed25519 over the signature base.
  *   8. Replay check (post-signature): keyed on the nonce when present, else
  *      on a digest of the signature bytes — a replayed capture is
@@ -116,6 +119,12 @@ export interface WebBotAuthVerifierOptions {
    * INVALID is dropped regardless, at every grace setting.
    */
   proofRequiredOrigins?: string[];
+  /**
+   * Receives operator-facing warnings about requests that verified despite a
+   * deviation from -00, today only "key selected by advertised kid instead of
+   * thumbprint". Default console.warn; server.ts passes the app logger.
+   */
+  onWarning?: (message: string) => void;
   /** Override "now" (seconds) for deterministic tests. */
   now?: () => number;
 }
@@ -125,8 +134,15 @@ const DEFAULT_TTL_SECONDS = 60;
 const DEFAULT_MAX_AGE_SECONDS = 300;
 /** Clock skew tolerated on Appendix B proof created/expires, evaluated at fetch. */
 const PROOF_SKEW_SECONDS = 300;
-/** keyid must be a base64url SHA-256 JWK thumbprint — always 43 chars. */
-const THUMBPRINT_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+/**
+ * Sanity bound on the wire keyid: non-empty, visible ASCII, at most 128 chars.
+ * -00 Section 5.2 says the keyid MUST be a 43-char JWK thumbprint, but a keyid
+ * is a SELECTOR, not an identity: agent.bot.goog signs with its six-char kids
+ * (seen 2026-09-29), and failing the request on the label's shape rejected a
+ * signer whose key the directory publishes. Anything outside this bound is
+ * still signature_input_malformed.
+ */
+const KEYID_SANITY = /^[\x21-\x7e]{1,128}$/;
 
 export class WebBotAuthVerifier implements AgentVerifier {
   private readonly resolver: SignatureAgentKeyResolver;
@@ -135,6 +151,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
   private readonly replayGuard: ReplayGuard;
   private readonly requireContentDigest: boolean;
   private readonly proofRequired: Set<string>;
+  private readonly onWarning: (message: string) => void;
   private readonly now: () => number;
 
   constructor(opts: WebBotAuthVerifierOptions) {
@@ -142,6 +159,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
     this.maxAge = opts.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
     this.proofRequired = new Set((opts.proofRequiredOrigins ?? []).map(normalizeOrigin));
+    this.onWarning = opts.onWarning ?? ((message) => console.warn(message));
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
     // The internally-created guard must share the verifier's clock: with an
     // injected test clock but a wall-clock guard, stored nonce expiries (in
@@ -250,10 +268,13 @@ export class WebBotAuthVerifier implements AgentVerifier {
     if (keyid === undefined) {
       return fail('signature_parameter_missing', 'Signature-Input must include a keyid parameter.');
     }
-    if (!THUMBPRINT_SHAPE.test(keyid)) {
+    if (!KEYID_SANITY.test(keyid)) {
+      // A shape no published label could have. The 43-char thumbprint gate
+      // that used to sit here failed real signers over the label alone; see
+      // KEYID_SANITY.
       return fail(
         'signature_input_malformed',
-        'Signature-Input keyid must be a base64url JWK SHA-256 thumbprint.',
+        'Signature-Input keyid must be printable ASCII of at most 128 chars.',
       );
     }
 
@@ -374,18 +395,46 @@ export class WebBotAuthVerifier implements AgentVerifier {
     if (resolution.status === 'unavailable') {
       // Fail closed: no key material, no trust. Could-not-check, so inconclusive.
       // Reason kept as key_directory_unavailable for backward compatibility; it
-      // unifies with directory_unavailable in the v1.0 contract revision.
+      // unifies with directory_unavailable in the v1.0 contract revision. The
+      // detail carries what the resolver saw, including "entries published but
+      // none usable", which is a could-not-check and must never read as a
+      // definitive unknown_key.
       return fail(
         'key_directory_unavailable',
-        `Key directory for "${origin}" could not be fetched or parsed.`,
+        `Key directory for "${origin}" could not be used`
+          + `${resolution.detail ? ` (${resolution.detail})` : ''}.`,
       );
     }
 
-    const key = resolution.keys.find((k) => k.thumbprint === keyid);
+    // Select by computed thumbprint first: the thumbprint is the key's
+    // identity and what -00 Section 5.2 says the keyid is. Fall back to the
+    // advertised kid when it selects exactly one key: a label that does not
+    // follow -00 is the directory's fault, never a reason to fail a request
+    // that verifies (agent.bot.goog publishes six-char kids, 2026-09-29).
+    let key = resolution.keys.find((k) => k.thumbprint === keyid);
+    if (!key) {
+      const byKid = resolution.keys.filter((k) => k.kid === keyid);
+      if (byKid.length === 1) {
+        key = byKid[0];
+        this.onWarning(
+          `Web Bot Auth keyid "${keyid}" from "${origin}" matched a directory key by its advertised kid, `
+            + `not by thumbprint (${key!.thumbprint}); draft-ietf-webbotauth-httpsig-protocol-00 `
+            + 'Sections 5.2 and 5.5 require both to be the JWK thumbprint.',
+        );
+      } else if (byKid.length > 1) {
+        return fail(
+          'unknown_key',
+          `keyid "${keyid}" matched none of the ${resolution.keys.length} keys published in `
+            + `${origin}${KEY_DIRECTORY_PATH} by thumbprint, and its advertised kid appears on `
+            + `${byKid.length} keys, so it selects none of them.`,
+        );
+      }
+    }
     if (!key) {
       return fail(
         'unknown_key',
-        `keyid "${keyid}" is not published in ${origin}${KEY_DIRECTORY_PATH}.`,
+        `keyid "${keyid}" matched none of the ${resolution.keys.length} keys published in `
+          + `${origin}${KEY_DIRECTORY_PATH} by thumbprint or by advertised kid.`,
       );
     }
     // Appendix B proof-of-possession gate (D2). A proof that was offered and
@@ -465,7 +514,11 @@ export class WebBotAuthVerifier implements AgentVerifier {
       trusted: true,
       conclusive: true,
       protocol: 'web-bot-auth',
-      agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: keyid, binding },
+      // Always the COMPUTED thumbprint, never the wire keyid: when the key was
+      // selected by advertised kid the two differ, and the identity reported
+      // downstream, plus the (URL, key) keying of Section 5.5.2, must stay
+      // derived from the material.
+      agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: key.thumbprint, binding },
       ttlSeconds: DEFAULT_TTL_SECONDS,
     };
   }
@@ -561,8 +614,9 @@ export interface FetchingKeyDirectoryResolverOptions {
   /** Override "now" (ms) for deterministic tests. */
   nowMs?: () => number;
   /**
-   * Receives operator-facing warnings, today only "directory served as plain
-   * application/json". Default console.warn; server.ts passes the app logger.
+   * Receives operator-facing warnings: a directory served as plain
+   * application/json, kid labels that are not thumbprints, and Appendix B
+   * proof deviations. Default console.warn; server.ts passes the app logger.
    */
   onWarning?: (message: string) => void;
 }
@@ -680,7 +734,29 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         );
       }
       const body = await readBounded(res, this.maxBytes);
-      const keys = parseKeyDirectory(JSON.parse(body));
+      const { keys, dropped } = readKeyDirectory(JSON.parse(body));
+      if (keys.length === 0 && dropped.length > 0) {
+        // Entries were published and none is usable to us. That says nothing
+        // definitive about any signer, so it is could-not-check (the verifier
+        // maps it to key_directory_unavailable), never a key-not-published
+        // negative. The detail records what was seen and why each entry was
+        // set aside.
+        const why = dropped.map((d) => `#${d.index}: ${d.reason}`).join('; ');
+        return {
+          status: 'unavailable',
+          detail: `directory publishes ${dropped.length} entries, none usable: ${why}`,
+        };
+      }
+      const mislabelled = keys.filter((k) => k.kid !== undefined && k.kid !== k.thumbprint);
+      if (mislabelled.length > 0) {
+        // Once per fetch (the result is cached), not per request.
+        this.onWarning(
+          `Key directory ${url} advertises kid labels that are not JWK thumbprints on `
+            + `${mislabelled.length} of ${keys.length} keys (e.g. kid "${mislabelled[0]!.kid}"); `
+            + 'draft-ietf-webbotauth-httpsig-protocol-00 Section 5.5 requires kid to be the thumbprint. '
+            + 'Keys are kept and identified by their computed thumbprints.',
+        );
+      }
       // Appendix B: classify each key by its response proof-of-possession.
       // The request authority is the host we actually fetched (post-redirect),
       // which is what the directory operator signs over (@authority;req).
@@ -693,6 +769,7 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         now: Math.floor(this.nowMs() / 1000),
         skewSeconds: PROOF_SKEW_SECONDS,
         keys,
+        onWarning: this.onWarning,
       });
       const resolved: ResolvedDirectoryKey[] = keys.map((k) => ({
         ...k,

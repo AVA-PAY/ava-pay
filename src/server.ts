@@ -139,7 +139,11 @@ export async function buildServer(opts: BuildServerOptions = {}): Promise<Fastif
     const visa = new VisaAgentVerifier({ directory, replayGuard });
     const visaTap = new VisaTapVerifier({ directory, replayGuard, visaJwks });
     const ap2 = new Ap2AgentVerifier({ directory, replayGuard });
-    const webBotAuth = new WebBotAuthVerifier({ resolver: wbaKeys, replayGuard });
+    const webBotAuth = new WebBotAuthVerifier({
+      resolver: wbaKeys,
+      replayGuard,
+      onWarning: (message) => app.log.warn(message),
+    });
     // Always name the demo agent, not only when the landing page is served:
     // its published private key can sign a request wherever the record is
     // resolvable, so the demotion must not depend on how this instance is

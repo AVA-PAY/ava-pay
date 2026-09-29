@@ -110,11 +110,29 @@ export function signDirectoryResponse(params: {
 }
 
 /**
- * The only covered component list Appendix B allows, as its serialized Inner
+ * The covered component list Appendix B mandates, as its serialized Inner
  * List. A proof covering anything else, or the same two in another order, is
- * one we cannot build the base for, so it is `invalid` rather than `absent`.
+ * one we cannot build the base for, so it is `invalid` rather than `absent`,
+ * with ONE deployed-reality exception below.
  */
 const PROOF_COVERED_LIST = '("@authority";req "content-digest")';
+
+/**
+ * agent.bot.goog signs its directory response over `("@authority";req)` alone,
+ * with no Content-Digest response header at all (seen 2026-09-29). Appendix B
+ * says the server MUST also cover content-digest, so this proof is
+ * non-conformant, but it still verifies as a possession proof: the signature
+ * is made by the published key, inside a fresh created/expires window, bound
+ * to the authority that served the response. What it fails to bind is the
+ * response body, which for a verifier that fetched the directory itself over
+ * TLS is integrity the transport already gave. It is therefore accepted as
+ * `valid` with a warning, never silently: rejecting it as `invalid` would be
+ * fatal for the key under our offered-proof rule and would reject traffic
+ * from a key the directory demonstrably holds. A verifier consuming
+ * REDISTRIBUTED key material (Section 5.5.3) must not extend this tolerance;
+ * we never do that.
+ */
+const PROOF_COVERED_LIST_AUTHORITY_ONLY = '("@authority";req)';
 
 /** The digest algorithms we can check a response Content-Digest against. */
 const DIGEST_ALGORITHMS = { 'sha-256': 'sha256', 'sha-512': 'sha512' } as const;
@@ -208,8 +226,11 @@ function parseParameters(text: string): Map<string, BareItem> | undefined {
 interface ProofMember {
   /** The member value exactly as received: the `@signature-params` line. */
   raw: string;
-  /** True only when the covered list is exactly PROOF_COVERED_LIST. */
-  coveredExact: boolean;
+  /**
+   * `full` is the Appendix B list; `authority-only` is the tolerated
+   * agent.bot.goog shape; `other` is a list we cannot build the base for.
+   */
+  covered: 'full' | 'authority-only' | 'other';
   params: Map<string, BareItem>;
 }
 
@@ -233,7 +254,13 @@ function parseProofMember(raw: string): ProofMember | undefined {
   const list = raw.slice(0, i + 1);
   const params = parseParameters(raw.slice(i + 1));
   if (!params) return undefined;
-  return { raw, coveredExact: list === PROOF_COVERED_LIST, params };
+  const covered =
+    list === PROOF_COVERED_LIST
+      ? 'full'
+      : list === PROOF_COVERED_LIST_AUTHORITY_ONLY
+        ? 'authority-only'
+        : 'other';
+  return { raw, covered, params };
 }
 
 const stringParam = (params: Map<string, BareItem>, name: string): string | undefined => {
@@ -283,13 +310,24 @@ function contentDigestMatchesBody(header: string | undefined, body: string): boo
  * is the response header as received. Until 2026-09-25 this path rebuilt both
  * from a template, which dropped chatgpt.com's `alg="ed25519"` and classified
  * its every key invalid.
+ *
+ * The proof's keyid is matched by computed thumbprint first, then by the
+ * advertised kid when that label selects exactly one key. Appendix B says the
+ * keyid MUST be a thumbprint, but agent.bot.goog signs its response with its
+ * six-char kid (keyid="DYiMjA", seen 2026-09-29); matching by thumbprint only
+ * read that proof as absent for every key, so it was never verified. A
+ * kid-only match, and the tolerated authority-only covered list, each emit an
+ * onWarning; the exactness rule is unchanged, because a proof that is matched
+ * to a key and FAILS is fatal for that key.
  */
 export function verifyDirectoryProofs(params: {
   authority: string;
   body: string;
   /**
    * The response Content-Digest header as received. Covered verbatim by the
-   * proof and checked against `body`. Absent with a proof present = `invalid`.
+   * proof and checked against `body`. Absent with a proof that covers
+   * content-digest = `invalid`; not consulted for an authority-only proof,
+   * which does not cover it.
    */
   contentDigest?: string | undefined;
   signatureInput: string | undefined;
@@ -297,6 +335,8 @@ export function verifyDirectoryProofs(params: {
   now: number;
   skewSeconds: number;
   keys: WebBotAuthKey[];
+  /** Receives non-fatal deviations from Appendix B (see module notes). */
+  onWarning?: ((message: string) => void) | undefined;
 }): Map<string, KeyProofStatus> {
   const status = new Map<string, KeyProofStatus>();
   for (const key of params.keys) status.set(key.thumbprint, 'absent');
@@ -306,7 +346,22 @@ export function verifyDirectoryProofs(params: {
   const inputs = dictionaryMembers(params.signatureInput);
   const signatures = dictionaryMembers(params.signature);
   if (!inputs) return status;
+  const warn = params.onWarning ?? (() => {});
   const keyByThumbprint = new Map(params.keys.map((key) => [key.thumbprint, key]));
+  // Advertised kids that select exactly one key. A duplicated label selects
+  // nothing: attributing a proof by an ambiguous hint could pin `invalid` on
+  // the wrong key.
+  const keyByKid = new Map<string, WebBotAuthKey>();
+  const duplicateKids = new Set<string>();
+  for (const key of params.keys) {
+    if (key.kid === undefined) continue;
+    if (keyByKid.has(key.kid) || duplicateKids.has(key.kid)) {
+      keyByKid.delete(key.kid);
+      duplicateKids.add(key.kid);
+      continue;
+    }
+    keyByKid.set(key.kid, key);
+  }
   const contentDigest = params.contentDigest?.trim();
   let digestOk: boolean | undefined;
 
@@ -316,15 +371,32 @@ export function verifyDirectoryProofs(params: {
     if (stringParam(proof.params, 'tag') !== DIRECTORY_PROOF_TAG) continue; // not a directory proof
     const keyid = stringParam(proof.params, 'keyid');
     if (keyid === undefined) continue;
-    const key = keyByThumbprint.get(keyid);
+    let key = keyByThumbprint.get(keyid);
+    if (!key) {
+      key = keyByKid.get(keyid);
+      if (key) {
+        warn(
+          `Directory proof for ${params.authority} uses keyid "${keyid}", the advertised kid of the key `
+            + `with thumbprint ${key.thumbprint}; Appendix B of draft-ietf-webbotauth-httpsig-protocol-00 `
+            + 'requires the keyid to be the JWK thumbprint.',
+        );
+      }
+    }
     if (!key) continue; // a proof for a key not in this directory: ignore it
 
     // From here the proof is "offered" for a known key: any failure is invalid,
     // never absent, so it can never be tolerated under grace.
     const invalid = (): void => {
-      status.set(key.thumbprint, 'invalid');
+      status.set(key!.thumbprint, 'invalid');
     };
-    if (!proof.coveredExact) { invalid(); continue; }
+    if (proof.covered === 'other') { invalid(); continue; }
+    if (proof.covered === 'authority-only') {
+      warn(
+        `Directory proof for ${params.authority} covers ("@authority";req) without content-digest; `
+          + 'Appendix B of draft-ietf-webbotauth-httpsig-protocol-00 requires both. '
+          + 'Accepted as a possession proof; the response body is bound by transport only.',
+      );
+    }
 
     const created = proof.params.get('created');
     const expires = proof.params.get('expires');
@@ -347,14 +419,17 @@ export function verifyDirectoryProofs(params: {
     if (!sigValue) { invalid(); continue; }
     const sig = Buffer.from(sigValue[1] as string, 'base64');
 
-    digestOk ??= contentDigestMatchesBody(contentDigest, params.body);
-    if (!digestOk || contentDigest === undefined) { invalid(); continue; }
-
-    const base = [
-      `"@authority";req: ${params.authority}`,
-      `"content-digest": ${contentDigest}`,
-      `"@signature-params": ${proof.raw}`,
-    ].join('\n');
+    const lines = [`"@authority";req: ${params.authority}`];
+    if (proof.covered === 'full') {
+      // The digest gate belongs to proofs that cover content-digest; an
+      // authority-only proof never signed the header, so there is nothing of
+      // it to check here.
+      digestOk ??= contentDigestMatchesBody(contentDigest, params.body);
+      if (!digestOk || contentDigest === undefined) { invalid(); continue; }
+      lines.push(`"content-digest": ${contentDigest}`);
+    }
+    lines.push(`"@signature-params": ${proof.raw}`);
+    const base = lines.join('\n');
     let ok = false;
     try {
       ok = verifyEd25519({ kty: 'OKP', crv: 'Ed25519', x: key.x }, base, sig);

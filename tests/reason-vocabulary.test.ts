@@ -95,13 +95,25 @@ describe('Web Bot Auth reason vocabulary', () => {
     expect(await verifier.verify(request)).toMatchObject({ reason: 'signature_input_malformed' });
   });
 
-  it('a keyid that is not a JWK thumbprint → signature_input_malformed; a missing one → signature_parameter_missing', async () => {
-    const wrongShape = toIncoming(sign());
-    wrongShape.headers['signature-input'] = wrongShape.headers['signature-input']!.replace(
+  it('a keyid beyond the sanity bound → signature_input_malformed; a missing one → signature_parameter_missing', async () => {
+    // A keyid that is not a thumbprint is no longer malformed: it is a
+    // selector that reaches the directory (agent.bot.goog signs with six-char
+    // kids). Unmatched there, it is honestly unknown_key.
+    const notAThumbprint = toIncoming(sign());
+    notAThumbprint.headers['signature-input'] = notAThumbprint.headers['signature-input']!.replace(
       /keyid="[^"]+"/,
       'keyid="agent-key-1"',
     );
-    expect(await verifier.verify(wrongShape)).toMatchObject({ reason: 'signature_input_malformed' });
+    expect(await verifier.verify(notAThumbprint)).toMatchObject({ reason: 'unknown_key' });
+
+    // Beyond the bound (non-empty printable ASCII, at most 128 chars) is a
+    // shape no published label could have.
+    const overlong = toIncoming(sign());
+    overlong.headers['signature-input'] = overlong.headers['signature-input']!.replace(
+      /keyid="[^"]+"/,
+      `keyid="${'k'.repeat(129)}"`,
+    );
+    expect(await verifier.verify(overlong)).toMatchObject({ reason: 'signature_input_malformed' });
 
     const absent = toIncoming(sign());
     absent.headers['signature-input'] = absent.headers['signature-input']!.replace(/;keyid="[^"]+"/, '');

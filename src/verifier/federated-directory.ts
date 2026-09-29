@@ -192,6 +192,15 @@ export interface WbaPublishedKeySourceOptions {
   clockSkewSeconds?: number;
 }
 
+/**
+ * Audited 2026-09-29 (wba-kid-is-a-hint): this gate and the thumbprint-only
+ * finds below are NOT on the Web Bot Auth request path, which goes through
+ * WebBotAuthVerifier and its SignatureAgentKeyResolver directly. They address
+ * the cross-protocol chain (a TAP or AP2 request resolving a WBA-published
+ * key), where thumbprint addressing is the design: "publish once, verified
+ * everywhere" keys on that path are keyed by material, and a short advertised
+ * kid is not a cross-protocol identifier. Left unchanged on purpose.
+ */
 const THUMBPRINT_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 export class WbaPublishedKeySource implements FederatedSource {

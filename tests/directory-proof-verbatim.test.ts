@@ -7,6 +7,7 @@ import {
 } from '../src/verifier/web-bot-auth.js';
 import {
   parseKeyDirectory,
+  readKeyDirectory,
   verifyDirectoryProofs,
   type KeyProofStatus,
 } from '@ava-pay/agent/protocol/web-bot-auth';
@@ -215,9 +216,38 @@ describe('directory proofs signed over arbitrary member text', () => {
     expect(status(signedResponse({ member }))).toBe('invalid');
   });
 
-  it('rejects a covered list missing content-digest', () => {
+  it('accepts an authority-only covered list as a possession proof, with a warning', () => {
+    // Appendix B says the server MUST also cover content-digest, but
+    // agent.bot.goog signs over ("@authority";req) alone (2026-09-29) and the
+    // signature is a real possession proof. Rejecting it as invalid would be
+    // fatal for a key the directory demonstrably holds. The base for this
+    // shape has no content-digest line, so signedResponse's digest value is
+    // irrelevant to the verdict.
     const member = `("@authority";req);${window};keyid="${keyid}";tag="${TAG}"`;
-    expect(status(signedResponse({ member }))).toBe('invalid');
+    const warnings: string[] = [];
+    const response = signedResponse({ member });
+    const keys = parseKeyDirectory(JSON.parse(response.body));
+    const result = verifyDirectoryProofs({
+      authority: AUTHORITY,
+      body: response.body,
+      signatureInput: response.signatureInput,
+      signature: response.signature,
+      now: NOW,
+      skewSeconds: 0,
+      keys,
+      onWarning: (message) => warnings.push(message),
+    }).get(keyid);
+    expect(result).toBe('valid');
+    expect(warnings.some((w) => w.includes('without content-digest'))).toBe(true);
+  });
+
+  it('still rejects an authority-only proof whose signature does not verify', () => {
+    // The tolerance is for the covered list only: an offered proof that FAILS
+    // stays fatal for its key, exactly as before.
+    const member = `("@authority";req);${window};keyid="${keyid}";tag="${TAG}"`;
+    const response = signedResponse({ member });
+    const tampered = { ...response, signatureInput: `proof=${member.replace(window, `created=${NOW - 61};expires=${NOW + 3600}`)}` };
+    expect(status(tampered)).toBe('invalid');
   });
 
   it('rejects a Content-Digest header that does not match the body, though the proof covers it', () => {
@@ -312,5 +342,147 @@ describe('end to end: a directory whose proof carries alg', () => {
     });
     const result = await verifier.verify({ method: signed.method, url: signed.url, headers: signed.headers });
     expect(result).toMatchObject({ trusted: true, protocol: 'web-bot-auth' });
+  });
+});
+
+/**
+ * The frozen agent.bot.goog directory response (fixture captured 2026-09-29).
+ * Google's directory is non-conformant against -00 on two axes: every kid is
+ * a six-char label rather than the thumbprint, and the response proof signs
+ * with that kid as keyid over ("@authority";req) without content-digest.
+ * Before wba-kid-is-a-hint the body parsed to ZERO keys and the proof was
+ * never even attributed. NOTE: the proof's created/expires span 300 seconds
+ * from serve time, so this fixture ages by its own window, not by the
+ * response's Cache-Control max-age=3600; the clock below is pinned inside it.
+ */
+describe('the frozen agent.bot.goog directory (kid is a hint)', () => {
+  interface GoogFixture extends Omit<ResponseFixture, 'contentDigest'> {
+    authority: string;
+    fetchedAt: string;
+    cacheControl: string;
+    contentType: string;
+  }
+  const goog = JSON.parse(
+    readFileSync(new URL('./fixtures/goog-directory-2026-09-29.json', import.meta.url), 'utf8'),
+  ) as GoogFixture;
+  const GOOG_CREATED = 1790718185;
+  const GOOG_KIDS = ['mhxuPw', 'cYSMkA', 'bUCe2A', 'DYiMjA', 'Ggh50g'];
+  const PROOF_KID = 'DYiMjA';
+
+  it('pins the captured response', () => {
+    expect(Buffer.byteLength(goog.body)).toBe(720);
+    expect(goog.contentType).toBe('application/http-message-signatures-directory+json');
+    expect(goog.cacheControl).toContain('max-age=3600');
+    expect(goog.signatureInput).toContain(`keyid="${PROOF_KID}"`);
+    expect(goog.signatureInput).toContain(`created=${GOOG_CREATED}`);
+    expect(goog.signatureInput).toContain('("@authority";req)');
+    expect(goog.signatureInput).not.toContain('content-digest');
+  });
+
+  it('parses to five usable keys carrying advertised kids and computed thumbprints', () => {
+    const { keys, dropped } = readKeyDirectory(JSON.parse(goog.body));
+    expect(dropped).toEqual([]);
+    expect(keys.map((k) => k.kid)).toEqual(GOOG_KIDS);
+    for (const key of keys) {
+      expect(key.thumbprint).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(key.thumbprint).not.toBe(key.kid);
+    }
+  });
+
+  it('verifies the response proof for keyid DYiMjA valid inside its window', () => {
+    const keys = parseKeyDirectory(JSON.parse(goog.body));
+    const warnings: string[] = [];
+    const status = verifyDirectoryProofs({
+      authority: goog.authority,
+      body: goog.body,
+      signatureInput: goog.signatureInput,
+      signature: goog.signature,
+      now: GOOG_CREATED + 100,
+      skewSeconds: 0,
+      keys,
+      onWarning: (message) => warnings.push(message),
+    });
+    const dyimja = keys.find((k) => k.kid === PROOF_KID);
+    if (!dyimja) throw new Error('DYiMjA key missing from fixture');
+    expect(status.get(dyimja.thumbprint)).toBe('valid');
+    // The other four keys offered no proof.
+    for (const key of keys) {
+      if (key.kid !== PROOF_KID) expect(status.get(key.thumbprint)).toBe('absent');
+    }
+    // Both deviations are named: keyid matched by kid, covered list short.
+    expect(warnings.some((w) => w.includes(`keyid "${PROOF_KID}"`))).toBe(true);
+    expect(warnings.some((w) => w.includes('without content-digest'))).toBe(true);
+  });
+
+  it('resolves through the fetching resolver with the proof classified per key', async () => {
+    const fetchImpl = (async () =>
+      new Response(goog.body, {
+        headers: {
+          'content-type': goog.contentType,
+          'cache-control': goog.cacheControl,
+          'signature-input': goog.signatureInput,
+          signature: goog.signature,
+        },
+      })) as unknown as typeof fetch;
+    const warnings: string[] = [];
+    const resolver = new FetchingKeyDirectoryResolver({
+      allowedOrigins: ['https://agent.bot.goog'],
+      fetchImpl,
+      nowMs: () => (GOOG_CREATED + 100) * 1000,
+      onWarning: (message) => warnings.push(message),
+    });
+    const res = await resolver.resolve('https://agent.bot.goog');
+    if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.keys).toHaveLength(5);
+    expect(res.keys.map((k) => [k.kid, k.proof])).toEqual(
+      GOOG_KIDS.map((kid) => [kid, kid === PROOF_KID ? 'valid' : 'absent']),
+    );
+    // The fetch-time warning names the mislabelled kids once, not per request.
+    expect(warnings.some((w) => w.includes('kid labels that are not JWK thumbprints'))).toBe(true);
+  });
+
+  it('classifies the proof invalid outside its 300 s window, though the cache is still fresh', () => {
+    const keys = parseKeyDirectory(JSON.parse(goog.body));
+    const status = verifyDirectoryProofs({
+      authority: goog.authority,
+      body: goog.body,
+      signatureInput: goog.signatureInput,
+      signature: goog.signature,
+      now: GOOG_CREATED + 3000, // inside max-age=3600, outside created+300
+      skewSeconds: 0,
+      keys,
+    });
+    const dyimja = keys.find((k) => k.kid === PROOF_KID);
+    expect(status.get(dyimja!.thumbprint)).toBe('invalid');
+  });
+});
+
+describe('proof keyid matching by advertised kid (synthetic)', () => {
+  const AUTHORITY = 'agent.example';
+  const NOW = 1_750_000_000;
+  const TAG2 = 'http-message-signatures-directory';
+
+  it('never attributes a proof by a kid two keys share', () => {
+    // An ambiguous hint could pin `invalid` on the wrong key, so a duplicated
+    // kid selects nothing and both keys stay absent.
+    const a = generateAgentKeyPair();
+    const b = generateAgentKeyPair();
+    const jwkA = a.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    const jwkB = b.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    const body = JSON.stringify({ keys: [{ ...jwkA, kid: 'dup' }, { ...jwkB, kid: 'dup' }] });
+    const keys = parseKeyDirectory(JSON.parse(body));
+    const member = `("@authority";req);created=${NOW - 60};expires=${NOW + 3600};keyid="dup";tag="${TAG2}"`;
+    const base = [`"@authority";req: ${AUTHORITY}`, `"@signature-params": ${member}`].join('\n');
+    const sig = nodeSign(null, Buffer.from(base), a.privateKey);
+    const status = verifyDirectoryProofs({
+      authority: AUTHORITY,
+      body,
+      signatureInput: `p=${member}`,
+      signature: `p=:${sig.toString('base64')}:`,
+      now: NOW,
+      skewSeconds: 0,
+      keys,
+    });
+    for (const key of keys) expect(status.get(key.thumbprint)).toBe('absent');
   });
 });
