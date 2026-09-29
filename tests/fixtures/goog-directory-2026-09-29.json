@@ -1,0 +1,10 @@
+{
+  "note": "agent.bot.goog key directory, captured 2026-09-29T21:43:05Z (Date header). The response proof (keyid DYiMjA, a six-char kid, covering (\"@authority\";req) only) carries created/expires for a 300 s window anchored at serve time, so this fixture ages by its created/expires, not by the Cache-Control max-age=3600 a cache would use. Tests must pin the clock inside [1790718185, 1790718485].",
+  "fetchedAt": "2026-09-29T21:43:05Z",
+  "authority": "agent.bot.goog",
+  "cacheControl": "public, max-age=3600",
+  "contentType": "application/http-message-signatures-directory+json",
+  "body": "{\"keys\":[{\"alg\":\"EdDSA\",\"crv\":\"Ed25519\",\"key_ops\":[\"verify\"],\"kid\":\"mhxuPw\",\"kty\":\"OKP\",\"use\":\"sig\",\"x\":\"X53rIypL6muU_xeVU6Vm0uoGQcKKxm5FCRIFZHR0CZA\"},{\"alg\":\"EdDSA\",\"crv\":\"Ed25519\",\"key_ops\":[\"verify\"],\"kid\":\"cYSMkA\",\"kty\":\"OKP\",\"use\":\"sig\",\"x\":\"BCEFRL2wi2rfWoqfuneHGVmh_axPFaXrXNQrfxUpZqM\"},{\"alg\":\"EdDSA\",\"crv\":\"Ed25519\",\"key_ops\":[\"verify\"],\"kid\":\"bUCe2A\",\"kty\":\"OKP\",\"use\":\"sig\",\"x\":\"W1nRrCPqci1T40ppv1ULK6q67a14hjLScZ955FPxQQM\"},{\"alg\":\"EdDSA\",\"crv\":\"Ed25519\",\"key_ops\":[\"verify\"],\"kid\":\"DYiMjA\",\"kty\":\"OKP\",\"use\":\"sig\",\"x\":\"0cFRtAeGOa46EsjXFVKw1o_pMPFBGq4ReeznYs_RBrs\"},{\"alg\":\"EdDSA\",\"crv\":\"Ed25519\",\"key_ops\":[\"verify\"],\"kid\":\"Ggh50g\",\"kty\":\"OKP\",\"use\":\"sig\",\"x\":\"7ZziBznI1XsHehATtJjS5XD6QrS_LJlLD8jHml5RJVI\"}]}",
+  "signatureInput": "g=(\"@authority\";req);created=1790718185;expires=1790718485;keyid=\"DYiMjA\";alg=\"ed25519\";tag=\"http-message-signatures-directory\"",
+  "signature": "g=:YLXbOkQaKO0DxyeY0835KoU0XgvYAG8cCrcS9rSJmwOfobeyqZEYEPB50mQIj9gEe3p6bU06lgriNgpiGs1vAQ==:"
+}

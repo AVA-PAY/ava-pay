@@ -282,14 +282,48 @@ export function ed25519JwkThumbprint(x: string): string {
 
 /** One usable key out of an agent's key directory. */
 export interface WebBotAuthKey {
-  /** Computed RFC 7638 thumbprint — matches the request's keyid. */
+  /**
+   * Computed RFC 7638 thumbprint. This is the key's identity: derived from the
+   * material by us, never trusted from a label. -00 Section 5.2 makes it the
+   * request keyid.
+   */
   thumbprint: string;
+  /**
+   * The advertised `kid` label exactly as published, when the entry carries a
+   * string one. -00 Section 5.5 says a kid, if present, MUST equal the
+   * thumbprint, but agent.bot.goog publishes six-char kids (seen 2026-09-29),
+   * so a verifier keeps the label as a selector hint and never trusts it as
+   * identity. Absent when the entry has no kid or a non-string one.
+   */
+  kid?: string;
   /** Ed25519 public key, base64url (JWK "x"). */
   x: string;
   /** Optional validity window (unix seconds) copied from the JWK. */
   nbf?: number;
   exp?: number;
 }
+
+/** One directory entry that was set aside, with why, for truthful reporting. */
+export interface DroppedDirectoryEntry {
+  /** Position in the published entry list. */
+  index: number;
+  /** Human-readable reason the entry is unusable. */
+  reason: string;
+}
+
+/** What a key directory document holds: usable keys plus what was set aside. */
+export interface KeyDirectoryContents {
+  keys: WebBotAuthKey[];
+  dropped: DroppedDirectoryEntry[];
+}
+
+/**
+ * Ceiling on published entries, matching Cloudflare's implementation cap. A
+ * directory over it is unusable as a whole (readKeyDirectory throws) rather
+ * than silently truncated: a truncated view could hide the one key a request
+ * needs and misreport "unknown key" for a key the directory serves.
+ */
+export const MAX_DIRECTORY_KEYS = 100;
 
 /**
  * Parse a key directory response body.
@@ -305,9 +339,6 @@ export interface WebBotAuthKey {
  * Fail-closed filtering, per the draft's "a client application SHOULD validate
  * the directory format and reject malformed entries":
  *   - only OKP / Ed25519 keys with a well-formed `x` survive;
- *   - a key whose `kid` is present but does not equal its computed RFC 7638
- *     thumbprint is dropped (the spec REQUIRES kid to be the thumbprint —
- *     a mismatch means a broken or lying directory entry);
  *   - a key declaring `use` other than "sig", or an `alg` that is not an
  *     Ed25519 spelling, is dropped. -02 §5.5.1 restricts `alg` to the HTTP
  *     Signature Algorithms registry, whose name is "ed25519", but the field is
@@ -318,9 +349,18 @@ export interface WebBotAuthKey {
  *     send the JOSE name. Dropping those keys would fail agents over a field
  *     they were never required to send.
  *
- * Throws only when the overall document shape is neither a keys array nor a JWK.
+ * A `kid` that differs from the computed thumbprint NEVER drops the key. -00
+ * Section 5.5 says a published kid MUST be the thumbprint, but the identity of
+ * a key is its material: the thumbprint is computed here and the advertised
+ * label is kept verbatim as a selector hint (WebBotAuthKey.kid). Dropping the
+ * key punished the signer for the directory's labelling and made
+ * agent.bot.goog (six-char kids, seen 2026-09-29) parse to zero keys.
+ *
+ * Throws when the overall document shape is neither a keys array nor a JWK, or
+ * when it publishes more than MAX_DIRECTORY_KEYS entries (unusable as a whole,
+ * never silently truncated).
  */
-export function parseKeyDirectory(json: unknown): WebBotAuthKey[] {
+export function readKeyDirectory(json: unknown): KeyDirectoryContents {
   if (typeof json !== 'object' || json === null) {
     throw new WebBotAuthParseError('Key directory must be a JSON object');
   }
@@ -336,29 +376,47 @@ export function parseKeyDirectory(json: unknown): WebBotAuthKey[] {
       'Key directory must be a JWKS object with a "keys" array or a single JWK',
     );
   }
-  const out: WebBotAuthKey[] = [];
-  for (const entry of entries) {
-    const key = parseDirectoryKey(entry);
-    if (key) out.push(key);
+  if (entries.length > MAX_DIRECTORY_KEYS) {
+    throw new WebBotAuthParseError(
+      `Key directory publishes ${entries.length} entries; more than ${MAX_DIRECTORY_KEYS} is unusable`,
+    );
   }
-  return out;
+  const keys: WebBotAuthKey[] = [];
+  const dropped: DroppedDirectoryEntry[] = [];
+  entries.forEach((entry, index) => {
+    const parsed = parseDirectoryKey(entry);
+    if (typeof parsed === 'string') {
+      dropped.push({ index, reason: parsed });
+    } else {
+      keys.push(parsed);
+    }
+  });
+  return { keys, dropped };
 }
 
-/** Validate + normalize one directory JWK, or null if it must be dropped. */
-function parseDirectoryKey(entry: unknown): WebBotAuthKey | null {
-  if (typeof entry !== 'object' || entry === null) return null;
+/** The usable keys of a directory document. See readKeyDirectory for the rules. */
+export function parseKeyDirectory(json: unknown): WebBotAuthKey[] {
+  return readKeyDirectory(json).keys;
+}
+
+/** Validate + normalize one directory JWK; a string is the reason it is unusable. */
+function parseDirectoryKey(entry: unknown): WebBotAuthKey | string {
+  if (typeof entry !== 'object' || entry === null) return 'not a JSON object';
   const jwk = entry as Record<string, unknown>;
-  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') return null;
-  if (typeof jwk.x !== 'string' || !B64URL_32_BYTES.test(jwk.x)) return null;
-  if (jwk.use !== undefined && jwk.use !== 'sig') return null;
+  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') return 'not an OKP/Ed25519 key';
+  if (typeof jwk.x !== 'string' || !B64URL_32_BYTES.test(jwk.x)) {
+    return '"x" is not 43 base64url chars';
+  }
+  if (jwk.use !== undefined && jwk.use !== 'sig') return `"use" is ${JSON.stringify(jwk.use)}, not "sig"`;
   // "ed25519" is the HTTP Signature Algorithms registry name; "EdDSA" is the
   // JOSE (RFC 8037) name. Both unambiguously mean Ed25519 on an OKP key.
   if (jwk.alg !== undefined && !['ed25519', 'eddsa'].includes(String(jwk.alg).toLowerCase())) {
-    return null;
+    return `"alg" is ${JSON.stringify(jwk.alg)}, not an Ed25519 spelling`;
   }
   const thumbprint = ed25519JwkThumbprint(jwk.x);
-  if (jwk.kid !== undefined && jwk.kid !== thumbprint) return null;
   const key: WebBotAuthKey = { thumbprint, x: jwk.x };
+  // The advertised label rides along verbatim; only a string can select.
+  if (typeof jwk.kid === 'string') key.kid = jwk.kid;
   if (typeof jwk.nbf === 'number' && Number.isFinite(jwk.nbf)) key.nbf = jwk.nbf;
   if (typeof jwk.exp === 'number' && Number.isFinite(jwk.exp)) key.exp = jwk.exp;
   return key;

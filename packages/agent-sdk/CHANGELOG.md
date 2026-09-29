@@ -6,18 +6,61 @@ This package is a pre-1.0 developer preview, so a minor version may tighten
 verification behaviour. Type-level changes are called out as additive or
 breaking on each entry.
 
-## [Unreleased]
+## [0.4.1] - 2026-09-29
+
+**Upgrade note.** A Web Bot Auth key directory is no longer required to label
+its keys with thumbprint kids for its keys to be usable. agent.bot.goog
+(Google) publishes five Ed25519 keys under six-char kids and signs its
+directory response with one of them; 0.4.0 parsed that directory to zero keys
+and never attributed the response proof. The identity of a key is its
+material: the thumbprint is always computed here, and an advertised label is a
+selector hint, never trusted and never a reason to drop a key.
 
 ### Added
 
-- `demo?: true` on the verified branch of `VerificationResult` (additive).
-  Set by AVA Pay's engine when the verified identity is the public demo agent
-  (`agent_demo_public`), whose private key is published by design. A demo
-  result stays `trusted: true` but is always identity-only: the engine strips
-  the mandate, buyer info and discount hint before the result leaves, because
-  anyone can sign as the demo agent, including a self-made mandate. Callers
-  that predate the flag read such results as identity-only, whose default
-  discount tier is 0.
+- `kid?: string` on `WebBotAuthKey` (additive): the advertised label exactly
+  as published, when the entry carries a string one. `thumbprint` stays
+  computed and stays the key's identity.
+- `readKeyDirectory(json)` returning `KeyDirectoryContents` (`keys` plus
+  `dropped`, each dropped entry with its index and reason), so a caller can
+  report truthfully what a directory publishes. `parseKeyDirectory` is
+  unchanged in shape and now delegates to it.
+- `MAX_DIRECTORY_KEYS` (100, matching Cloudflare's cap): a directory
+  publishing more entries is unusable as a whole (`readKeyDirectory` throws)
+  rather than silently truncated.
+- `onWarning` on `verifyDirectoryProofs` (additive): receives non-fatal
+  Appendix B deviations (proof keyid matched by advertised kid; covered list
+  missing content-digest).
+- `demo?: true` on the verified branch of `VerificationResult` (additive,
+  unreleased since 2026-09-27). Set by AVA Pay's engine when the verified
+  identity is the public demo agent (`agent_demo_public`), whose private key
+  is published by design. A demo result stays `trusted: true` but is always
+  identity-only: the engine strips the mandate, buyer info and discount hint
+  before the result leaves, because anyone can sign as the demo agent,
+  including a self-made mandate. Callers that predate the flag read such
+  results as identity-only, whose default discount tier is 0.
+
+### Changed
+
+- `parseKeyDirectory` / `readKeyDirectory` no longer drop a key whose `kid`
+  differs from its computed RFC 7638 thumbprint; the label is kept verbatim
+  on the key. Only unusable material is dropped (not OKP/Ed25519, malformed
+  `x`, `use` other than `sig`, non-Ed25519 `alg`).
+- `verifyDirectoryProofs` matches a proof's keyid by computed thumbprint
+  first, then by an advertised kid that selects exactly one key (a duplicated
+  kid selects nothing). An offered proof that fails is still fatal for its
+  key.
+- `KeyProofStatus` gains a fourth member, `possession-only` (union widening:
+  exhaustive switches over the type need a new arm): the proof verifies with
+  the published key inside its window and covers `@authority;req`, but does
+  not cover content-digest, so the body is not bound. This is the shape
+  agent.bot.goog serves; Appendix B requires content-digest to be covered as
+  well, and `valid` keeps meaning the full Appendix B proof. A
+  possession-only proof is never fatal (it is not `invalid`), is reported
+  with a warning, and does NOT satisfy a source that requires the Appendix B
+  proof (AVA's verifier treats it like `absent` under `proofRequiredOrigins`).
+  Any other covered list still classifies the proof `invalid`, and proofs
+  covering content-digest still require the header to match the body.
 
 ## [0.4.0] - 2026-09-25
 

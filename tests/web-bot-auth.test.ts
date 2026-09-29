@@ -15,6 +15,7 @@ import {
   ed25519JwkThumbprint,
   parseKeyDirectory,
   parseSignatureAgent,
+  readKeyDirectory,
   signDirectoryResponse,
   WebBotAuthParseError,
 } from '@ava-pay/agent/protocol/web-bot-auth';
@@ -636,13 +637,13 @@ describe('web-bot-auth protocol primitives', () => {
     }
   });
 
-  it('drops directory keys that are malformed, mislabelled, or wrong-type', () => {
+  it('drops only material it cannot use, and reports what it dropped and why', () => {
     const keys = generateAgentKeyPair();
     const jwk = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
-    const parsed = parseKeyDirectory({
+    const { keys: parsed, dropped } = readKeyDirectory({
       keys: [
         jwk, // good
-        { ...jwk, kid: 'not-the-thumbprint' }, // kid lies about the material → dropped
+        { ...jwk, kid: 'not-the-thumbprint' }, // mislabelled, but the material is fine → KEPT
         { ...jwk, use: 'enc' }, // wrong use → dropped
         { ...jwk, alg: 'RS256' }, // wrong algorithm → dropped
         { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' }, // wrong key type → dropped
@@ -650,13 +651,29 @@ describe('web-bot-auth protocol primitives', () => {
         'garbage',
       ],
     });
-    expect(parsed).toHaveLength(1);
+    // A kid that differs from the thumbprint never drops the key: the label
+    // rides along as a hint and the identity stays the computed thumbprint.
+    expect(parsed).toHaveLength(2);
     expect(parsed[0]?.thumbprint).toBe(webBotAuthKeyId(keys.publicKey));
+    expect(parsed[0]?.kid).toBeUndefined();
+    expect(parsed[1]).toMatchObject({
+      thumbprint: webBotAuthKeyId(keys.publicKey),
+      kid: 'not-the-thumbprint',
+    });
+    expect(dropped.map((d) => d.index)).toEqual([2, 3, 4, 5, 6]);
+    for (const d of dropped) expect(d.reason).toBeTruthy();
 
     // Both registry spellings of the Ed25519 algorithm survive.
     for (const alg of ['ed25519', 'EdDSA']) {
       expect(parseKeyDirectory({ keys: [{ ...jwk, alg }] })).toHaveLength(1);
     }
+  });
+
+  it('treats a directory of more than 100 entries as unusable, never truncated', () => {
+    const keys = generateAgentKeyPair();
+    const jwk = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    expect(parseKeyDirectory({ keys: Array(100).fill(jwk) })).toHaveLength(100);
+    expect(() => parseKeyDirectory({ keys: Array(101).fill(jwk) })).toThrow(WebBotAuthParseError);
   });
 
   it('accepts a bare single JWK directory (www.shopify.com shape) as a one-key list', () => {
@@ -1132,5 +1149,153 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
   it('still accepts a bare origin, whose parsed path is a single slash', () => {
     expect(parseSignatureAgent(`sig1="${AGENT_ORIGIN}"`, 'sig1').origin).toBe(AGENT_ORIGIN);
     expect(parseSignatureAgent(`sig1="${AGENT_ORIGIN}/"`, 'sig1').origin).toBe(AGENT_ORIGIN);
+  });
+});
+
+/**
+ * Regression for the agent.bot.goog defect (2026-09-29, wba-kid-is-a-hint):
+ * Google's live directory publishes five Ed25519 keys under six-char kids
+ * (none the RFC 7638 thumbprint) and its requests may sign with those kids as
+ * keyid. Three code sites assumed thumbprints everywhere: parseDirectoryKey
+ * dropped every mislabelled key (Google parsed to ZERO keys), the verifier
+ * failed any non-43-char keyid as signature_input_malformed before fetching,
+ * and unknown_key then claimed a published key "is not published". Principle:
+ * the identity of a key is its material; kid and keyid are selectors, and a
+ * selector that does not follow -00 is a warning, never a reason to drop a
+ * key or fail a request that verifies.
+ */
+describe('WebBotAuthVerifier: kid is a hint, not an identity (agent.bot.goog regression)', () => {
+  const FIXED_NOW = 1_750_000_000;
+  const AGENT_ORIGIN = 'https://agent.example';
+  const MERCHANT_URL = 'https://shop.example.com/products/tool-1234';
+  const SHORT_KID = 'mhxuPw';
+
+  let keys: AgentKeyPair;
+  let resolver: StaticSignatureAgentKeys;
+  let warnings: string[];
+  let verifier: WebBotAuthVerifier;
+
+  beforeEach(() => {
+    keys = generateAgentKeyPair();
+    resolver = new StaticSignatureAgentKeys();
+    const jwk = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    // Google's shape: EdDSA alg, use sig, and a kid that is not the thumbprint.
+    resolver.add(AGENT_ORIGIN, { keys: [{ ...jwk, alg: 'EdDSA', use: 'sig', kid: SHORT_KID }] });
+    warnings = [];
+    verifier = new WebBotAuthVerifier({
+      resolver,
+      now: () => FIXED_NOW,
+      onWarning: (message) => warnings.push(message),
+    });
+  });
+
+  function sign(overrides: Partial<Parameters<typeof signWithWebBotAuth>[0]> = {}) {
+    return signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: AGENT_ORIGIN,
+      privateKey: keys.privateKey,
+      created: FIXED_NOW - 5,
+      ...overrides,
+    });
+  }
+
+  it('verifies a request whose keyid is the advertised six-char kid, with a warning', async () => {
+    const result = await verifier.verify(toIncoming(sign({ keyid: SHORT_KID })));
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    // The identity reported downstream is the COMPUTED thumbprint, never the
+    // wire label, so the (URL, key) keying of Section 5.5.2 is unchanged.
+    expect(result.agent?.keyThumbprint).toBe(webBotAuthKeyId(keys.publicKey));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(AGENT_ORIGIN);
+    expect(warnings[0]).toContain('draft-ietf-webbotauth-httpsig-protocol-00');
+  });
+
+  it('verifies a thumbprint keyid against the same directory with no warning', async () => {
+    const result = await verifier.verify(toIncoming(sign()));
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.agent?.keyThumbprint).toBe(webBotAuthKeyId(keys.publicKey));
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('says exactly what unknown_key means: matched by neither thumbprint nor kid', async () => {
+    const stranger = generateAgentKeyPair();
+    const result = await verifier.verify(
+      toIncoming(sign({ privateKey: stranger.privateKey })),
+    );
+    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: true });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('matched none of the 1 keys');
+    expect(result.message).toContain('by thumbprint or by advertised kid');
+    // The old false claim is impossible for a key that is present.
+    expect(result.message).not.toContain('is not published');
+  });
+
+  it('still rejects a keyid beyond the sanity bound as signature_input_malformed', async () => {
+    // Non-empty printable ASCII up to 128 chars reaches the directory; only a
+    // shape no label could have is still malformed.
+    const long = 'k'.repeat(129);
+    const result = await verifier.verify(toIncoming(sign({ keyid: long })));
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_input_malformed' });
+  });
+
+  it('treats a fetched directory whose entries are all unusable as could-not-check', async () => {
+    // Entries present, zero usable keys: this says nothing about the signer,
+    // so it must be the inconclusive key_directory_unavailable, never a
+    // conclusive unknown_key.
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({ keys: [{ kty: 'RSA', n: 'xxx', e: 'AQAB' }, { kty: 'OKP', crv: 'Ed25519', x: 'short' }] }),
+        { headers: { 'content-type': 'application/http-message-signatures-directory+json' } },
+      )) as unknown as typeof fetch;
+    const fetching = new WebBotAuthVerifier({
+      resolver: new FetchingKeyDirectoryResolver({
+        allowedOrigins: [AGENT_ORIGIN],
+        fetchImpl,
+        nowMs: () => FIXED_NOW * 1000,
+        onWarning: () => {},
+      }),
+      now: () => FIXED_NOW,
+    });
+    const result = await fetching.verify(toIncoming(sign()));
+    expect(result).toMatchObject({
+      trusted: false,
+      reason: 'key_directory_unavailable',
+      conclusive: false,
+    });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('2 entries, none usable');
+  });
+
+  it('fails unknown_key against a directory that truly publishes no keys', async () => {
+    // An EMPTY key list with nothing dropped is a definitive answer: the
+    // directory says it holds no keys, so the request key is not attributable.
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ keys: [] }), {
+        headers: { 'content-type': 'application/http-message-signatures-directory+json' },
+      })) as unknown as typeof fetch;
+    const fetching = new WebBotAuthVerifier({
+      resolver: new FetchingKeyDirectoryResolver({
+        allowedOrigins: [AGENT_ORIGIN],
+        fetchImpl,
+        nowMs: () => FIXED_NOW * 1000,
+      }),
+      now: () => FIXED_NOW,
+    });
+    const result = await fetching.verify(toIncoming(sign()));
+    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: true });
+  });
+
+  it('refuses to select by an advertised kid that appears on two keys', async () => {
+    const other = generateAgentKeyPair();
+    const dup = new StaticSignatureAgentKeys();
+    const jwkA = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    const jwkB = other.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    dup.add(AGENT_ORIGIN, { keys: [{ ...jwkA, kid: SHORT_KID }, { ...jwkB, kid: SHORT_KID }] });
+    const ambiguous = new WebBotAuthVerifier({ resolver: dup, now: () => FIXED_NOW });
+    const result = await ambiguous.verify(toIncoming(sign({ keyid: SHORT_KID })));
+    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('appears on 2 keys');
   });
 });
