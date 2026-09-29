@@ -17,11 +17,13 @@ class AVA_Pay_Visits_View {
 
 	/**
 	 * @param array $report {
-	 *     @type bool   $enabled      The page-visit setting.
-	 *     @type string $settings_url AVA Pay settings page.
-	 *     @type array  $periods      days => AVA_Pay_Visit_Report::summarize() output.
-	 *     @type array  $skipped      days => AVA_Pay_Visit_Budget::skip_reasons() output.
-	 *     @type array  $recent       Rows {time, platform, protocol, outcome, reason, path}.
+	 *     @type bool        $enabled             The page-visit setting.
+	 *     @type string      $settings_url        AVA Pay settings page.
+	 *     @type string|null $coming_soon         AVA_Pay_Coming_Soon::mode() output.
+	 *     @type string      $site_visibility_url WooCommerce Site visibility settings.
+	 *     @type array       $periods             days => AVA_Pay_Visit_Report::summarize() output.
+	 *     @type array       $skipped             days => AVA_Pay_Visit_Budget::skip_reasons() output.
+	 *     @type array       $recent              Rows {time, platform, protocol, outcome, reason, path}.
 	 * }
 	 */
 	public static function render( array $report ) {
@@ -40,6 +42,14 @@ class AVA_Pay_Visits_View {
 			<h1><?php esc_html_e( 'AVA Pay: Agent visits', 'ava-pay-for-woocommerce' ); ?></h1>
 			<p><?php esc_html_e( 'Page views by AI agents that signed their requests, and what verification found. Visits are observed only: nothing here blocks, redirects or discounts a page view.', 'ava-pay-for-woocommerce' ); ?></p>
 
+			<?php
+			AVA_Pay_Coming_Soon_Notice::render(
+				isset( $report['coming_soon'] ) ? $report['coming_soon'] : null,
+				isset( $report['site_visibility_url'] ) ? $report['site_visibility_url'] : '',
+				true
+			);
+			?>
+
 			<?php if ( empty( $report['enabled'] ) ) : ?>
 				<div class="notice notice-warning inline">
 					<p>
@@ -53,6 +63,7 @@ class AVA_Pay_Visits_View {
 				<div class="notice notice-info inline">
 					<p><?php esc_html_e( 'No signed AI agent has visited your store yet.', 'ava-pay-for-woocommerce' ); ?></p>
 					<p><?php esc_html_e( 'Most AI crawlers do not sign their requests, so they cannot be verified and do not appear here. ChatGPT\'s agent does sign its requests.', 'ava-pay-for-woocommerce' ); ?></p>
+					<p><?php esc_html_e( 'To try it, ask ChatGPT to open one of your product pages by its full address, then reload this page. Your store must be live and publicly reachable (not a local site, and not behind a password or maintenance page).', 'ava-pay-for-woocommerce' ); ?></p>
 					<p><?php esc_html_e( 'If your store uses full-page caching, cached pages are served without running WordPress, so visits to those pages cannot be seen.', 'ava-pay-for-woocommerce' ); ?></p>
 				</div>
 			<?php else : ?>

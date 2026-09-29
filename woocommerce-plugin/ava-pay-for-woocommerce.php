@@ -41,6 +41,7 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-budget.p
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-report.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-visit-lock.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-page-visit-runner.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/core/class-ava-pay-coming-soon.php';
 
 // WordPress/WooCommerce integration layer.
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-settings.php';
@@ -52,6 +53,7 @@ require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-orders.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-frontend.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-page-visits.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-visits-view.php';
+require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-coming-soon-notice.php';
 require_once AVA_PAY_WC_PLUGIN_DIR . 'includes/class-ava-pay-admin.php';
 
 register_activation_hook( __FILE__, array( 'AVA_Pay_Events', 'install' ) );

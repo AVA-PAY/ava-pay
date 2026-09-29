@@ -5,8 +5,8 @@
  * reduce to for these inputs; the point of the view test is that every value
  * goes THROUGH an escaper, not to re-test WordPress's.
  *
- * Required by EventsTest and VisitsViewTest only; the pure-core suites never
- * see these.
+ * Required by EventsTest, VisitsViewTest and ComingSoonNoticeTest only; the
+ * pure-core suites never see these.
  *
  * @package AVA_Pay
  */
@@ -22,6 +22,51 @@ $GLOBALS['ava_test_options'] = array();
 $GLOBALS['ava_test_dbdelta'] = array();
 $GLOBALS['ava_test_cron']    = array();
 $GLOBALS['ava_test_filters'] = array();
+$GLOBALS['ava_test_can']     = true;
+$GLOBALS['ava_test_hooks']   = array();
+
+function add_action( $hook, $callback, $priority = 10, $args = 1 ) {
+	$GLOBALS['ava_test_hooks'][] = array( $hook, $callback, $priority );
+	return true;
+}
+function add_filter( $hook, $callback, $priority = 10, $args = 1 ) {
+	return add_action( $hook, $callback, $priority, $args );
+}
+function current_user_can( $capability ) {
+	return 'manage_woocommerce' === $capability && $GLOBALS['ava_test_can'];
+}
+function wp_die( $message = '' ) {
+	throw new RuntimeException( 'wp_die: ' . $message );
+}
+function admin_url( $path = '' ) {
+	return 'https://shop.example/wp-admin/' . ltrim( (string) $path, '/' );
+}
+function rest_url( $path = '' ) {
+	return 'https://shop.example/wp-json/' . ltrim( (string) $path, '/' );
+}
+function get_transient( $key ) {
+	return get_option( '_transient_' . $key );
+}
+function set_transient( $key, $value, $ttl = 0 ) {
+	return update_option( '_transient_' . $key, $value );
+}
+function get_date_from_gmt( $date, $format = 'Y-m-d H:i:s' ) {
+	return gmdate( $format, strtotime( $date . ' UTC' ) );
+}
+function wp_nonce_field( $action ) {
+	echo '<input type="hidden" name="_wpnonce" value="nonce" />';
+}
+function submit_button( $text ) {
+	echo '<input type="submit" value="' . esc_attr( $text ) . '" />';
+}
+function checked( $value ) {
+	if ( $value ) {
+		echo ' checked="checked"';
+	}
+}
+function esc_textarea( $text ) {
+	return esc_html( $text );
+}
 
 function apply_filters( $hook, $value ) {
 	return array_key_exists( $hook, $GLOBALS['ava_test_filters'] ) ? $GLOBALS['ava_test_filters'][ $hook ] : $value;
@@ -104,6 +149,11 @@ final class Ava_Test_Wpdb {
 
 	public function get_charset_collate() {
 		return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci';
+	}
+
+	/** No rows: the admin screens render their empty states. */
+	public function get_results( $sql, $output = null ) {
+		return array();
 	}
 
 	public function insert( $table, $row ) {

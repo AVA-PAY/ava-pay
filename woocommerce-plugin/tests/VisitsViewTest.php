@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/wp-stubs.php';
 require_once __DIR__ . '/../includes/class-ava-pay-visits-view.php';
+require_once __DIR__ . '/../includes/class-ava-pay-coming-soon-notice.php';
 
 final class VisitsViewTest extends TestCase {
 
@@ -102,9 +103,28 @@ final class VisitsViewTest extends TestCase {
 		$this->assertStringContainsString( 'No signed AI agent has visited your store yet.', $html );
 		$this->assertStringContainsString( 'Most AI crawlers do not sign their requests', $html );
 		$this->assertStringContainsString( 'ChatGPT' . esc_html( "'" ) . 's agent does sign its requests.', $html );
+		$this->assertStringContainsString( 'To try it, ask ChatGPT to open one of your product pages by its full address, then reload this page. Your store must be live and publicly reachable (not a local site, and not behind a password or maintenance page).', $html );
+		$this->assertLessThan(
+			strpos( $html, 'To try it, ask ChatGPT' ),
+			strpos( $html, 'does sign its requests.' ),
+			'the ChatGPT tip follows the ChatGPT sentence'
+		);
 		$this->assertStringContainsString( 'full-page caching', $html );
 		$this->assertStringNotContainsString( 'Last 7 days', $html );
+		$this->assertStringNotContainsString( 'Coming soon', $html );
 		$this->assertStringNotContainsString( 'is turned off', $html );
+	}
+
+	public function test_coming_soon_notice_comes_from_the_report(): void {
+		$report                        = $this->hostile_report();
+		$report['coming_soon']         = AVA_Pay_Coming_Soon::MODE_STORE;
+		$report['site_visibility_url'] = 'https://shop.example/wp-admin/admin.php?page=wc-settings&tab=site-visibility';
+		$html                          = $this->render( $report );
+		$this->assertStringContainsString( 'instead of your store pages.', $html );
+		$this->assertStringContainsString( 'Agents that visit are still listed here', $html );
+		$this->assertStringContainsString( 'href="https://shop.example/wp-admin/admin.php?page=wc-settings&amp;tab=site-visibility"', $html );
+		// Shown whether or not visits exist yet.
+		$this->assertStringContainsString( 'Recent visits', $html );
 	}
 
 	public function test_setting_off_says_so_and_links_to_settings(): void {
