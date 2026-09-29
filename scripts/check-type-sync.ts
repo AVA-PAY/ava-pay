@@ -222,16 +222,116 @@ export function findSyncProblems(sections: Section[], minReasons: number): SyncP
   return problems;
 }
 
+/**
+ * Read an interface's declared property names from source text via the AST.
+ *
+ * Optionality is part of the shape and is recorded with the name, so one file making a field required
+ * while the other leaves it optional counts as drift. The names come back sorted, because declaration
+ * order is not part of the contract and sorting keeps the diff honest about what actually changed.
+ */
+export function extractInterfacePropertiesFromText(
+  text: string,
+  label: string,
+  interfaceName: string,
+): string[] {
+  const sourceFile = ts.createSourceFile(label, text, ts.ScriptTarget.Latest, false);
+
+  let found: string[] | null = null;
+  const visit = (node: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(node) && node.name.text === interfaceName) {
+      found = node.members
+        .filter(ts.isPropertySignature)
+        .map((member) => {
+          const name = ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)
+            ? member.name.text
+            : '<computed>';
+          return member.questionToken ? `${name}?` : name;
+        });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  if (found === null) throw new Error(`${label}: interface ${interfaceName} not found`);
+  return [...(found as string[])].sort();
+}
+
+function extractInterfaceProperties(file: string, interfaceName: string): string[] {
+  return extractInterfacePropertiesFromText(readFileSync(resolve(ROOT, file), 'utf8'), file, interfaceName);
+}
+
+/**
+ * Interfaces that both files declare and must declare identically.
+ *
+ * VerificationFailureReason had a checker and these did not, which is the gap this closes: a field
+ * added to the SDK's OperatorRecord and forgotten in the Shopify app's copy compiles cleanly in both
+ * and silently means two different things to two consumers of the same JSON.
+ */
+const MIRRORED_INTERFACES = ['OperatorRecord', 'OperatorNetworkBlock'] as const;
+
+/**
+ * A floor per mirrored interface, for the same reason MIN_REASONS exists.
+ *
+ * A cross-file compare answers "do these agree", which is strictly weaker than "are these complete". A
+ * field dropped from BOTH twins in one edit keeps them in perfect agreement and passes silently, and a
+ * uniform omission is the likely one: the same person edits both copies in the same sitting with the
+ * same misunderstanding. This already happened once, and the checker cheerfully reported "in sync"
+ * while three fields were missing from both. So the count is ratcheted as well as compared.
+ */
+const MIN_INTERFACE_FIELDS: Readonly<Record<string, number>> = {
+  OperatorRecord: 16,
+  OperatorNetworkBlock: 10,
+};
+
+export function findInterfaceDrift(
+  files: readonly string[],
+  // Injected so a test can exercise the compare against small fixtures without being held to the
+  // production floor, which is a property of the real interfaces and not of the comparison.
+  floors: Readonly<Record<string, number>> = MIN_INTERFACE_FIELDS,
+): SyncProblem[] {
+  const problems: SyncProblem[] = [];
+  for (const interfaceName of MIRRORED_INTERFACES) {
+    const shapes = files.map((file) => ({ file, props: extractInterfaceProperties(file, interfaceName) }));
+    const [first, ...rest] = shapes;
+    if (!first) continue;
+    const floor = floors[interfaceName];
+    if (floor !== undefined) {
+      for (const shape of shapes) {
+        if (shape.props.length < floor) {
+          problems.push({
+            kind: 'drift',
+            message: `${interfaceName} in ${shape.file} has ${shape.props.length} fields, below the `
+              + `floor of ${floor}. The floor exists for the case an agreement check cannot see - a field `
+              + `removed from EVERY copy at once, which leaves the copies agreeing and the interface `
+              + `smaller. It also fires when only this copy is short, in which case the drift report `
+              + `above names the missing field. Raise the floor deliberately if the removal is intended.`,
+          });
+        }
+      }
+    }
+    for (const other of rest) {
+      const onlyFirst = first.props.filter((x) => !other.props.includes(x));
+      const onlyOther = other.props.filter((x) => !first.props.includes(x));
+      if (onlyFirst.length === 0 && onlyOther.length === 0) continue;
+      let message = `${interfaceName} drifted between ${first.file} and ${other.file}.`;
+      if (onlyFirst.length) message += ` Only in ${first.file}: ${onlyFirst.join(', ')}.`;
+      if (onlyOther.length) message += ` Only in ${other.file}: ${onlyOther.join(', ')}.`;
+      problems.push({ kind: 'drift', message });
+    }
+  }
+  return problems;
+}
+
 export function main(): void {
   const sections: Section[] = FILES.map((file) => ({
     file,
     reasons: extractReasons(file),
     table: extractConclusiveTable(file),
   }));
-  const problems = findSyncProblems(sections, MIN_REASONS);
+  const problems = [...findSyncProblems(sections, MIN_REASONS), ...findInterfaceDrift(FILES)];
 
   if (problems.length > 0) {
-    console.error('VerificationFailureReason sync check FAILED:');
+    console.error('type sync check FAILED:');
     for (const problem of problems) console.error(`  x ${problem.message}`);
     for (const section of sections) {
       console.error(`  ${section.file} (${section.reasons.length}):`);
@@ -247,6 +347,10 @@ export function main(): void {
       `(${count} reasons, floor ${MIN_REASONS}). REASON_CONCLUSIVE covers all ${count} in both, ` +
       `${couldNotCheck.length} could-not-check: ${couldNotCheck.join(', ')}.`,
   );
+  for (const interfaceName of MIRRORED_INTERFACES) {
+    const props = extractInterfaceProperties(FILES[0]!, interfaceName);
+    console.log(`✓ ${interfaceName} in sync across ${FILES.length} files (${props.length} fields).`);
+  }
 }
 
 // Run only when invoked directly (tsx scripts/check-type-sync.ts), never when

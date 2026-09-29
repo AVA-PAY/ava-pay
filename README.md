@@ -52,7 +52,7 @@ AVA Pay/
 │   └── server.ts                   # buildServer — composes verifier, directory, static landing
 ├── public/                         # static landing page (live in-browser demo using Web Crypto)
 ├── examples/agent-demo.ts          # runnable Node demo (all four protocols)
-├── tests/                          # 148 Vitest cases — real cryptography, no fakes
+├── tests/                          # 597 Vitest cases — real cryptography, no fakes
 ├── scripts/check-type-sync.ts      # CI guardrail against API↔plugin type drift
 ├── shopify-app/                    # Shopify Remix plugin (settings + traffic dashboard + theme extension)
 ├── AGENT_ISSUERS.md                # how AI agent issuers register with the directory
@@ -79,7 +79,7 @@ AVA Pay/
 | Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
 | Runnable demos | ✅ `npm run demo`, `npm run demo:ap2`, `npm run demo:wba`, `npm run demo:tap` |
-| API tests | ✅ 148 with real cryptography (real TAP + AVA profile + AP2 + Web Bot Auth + federated resolution + directory + caching + replay/hardening) |
+| API tests | ✅ 597 with real cryptography (real TAP + AVA profile + AP2 + Web Bot Auth + federated resolution + directory + caching + replay/hardening) |
 | Shopify plugin | ✅ OAuth, Polaris settings, traffic dashboard, App Proxy pass-through |
 | Plugin tests | ✅ 15 |
 | Dockerfile + compose with Redis | ✅ |
@@ -106,7 +106,7 @@ docker compose up --build    # API on :3000, Redis on :6379 (ready for the cache
 ## Test it
 
 ```bash
-npm test                  # 148 real-cryptography tests across all four protocols + directory
+npm test                  # 597 real-cryptography tests across all four protocols + directory
 npm run typecheck         # full TS strict check
 npm run check:type-sync   # API ↔ plugin VerificationFailureReason drift guard
 npm run demo              # in-process AVA TAP profile demo
@@ -138,6 +138,35 @@ Storage path is `AVA_DIRECTORY_DATA` (file-backed JSON, persists across restarts
 Verifier key resolution is **federated**: keys resolve through a chain of roots of trust — Visa's Agentic Directory (when `VISA_AGENT_DIRECTORY_URL` is set) → Visa's public JWKS (`mcp.visa.com`) → the Web Bot Auth key directories of allowlisted signature agents → this hosted directory as the private-allowlist fallback. The first root that knows the key wins (a revocation in a higher root is definitive); a root that is down is skipped. Agents you register here are immediately resolvable by `/verify` — and an agent that already publishes a Web Bot Auth key card can sign Visa TAP requests with that same key (keyid = RFC 7638 thumbprint), no separate registration.
 
 See [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) for the agent-side onboarding flow.
+
+## Operator provenance (optional)
+
+A verified result answers *which agent signed this*. It does not answer *who is accountable for the
+origin that agent claims to be*. An `OperatorSource` answers the second question, separately, and it
+can never change the first: `annotateWithOperator` only runs for `trusted: true`, attaches its answer
+at `result.operator`, and treats a null, a throw or a missing source as identical no-ops.
+
+`WhisperOperatorSource` (`src/verifier/whisper-operator-source.ts`) implements it against the Whisper
+graph, which is public and needs no key. Each origin you pass to `describe()` is sent to
+`https://graph.whisper.online/api/query`, an endpoint operated by Whisper Security, as a hostname and
+its registrable parent. No request content, no buyer data and no signing-key material goes with it, and
+nothing is sent at all until you call `describe()`. Switch it on by passing it as `operator`:
+
+```ts
+import { MultiProtocolVerifier } from './src/verifier/multi.js';
+import { WhisperOperatorSource } from './src/verifier/whisper-operator-source.js';
+
+const verifier = new MultiProtocolVerifier({
+  /* ...existing options... */
+  operator: new WhisperOperatorSource(),          // keyless
+  // operator: new WhisperOperatorSource({ apiKey: process.env.WHISPER_API_KEY }),
+});
+```
+
+See [`docs/operator-sources/whisper.md`](./docs/operator-sources/whisper.md) for the record it returns,
+what each field does and does not claim, and how to run it against the live graph.
+See [`docs/RESOLVER-SOURCES.md`](./docs/RESOLVER-SOURCES.md) for the contract an operator source owes
+its caller.
 
 ## Architecture
 

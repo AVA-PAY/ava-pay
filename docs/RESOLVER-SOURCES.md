@@ -351,9 +351,16 @@ An adapter replacing it should hold to these:
   provenance, not authority.
 - **`operator` is the registry's string**, reproduced, not normalized into a
   judgement. The policy layer decides what a name is worth.
-- **`observedAt` is when the lookup happened**, ISO 8601. Registry data is
-  cached and goes stale; a merchant reading an event needs to know how old the
-  claim is.
+- **`observedAt` is when the OBSERVATION was made**, ISO 8601, which is not
+  always when the lookup happened. A source that queries a registry live can use
+  the two interchangeably. A source reading a stored snapshot cannot: the
+  snapshot carries its own time, that time can be months older than the lookup,
+  and it is the one a merchant needs, because it is what bounds how old the claim
+  really is. Reporting the lookup time for a stored snapshot overstates freshness,
+  silently, in the one field that exists to measure it. A source that can tell the
+  two apart should report the observation in `observedAt` and its own read in the
+  optional `retrievedAt`; a source that cannot date an observation should return
+  `null` rather than substitute its own clock.
 - **Return `null`, do not invent.** No record is a fine answer, and it is a much
   better one than a plausible guess.
 - **Cache and bound it** the same way a network `FederatedSource` does. The same
