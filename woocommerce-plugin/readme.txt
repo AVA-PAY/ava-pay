@@ -4,7 +4,7 @@ Tags: ai agents, agentic commerce, bot verification, coupons, security
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.0
+Stable tag: 0.4.1
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -58,6 +58,16 @@ The verify endpoint is rate-limited per client IP (REMOTE_ADDR). If your host do
 
 Only for pages that are not served from the cache. A cached page is sent by your host or caching plugin without running WordPress or PHP, so the plugin never sees that visit and it is not shown under Agent visits. A cache that varies on, or bypasses for, the Signature header lets those visits through; most caches do neither by default.
 
+= Why don't I see any agent visits? =
+
+Check these, in this order:
+
+1. Coming soon mode. While WooCommerce's Coming soon mode is on, visitors who are not logged in, AI agents included, see a placeholder page instead of your store pages (or your whole site, depending on the setting). You see the store normally because you are logged in. Agents that visit are still listed under Agent visits, but they see the placeholder, not your products, so they cannot browse on to them. The AVA Pay settings page and the Agent visits screen warn you while it is on. To go live, open WooCommerce, Settings, Site visibility, choose Live and save. AVA Pay never changes this setting for you.
+2. The site must be publicly reachable. An AI agent cannot visit a local development site, or a site behind a password or a maintenance page.
+3. Full-page caching. Visits to cached pages never reach the plugin; see "I have enabled full-page caching. Will I see agent visits?" above.
+4. Most AI crawlers do not sign their requests, so they cannot be verified and are not listed. ChatGPT's agent does sign its requests.
+5. To try it, ask ChatGPT to open one of your product pages by its full address, then reload WooCommerce, Agent visits.
+
 = How many agent visits are checked? =
 
 Up to 30 a minute and 2,000 a day for each agent, and up to 20 a minute and 2,000 a day for the whole site, one at a time. A visit is also skipped while another check is running, and an agent whose last check could not be completed (the verification service or the agent's key directory did not answer) is skipped for 10 minutes. Skipped visits are not listed; they are counted as "Not checked" under Agent visits, with the reason. Each check waits at most 2 seconds for the verification service. Developers can change the numbers with the `ava_pay_page_visit_agent_per_minute`, `ava_pay_page_visit_agent_per_day`, `ava_pay_page_visit_site_per_minute`, `ava_pay_page_visit_site_per_day`, `ava_pay_page_visit_timeout` and `ava_pay_page_visit_backoff_seconds` filters.
@@ -89,7 +99,9 @@ Privacy policy: https://avalayer.com/privacy
 == Changelog ==
 
 = 0.4.1 =
-* Security hardening: verdicts from AVA Pay's public demo agent (the credential behind the landing-page demo, whose signing key is published on purpose) never create a coupon, whatever your discount settings, per-platform rules or identity-only percentage say. The verification API already refuses such verdicts a buyer mandate; this release adds the plugin's own check on top. Demo verify requests are recorded as test visits, and demo page visits are marked `demo_agent` on the Agent visits screen.
+* Security hardening: verdicts from AVA Pay's public demo agent (the credential behind the landing-page demo, whose signing key is published on purpose) never create a coupon, whatever your discount settings, per-platform rules or identity-only percentage say. The verification API already refuses such verdicts a buyer mandate; this release adds the plugin's own check on top. Demo verify requests are recorded as test visits, and demo page visits are marked `demo_agent` on the Agent visits screen. The verify endpoint's answer to a demo request now includes `"demo": true`.
+* New: while WooCommerce's Coming soon mode hides your store, the AVA Pay settings page and the Agent visits screen say so, say which pages agents cannot see, and link to WooCommerce's Site visibility settings. The plugin only tells you; it never changes your store's visibility. Nothing is shown on other admin screens.
+* The Agent visits screen, before the first visit, now explains how to try it with ChatGPT, and that the store must be live and publicly reachable.
 
 = 0.4.0 =
 * New: Agent visits (WooCommerce, Agent visits). When an AI agent loads a page with signed requests, the plugin checks the signature with the AVA Pay API after the page has been sent and shows the result: counts for the last 7 and 30 days by agent platform and outcome (verified, failed, unverifiable, error, not checked), and the last 50 visits with time, platform, outcome, reason and path. The page view itself is never blocked, redirected or given a coupon.
@@ -111,6 +123,9 @@ Privacy policy: https://avalayer.com/privacy
 * Initial release: verify endpoint, merchant policy engine (per-platform rules), single-use coupon minting, verification + commerce event recording.
 
 == Upgrade Notice ==
+
+= 0.4.1 =
+Demo agent visits never create a coupon, and the plugin now tells you when Coming soon mode hides your store from AI agents.
 
 = 0.4.0 =
 Shows signed AI agent visits to your store.
