@@ -115,8 +115,10 @@ export interface WebBotAuthVerifierOptions {
    * none, so grace is ON everywhere and a key that offers no proof is tolerated.
    * chatgpt.com serves proofs (2026-09-25); www.shopify.com did not when last
    * checked (2026-08-09), so an ON-by-default hard fail would reject real
-   * traffic. A key whose proof is present but
-   * INVALID is dropped regardless, at every grace setting.
+   * traffic. Only a `valid` proof (the full Appendix B shape) satisfies the
+   * requirement: a `possession-only` proof (agent.bot.goog's authority-only
+   * covered list) is treated like `absent` here. A key whose proof is present
+   * but INVALID is dropped regardless, at every grace setting.
    */
   proofRequiredOrigins?: string[];
   /**
@@ -440,18 +442,24 @@ export class WebBotAuthVerifier implements AgentVerifier {
     // Appendix B proof-of-possession gate (D2). A proof that was offered and
     // FAILED is never tolerated: the directory entry is untrustworthy, so this
     // runs before the entry's own nbf/exp are believed. A proof that is ABSENT
-    // is tolerated unless this source has the grace flag off. Both are
-    // definitive per-key determinations, so the fail() results are conclusive.
+    // or POSSESSION-ONLY (verifies, but covers no content-digest, so the body
+    // is unbound) is tolerated unless this source has the grace flag off: a
+    // strict operator asked for the Appendix B proof, and only `valid` is one.
+    // All are definitive per-key determinations, so the fail() results are
+    // conclusive.
     if (key.proof === 'invalid') {
       return fail(
         'key_proof_invalid',
         `Directory proof-of-possession for key "${keyid}" was offered but failed verification.`,
       );
     }
-    if (key.proof === 'absent' && this.proofRequired.has(origin)) {
+    if (key.proof !== 'valid' && this.proofRequired.has(origin)) {
       return fail(
         'unsigned_key',
-        `Directory for "${origin}" served no proof-of-possession for key "${keyid}", and this source requires one.`,
+        key.proof === 'possession-only'
+          ? `Directory for "${origin}" served only a possession proof for key "${keyid}" `
+            + '(no content-digest coverage), and this source requires the full Appendix B proof.'
+          : `Directory for "${origin}" served no proof-of-possession for key "${keyid}", and this source requires one.`,
       );
     }
     if (key.nbf !== undefined && key.nbf > now + this.skew) {
@@ -647,8 +655,8 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  *
  * Directory responses are trusted on the strength of TLS to an allowlisted
  * origin, plus Appendix B proof-of-possession when the directory serves it:
- * each key is classified valid/invalid/absent (verifyDirectoryProofs) and the
- * verifier applies the per-source grace flag. chatgpt.com serves proofs (seen
+ * each key is classified valid/invalid/absent/possession-only
+ * (verifyDirectoryProofs) and the verifier applies the per-source grace flag. chatgpt.com serves proofs (seen
  * 2026-09-25, with an `alg="ed25519"` parameter); www.shopify.com did not when
  * last checked (2026-08-09), so grace defaults on and absent proofs are
  * tolerated until every source ships them.

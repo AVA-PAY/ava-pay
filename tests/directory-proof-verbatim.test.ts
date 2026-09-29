@@ -216,13 +216,15 @@ describe('directory proofs signed over arbitrary member text', () => {
     expect(status(signedResponse({ member }))).toBe('invalid');
   });
 
-  it('accepts an authority-only covered list as a possession proof, with a warning', () => {
+  it("classifies an authority-only covered list 'possession-only': not invalid, not valid", () => {
     // Appendix B says the server MUST also cover content-digest, but
     // agent.bot.goog signs over ("@authority";req) alone (2026-09-29) and the
     // signature is a real possession proof. Rejecting it as invalid would be
-    // fatal for a key the directory demonstrably holds. The base for this
-    // shape has no content-digest line, so signedResponse's digest value is
-    // irrelevant to the verdict.
+    // fatal for a key the directory demonstrably holds; calling it valid
+    // would erase the distinction a strict operator asks for, since valid
+    // keeps meaning the full Appendix B proof. The base for this shape has no
+    // content-digest line, so signedResponse's digest value is irrelevant to
+    // the verdict.
     const member = `("@authority";req);${window};keyid="${keyid}";tag="${TAG}"`;
     const warnings: string[] = [];
     const response = signedResponse({ member });
@@ -237,7 +239,7 @@ describe('directory proofs signed over arbitrary member text', () => {
       keys,
       onWarning: (message) => warnings.push(message),
     }).get(keyid);
-    expect(result).toBe('valid');
+    expect(result).toBe('possession-only');
     expect(warnings.some((w) => w.includes('without content-digest'))).toBe(true);
   });
 
@@ -389,7 +391,7 @@ describe('the frozen agent.bot.goog directory (kid is a hint)', () => {
     }
   });
 
-  it('verifies the response proof for keyid DYiMjA valid inside its window', () => {
+  it('verifies the response proof for keyid DYiMjA possession-only inside its window', () => {
     const keys = parseKeyDirectory(JSON.parse(goog.body));
     const warnings: string[] = [];
     const status = verifyDirectoryProofs({
@@ -404,7 +406,7 @@ describe('the frozen agent.bot.goog directory (kid is a hint)', () => {
     });
     const dyimja = keys.find((k) => k.kid === PROOF_KID);
     if (!dyimja) throw new Error('DYiMjA key missing from fixture');
-    expect(status.get(dyimja.thumbprint)).toBe('valid');
+    expect(status.get(dyimja.thumbprint)).toBe('possession-only');
     // The other four keys offered no proof.
     for (const key of keys) {
       if (key.kid !== PROOF_KID) expect(status.get(key.thumbprint)).toBe('absent');
@@ -435,7 +437,7 @@ describe('the frozen agent.bot.goog directory (kid is a hint)', () => {
     if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.keys).toHaveLength(5);
     expect(res.keys.map((k) => [k.kid, k.proof])).toEqual(
-      GOOG_KIDS.map((kid) => [kid, kid === PROOF_KID ? 'valid' : 'absent']),
+      GOOG_KIDS.map((kid) => [kid, kid === PROOF_KID ? 'possession-only' : 'absent']),
     );
     // The fetch-time warning names the mislabelled kids once, not per request.
     expect(warnings.some((w) => w.includes('kid labels that are not JWK thumbprints'))).toBe(true);
@@ -484,5 +486,73 @@ describe('proof keyid matching by advertised kid (synthetic)', () => {
       keys,
     });
     for (const key of keys) expect(status.get(key.thumbprint)).toBe('absent');
+  });
+});
+
+describe('end to end: a possession-only proof at the verifier gates', () => {
+  const ORIGIN = 'https://agent.example';
+  const NOW = 1_750_000_000;
+  const TAG3 = 'http-message-signatures-directory';
+
+  function setup() {
+    const keys = generateAgentKeyPair();
+    const keyid = webBotAuthKeyId(keys.publicKey);
+    const body = JSON.stringify({ keys: [keys.publicKey.export({ format: 'jwk' })] });
+    // agent.bot.goog's shape: authority only, no Content-Digest header served.
+    const member = `("@authority";req);created=${NOW - 60};expires=${NOW + 240};keyid="${keyid}";tag="${TAG3}"`;
+    const base = [`"@authority";req: agent.example`, `"@signature-params": ${member}`].join('\n');
+    const sig = nodeSign(null, Buffer.from(base), keys.privateKey).toString('base64');
+    const fetchImpl = (async () =>
+      new Response(body, {
+        headers: {
+          'content-type': 'application/http-message-signatures-directory+json',
+          'signature-input': `g=${member}`,
+          signature: `g=:${sig}:`,
+        },
+      })) as unknown as typeof fetch;
+    const signed = signWithWebBotAuth({
+      method: 'GET',
+      url: 'https://shop.example.com/products/tool-1234',
+      signatureAgent: ORIGIN,
+      privateKey: keys.privateKey,
+      created: NOW - 5,
+    });
+    return { fetchImpl, signed };
+  }
+
+  it('is tolerated under default grace: the request verifies trusted true', async () => {
+    const { fetchImpl, signed } = setup();
+    const verifier = new WebBotAuthVerifier({
+      resolver: new FetchingKeyDirectoryResolver({
+        allowedOrigins: [ORIGIN],
+        fetchImpl,
+        nowMs: () => NOW * 1000,
+        onWarning: () => {},
+      }),
+      now: () => NOW,
+      onWarning: () => {},
+    });
+    const result = await verifier.verify({ method: signed.method, url: signed.url, headers: signed.headers });
+    expect(result).toMatchObject({ trusted: true, protocol: 'web-bot-auth' });
+  });
+
+  it('does not satisfy proofRequiredOrigins: unsigned_key, like an absent proof', async () => {
+    const { fetchImpl, signed } = setup();
+    const verifier = new WebBotAuthVerifier({
+      resolver: new FetchingKeyDirectoryResolver({
+        allowedOrigins: [ORIGIN],
+        fetchImpl,
+        nowMs: () => NOW * 1000,
+        onWarning: () => {},
+      }),
+      proofRequiredOrigins: [ORIGIN],
+      now: () => NOW,
+      onWarning: () => {},
+    });
+    const result = await verifier.verify({ method: signed.method, url: signed.url, headers: signed.headers });
+    expect(result).toMatchObject({ trusted: false, reason: 'unsigned_key', conclusive: true });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('only a possession proof');
+    expect(result.message).toContain('requires the full Appendix B proof');
   });
 });

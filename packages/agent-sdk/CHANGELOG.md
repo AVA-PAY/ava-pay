@@ -50,13 +50,17 @@ selector hint, never trusted and never a reason to drop a key.
   first, then by an advertised kid that selects exactly one key (a duplicated
   kid selects nothing). An offered proof that fails is still fatal for its
   key.
-- `verifyDirectoryProofs` accepts a proof whose covered list is
-  `("@authority";req)` alone, the shape agent.bot.goog serves, as a valid
-  possession proof with a warning. Appendix B requires content-digest to be
-  covered as well; for a verifier that fetched the directory itself over TLS
-  the body binding the digest adds is already given by transport. Any other
-  covered list still classifies the proof `invalid`, and proofs covering
-  content-digest still require the header to match the body.
+- `KeyProofStatus` gains a fourth member, `possession-only` (union widening:
+  exhaustive switches over the type need a new arm): the proof verifies with
+  the published key inside its window and covers `@authority;req`, but does
+  not cover content-digest, so the body is not bound. This is the shape
+  agent.bot.goog serves; Appendix B requires content-digest to be covered as
+  well, and `valid` keeps meaning the full Appendix B proof. A
+  possession-only proof is never fatal (it is not `invalid`), is reported
+  with a warning, and does NOT satisfy a source that requires the Appendix B
+  proof (AVA's verifier treats it like `absent` under `proofRequiredOrigins`).
+  Any other covered list still classifies the proof `invalid`, and proofs
+  covering content-digest still require the header to match the body.
 
 ## [0.4.0] - 2026-09-25
 
