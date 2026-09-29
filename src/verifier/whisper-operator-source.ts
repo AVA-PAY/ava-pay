@@ -132,8 +132,8 @@ export type WhisperOperatorProvenance = 'registrant-corroborated';
 /** Advisory network context. NEVER promoted into `operator` or `abuseContact`. */
 export interface WhisperNetworkBlock {
   /** Who operates the ADDRESS, e.g. "Cloudflare, Inc.". Not the accountable party. */
-  organisation?: string;
-  /** Abuse contact for the NETWORK, not for the accountable organisation. */
+  organization?: string;
+  /** Abuse contact for the NETWORK, not for the accountable organization. */
   abuseContact?: string;
   asns?: readonly string[];
   asNames?: readonly string[];
@@ -293,7 +293,7 @@ const MAX_PUBLISHED_LEN = 200;
  *
  * Safety only: length, control and bidi characters, markup and formula injection. Every string the
  * record publishes goes through this, not just `operator`. An earlier version hardened `operator` with
- * a dozen checks and published its neighbours raw, so a network organisation could carry markup or a
+ * a dozen checks and published its neighbours raw, so a network organization could carry markup or a
  * right-to-left override in a sibling field of the same record.
  */
 function safeString(value: unknown, maxLength: number = MAX_PUBLISHED_LEN): string | null {
@@ -311,7 +311,7 @@ function safeString(value: unknown, maxLength: number = MAX_PUBLISHED_LEN): stri
  * The two checks are separate because they answer different questions, and conflating them broke a
  * field. Safety asks "can this be rendered and logged". The sentinel pass asks "is this value really a
  * registry saying nothing", which is a question about an ACCOUNTABILITY claim - an operator name, a
- * network organisation - and is wrong everywhere else.
+ * network organization - and is wrong everywhere else.
  *
  * `PRIVACY` is a bare substring, so applying this to content rather than to a claim erased real data:
  * a nameserver set of `ns1.privacyprotect.org` vanished entirely, and a registrar legitimately trading
@@ -490,7 +490,7 @@ function boundedStrings(value: unknown): readonly string[] | undefined {
  * sentence about "everything else", then two lanes that between them missed six fields.
  *
  *   FREE TEXT + WHOLE-VALUE test   the registrar, the ASN names (`asNames`), the RIRs and the network
- *                                  organisation are free text a registry may fill with a redaction
+ *                                  organization are free text a registry may fill with a redaction
  *                                  string INSTEAD of an answer, so the whole value is compared and a
  *                                  value that IS the non-answer is refused, while `Domains By Proxy,
  *                                  LLC`, `DOMAIN-PRIVACY` and `Unredacted Inc` publish - all three of
@@ -591,7 +591,7 @@ function boundedList(
  *   netOrgNames       CAN CONTAIN A COLON. 21 live ASN nodes carry one in `orgName` from RPSL bleed,
  *                     e.g. "descr: No. 14, 256 Bach Dang, ..." and "... desc: 7F.-3, NO.119, ...". So
  *                     the split really does bisect this list, and it is safe for a reason that belongs
- *                     to the CALLER, not to this function: `one()` publishes `organisation` only when
+ *                     to the CALLER, not to this function: `one()` publishes `organization` only when
  *                     the collection holds exactly ONE distinct value, and this function is a no-op at
  *                     or below the cap, so the split can never change what is published. Written down
  *                     here because "they are all one group" would have been the wrong reason to trust.
@@ -633,13 +633,13 @@ function familyFairCap(sorted: readonly string[], cap: number): string[] {
 }
 
 /**
- * Whether two organisation strings name the same organisation, loosely enough to catch a registrar's
+ * Whether two organization strings name the same organization, loosely enough to catch a registrar's
  * name bleeding into the registrant field in a different spelling.
  *
  * Live examples of the same registrar in one field: "TUCOWS.COM, CO.", "Tucows Domains Inc.",
  * "TUCOWS, INC.", "TUCOWS DOMAINS INC.". A case-sensitive compare catches none of them.
  */
-function sameOrganisation(a: string, b: string): boolean {
+function sameOrganization(a: string, b: string): boolean {
   const squash = (v: string): string => v.toLowerCase().replace(/[^a-z0-9]+/g, '');
   const x = squash(a);
   const y = squash(b);
@@ -1160,7 +1160,7 @@ const Q_NET_PREFIX_COLUMNS = [
  * shape matters here for correctness and not only for cost.
  *
  * `orgName` and `autNumAsName` are read off the ASN node, which carries them denormalised. That is
- * what keeps this at depth 2 while still naming the organisation, where the hop to ORGANIZATION
+ * what keeps this at depth 2 while still naming the organization, where the hop to ORGANIZATION
  * would not fit.
  *
  * One ASN-level classification available here is deliberately not selected: it is a true fact about a
@@ -2253,7 +2253,7 @@ export class WhisperOperatorSource implements OperatorSource {
       const name = candidate.trim();
 
       const registrar = registrars[i];
-      if (typeof registrar === 'string' && sameOrganisation(name, registrar)) {
+      if (typeof registrar === 'string' && sameOrganization(name, registrar)) {
         this.counters.registrarBleed += 1;
         continue;
       }
@@ -2438,7 +2438,7 @@ export class WhisperOperatorSource implements OperatorSource {
    * The advisory network block, assembled from the prefix row and the ASN row.
    *
    * Every value here describes the ADDRESS the name resolves to, never the party accountable for the
-   * name. `organisation` is the network's operator - a CDN or a host - and is the single most likely
+   * name. `organization` is the network's operator - a CDN or a host - and is the single most likely
    * field in this record to be misread as the answer to "who runs this shop", so it is named for what
    * it is and never promoted into `operator`: a CDN fronts a great many origins it does not answer for.
    *
@@ -2458,7 +2458,7 @@ export class WhisperOperatorSource implements OperatorSource {
     const prefixes = boundedStrings(prefixRow['prefixes']);
     if (!prefixes) return null; // known name, no routing observation: absent rather than an empty husk
 
-    // Read as CONTENT, like every other field in this block. `organisation` is an RIR org name, not a
+    // Read as CONTENT, like every other field in this block. `organization` is an RIR org name, not a
     // WHOIS registrant, and the substring sentinel pass was erasing real ones: `Unredacted Inc` is an
     // ISP, `Foundation for Applied Privacy` an Austrian non-profit, and both were dropped because their
     // names contain a word the list matches. The whole-value non-answer test still refuses an org of
@@ -2482,7 +2482,7 @@ export class WhisperOperatorSource implements OperatorSource {
     const anycast = strictBoolean((Array.isArray(prefixRow['anycasts']) ? prefixRow['anycasts'] : []) as readonly unknown[]);
     const moas = strictBoolean((Array.isArray(prefixRow['moases']) ? prefixRow['moases'] : []) as readonly unknown[]);
 
-    const organisation = one(asnRow, 'netOrgNames');
+    const organization = one(asnRow, 'netOrgNames');
     // An address is content, so it takes the email path rather than the accountability path. Routing it
     // through the sentinel check dropped `abuse@privacyprotect.org`, which is precisely the address a
     // complaint about a privacy-fronted name has to go to.
@@ -2499,7 +2499,7 @@ export class WhisperOperatorSource implements OperatorSource {
     const rirs = boundedStrings(prefixRow['rirs']);
 
     const block: WhisperNetworkBlock = {
-      ...(organisation !== undefined ? { organisation } : {}),
+      ...(organization !== undefined ? { organization } : {}),
       ...(abuseContact !== undefined ? { abuseContact } : {}),
       ...(asns ? { asns } : {}),
       ...(asNames ? { asNames } : {}),

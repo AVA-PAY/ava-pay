@@ -424,7 +424,7 @@ export interface OperatorRecord {
  */
 export interface OperatorNetworkBlock {
   /** Who operates the address space, e.g. "Cloudflare, Inc.". NOT the accountable party. */
-  organisation?: string;
+  organization?: string;
   /** Abuse contact for the NETWORK, which is not the operator's abuse contact. */
   abuseContact?: string;
   asns?: readonly string[];

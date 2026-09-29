@@ -7,7 +7,7 @@
  *
  * The shape of this file follows the contract's two halves. First the pure helpers, where a bad input
  * must be rejected before it can become output. Then the source, where the thing being tested is
- * usually a NEGATIVE: that describe() does not await, does not publish a network organisation as an
+ * usually a NEGATIVE: that describe() does not await, does not publish a network organization as an
  * operator, and does not answer "no record" when it means "I could not check".
  */
 
@@ -25,7 +25,7 @@ import { annotateWithOperator, type OperatorRecord } from '../src/verifier/opera
 
 /* ------------------------------------------------------------------ fixtures */
 
-/** A sentinel planted in every fixture's network organisation. It must never reach `operator`. */
+/** A sentinel planted in every fixture's network organization. It must never reach `operator`. */
 const NETORG = 'NETORG-SENTINEL-MUST-NOT-BECOME-OPERATOR';
 
 interface Canned {
@@ -617,7 +617,7 @@ describe('describe() is off the request path', () => {
 });
 
 describe('the record it publishes', () => {
-  it('names the REGISTRANT as the operator, never the network organisation', async () => {
+  it('names the REGISTRANT as the operator, never the network organization', async () => {
     const record = await resolved('https://www.shopify.com', SHOPIFY);
     expect(record?.operator).toBe('Shopify Inc.');
     // The single most important assertion in this file. The network org is the HOSTING PROVIDER.
@@ -626,7 +626,7 @@ describe('the record it publishes', () => {
     // would take as "who is answerable for this merchant".
     expect(record?.operator).not.toBe(NETORG);
     expect(record?.abuseContact).toBeUndefined();
-    expect(record?.network?.organisation).toBe(NETORG); // correctly placed, and only here
+    expect(record?.network?.organization).toBe(NETORG); // correctly placed, and only here
     const { network, ...accountability } = record as WhisperOperatorRecord;
     void network;
     expect(JSON.stringify(accountability)).not.toContain(NETORG);
@@ -1156,7 +1156,7 @@ describe('every string the record publishes, not only `operator`', () => {
     expect(serialised).not.toMatch(/[\u0000-\u001f\u200e\u200f\u202a-\u202e\u2066-\u2069]/);
     expect(serialised).not.toContain('<script');
     expect(record?.network?.rirs ?? []).not.toContain('REDACTED FOR PRIVACY');
-    expect(record?.network?.organisation).toBeUndefined(); // the markup value was dropped, not escaped
+    expect(record?.network?.organization).toBeUndefined(); // the markup value was dropped, not escaped
     expect(record?.network?.abuseContact).toBeUndefined(); // the bidi value was dropped
     // Bounded, because these are re-served on every cache hit.
     expect(record?.network?.asNames?.length ?? 0).toBeLessThanOrEqual(8);

@@ -140,7 +140,7 @@ async function main(): Promise<void> {
   console.log(JSON.stringify(record, null, 2));
   console.log('');
   console.log(`operator:      ${record.operator}     <- the accountable party (WHOIS registrant)`);
-  console.log(`network org:   ${record.network?.organisation ?? '(none)'}     <- who runs the ADDRESS, NOT the operator`);
+  console.log(`network org:   ${record.network?.organization ?? '(none)'}     <- who runs the ADDRESS, NOT the operator`);
   if (record.queriedName) {
     console.log(`fold:          asked ${record.queriedName}, answered about ${record.resolvedName}`);
   }

@@ -161,7 +161,7 @@ describe('findInterfaceDrift', () => {
   operator: string;${extra}
 }
 export interface OperatorNetworkBlock {
-  organisation?: string;
+  organization?: string;
 }
 `;
 
@@ -215,7 +215,7 @@ export interface OperatorNetworkBlock {
 
   it('checks EVERY mirrored interface, not only the first', () => {
     const a = RECORD('') + 'export interface Extra { x: string }\n';
-    const b = RECORD('').replace('  organisation?: string;', '  organisation?: string;\n  drifted?: string;');
+    const b = RECORD('').replace('  organization?: string;', '  organization?: string;\n  drifted?: string;');
     const messages = driftBetween(a, b);
     expect(messages.some((m) => m.includes('OperatorNetworkBlock drifted'))).toBe(true);
   });
