@@ -573,11 +573,19 @@ function signatureAgentReason(code: WebBotAuthParseErrorCode): VerificationFailu
 
 /**
  * Signature-Agent origins we resolve by default. Only origins whose live
- * directory we have verified belong here (checked 2026-07-12: chatgpt.com
- * serves a valid Ed25519 JWKS; claude.ai / perplexity.ai do not publish one
- * yet). Merchants extend the set via WBA_ALLOWED_SIGNATURE_AGENTS.
+ * directory we have verified belong here. Merchants extend the set via
+ * WBA_ALLOWED_SIGNATURE_AGENTS or WBA_EXTRA_SIGNATURE_AGENTS.
+ *
+ * - chatgpt.com: checked 2026-07-12, valid Ed25519 JWKS; a real ChatGPT
+ *   page visit verified on a live WooCommerce store on 2026-09-29.
+ * - agent.bot.goog: checked 2026-09-29, five Ed25519 keys served as
+ *   application/http-message-signatures-directory+json with a signed
+ *   response; Google's crawler guide names it as the Signature-Agent for
+ *   its (self-described experimental) signed requests. Its kids are not
+ *   thumbprints, which is why kid is a selector hint (see the parser notes).
+ * - claude.ai / perplexity.ai: no directory published when last checked.
  */
-export const DEFAULT_SIGNATURE_AGENTS = ['https://chatgpt.com'];
+export const DEFAULT_SIGNATURE_AGENTS = ['https://chatgpt.com', 'https://agent.bot.goog'];
 
 /** Static resolver for tests and private allowlists: origin → parsed JWKS. */
 export class StaticSignatureAgentKeys implements SignatureAgentKeyResolver {

@@ -861,8 +861,8 @@ describe('FetchingKeyDirectoryResolver', () => {
     }
   });
 
-  it('ships chatgpt.com as the only default trusted signature agent', () => {
-    expect(DEFAULT_SIGNATURE_AGENTS).toEqual(['https://chatgpt.com']);
+  it('ships chatgpt.com and agent.bot.goog as the default trusted signature agents', () => {
+    expect(DEFAULT_SIGNATURE_AGENTS).toEqual(['https://chatgpt.com', 'https://agent.bot.goog']);
   });
 });
 
