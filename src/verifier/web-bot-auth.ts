@@ -288,12 +288,14 @@ export class WebBotAuthVerifier implements AgentVerifier {
     //             matters: Section 5.2.2 forbids attributing a signature to a
     //             member it does not cover. We deliberately do NOT additionally
     //             require key == signature label. Section 5.2.1 says "the
-    //             member keyed to the signature label", but the draft's own
-    //             Appendix E.1.1 / E.2.1 vectors label the signature sig2 and
-    //             key the member agent2, and -02 deleted the -01 sentence that
-    //             made matching a RECOMMENDED. Enforcing it would reject the
-    //             working group's published vectors while adding no security
-    //             over resolving the covered member. Raised for the IETF reply.
+    //             member keyed to the signature label", but the published
+    //             -00 Appendix E.1.1 / E.2.1 vectors label the signature sig2
+    //             and key the member agent2 (the editor's copy re-keyed both to
+    //             sig2 on 2026-10-09, WG PR #138, not yet in a published
+    //             revision), and -02 deleted the -01 sentence that made
+    //             matching a RECOMMENDED. Enforcing it would reject the
+    //             published -00 vectors while adding no security over
+    //             resolving the covered member.
     //   unkeyed   the deployed form (chatgpt.com sends the bare sf-string
     //             header with an unkeyed component). Covering the field covers
     //             every member, so the label-matched member is still what the
