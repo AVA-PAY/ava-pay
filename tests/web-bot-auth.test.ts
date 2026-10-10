@@ -1119,7 +1119,8 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
   });
 
   // One usable member that is not label-matched is still resolved: that is the
-  // draft's own E.2.1 shape (signature sig2, member agent2) and the deployed
+  // published -00 E.2.1 shape (signature sig2, member agent2; re-keyed to sig2
+  // in the editor's copy by WG PR #138 on 2026-10-09) and the deployed
   // bare-string traffic. The NV-13 fix must not cost us either.
   it('still resolves a single Signature-Agent member that does not match the label', () => {
     const parsed = parseSignatureAgent(`only="${AGENT_ORIGIN}"`, 'sig1');

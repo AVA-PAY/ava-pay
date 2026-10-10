@@ -126,8 +126,9 @@ export interface SignatureAgentValue {
  *
  * `strict` controls what happens when `label` names no member. Off (default),
  * a single usable member is taken, which is the tolerance the deployed
- * bare-string traffic and the draft's own E.2.1 vector need (that vector labels
- * the signature sig2 and keys the member agent2). SEVERAL usable members and no
+ * bare-string traffic and the published -00 E.2.1 vector need (that vector
+ * labels the signature sig2 and keys the member agent2; the editor's copy
+ * re-keyed it to sig2 on 2026-10-09, WG PR #138). SEVERAL usable members and no
  * label match is an error either way: nothing says which one signed, so any
  * choice would be attribution by header order. ON, the absence is an error too:
  * a caller that knows the signature covers one NAMED member must resolve that
