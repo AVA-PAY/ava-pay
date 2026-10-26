@@ -6,6 +6,58 @@ This package is a pre-1.0 developer preview, so a minor version may tighten
 verification behaviour. Type-level changes are called out as additive or
 breaking on each entry.
 
+## [0.5.0] - 2026-10-26
+
+**Upgrade note.** Web Bot Auth gains algorithm agility: EC P-256 keys parse
+from key directories and `ecdsa-p256-sha256` signatures (ES256, the default
+UCP recommends) verify beside `ed25519`, for requests and for Appendix B
+directory proofs. RSA stays a stated non-goal: RSA keys and rsa-* algorithms
+are rejected with a message that says what this implementation verifies, never
+dropped silently. draft-ietf-webbotauth-httpsig-protocol-00 Section 5.2
+defines keyids for RSA and EC keys too, and the editor's copy (WG PR #139,
+merged 2026-10-09) has a directory JWK's `alg` follow RFC 7517 Section 4.4, so
+`ES256` in a directory is plainly conformant.
+
+### Added
+
+- `ecP256JwkThumbprint(x, y)`: the RFC 7638 Section 3.2 thumbprint for EC
+  P-256 keys, beside `ed25519JwkThumbprint`. Pinned against an independently
+  computed vector for the RFC 9421 Appendix B.1.3 test key.
+- EC P-256 directory keys parse. `WebBotAuthKey` gains `crv?: 'Ed25519' |
+  'P-256'` and `y?: string` (additive: a key with no `crv` reads as Ed25519,
+  and `parseDirectoryKey` always sets it).
+- `directoryKeyAlgorithm`, `directoryKeyJwk`, `verifyWithDirectoryKey` and
+  type `WebBotAuthKeyAlgorithm` (protocol/web-bot-auth/keys.ts): the one
+  place a directory key's algorithm is decided and applied.
+- `verifyEcdsaP256Sha256` beside `verifyEd25519` in the RFC 9421 core
+  (protocol/visa). Signature bytes are the raw 64-byte r||s concatenation RFC
+  9421 Section 3.3.4 requires; DER-encoded signatures fail.
+- `signWithWebBotAuth`, `webBotAuthKeyId` and `signDirectoryResponse` accept
+  EC P-256 keys. The wire `alg` defaults to the signing key's registry name
+  ("ed25519" or "ecdsa-p256-sha256").
+
+### Changed
+
+- Directory JWK filtering is algorithm-aware and truthful: RSA entries are
+  dropped with a reason naming the decision, unsupported curves with the curve
+  named, and a JWK `alg` that contradicts its own key type (ES256 on an OKP
+  key, EdDSA on an EC key) drops the entry. Accepted spellings: EdDSA /
+  Ed25519 / ed25519 on OKP, ES256 on EC, absent always.
+- Appendix B directory proofs: an explicit proof `alg` must name the signing
+  key's own algorithm (previously ed25519 was the only accepted value);
+  EC-signed proofs verify under the same covered-list rules.
+- **Reason vocabulary, union 48 to 49 (callers with exhaustive switches over
+  `VerificationFailureReason` need a new arm):** new conclusive reason
+  `key_outside_validity_window` for a PUBLISHED key whose own nbf/exp window
+  excludes the request time (previously reported as `unknown_key`). In
+  `REASON_CONCLUSIVE`, `unknown_key` and `unknown_signature_agent` are now
+  could-not-check (`conclusive: false`): an absent keyid is indistinguishable
+  from rotation or cache lag, and an un-allowlisted Signature-Agent is a
+  policy refusal, not a verification outcome. `trusted` stays false in every
+  case; only the flag and the messages changed.
+- `parseSignature` error wording: a non-64-byte value now names both accepted
+  forms (Ed25519, ECDSA P-256 r||s) instead of Ed25519 alone.
+
 ## [0.4.1] - 2026-09-29
 
 **Upgrade note.** A Web Bot Auth key directory is no longer required to label

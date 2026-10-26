@@ -40,6 +40,13 @@ describe('REASON_CONCLUSIVE', () => {
       'key_directory_redirected',
       'key_directory_unavailable',
       'key_directory_unsupported_media_type',
+      // A keyid absent from a resolved directory may be rotation or cache lag,
+      // and an un-allowlisted Signature-Agent is a policy refusal to fetch:
+      // neither says the verifier checked the signature and it failed. The key
+      // that IS published but outside nbf/exp stays conclusive as
+      // key_outside_validity_window.
+      'unknown_key',
+      'unknown_signature_agent',
     ]);
   });
 

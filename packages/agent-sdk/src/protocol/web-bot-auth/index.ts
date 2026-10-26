@@ -17,9 +17,13 @@ import { createHash } from 'node:crypto';
  * moves Signature-Agent to a Dictionary keyed by signature label
  * (`sig1="https://..."`). We accept both forms; everything else is identical.
  *
- * keyid is a base64url JWK SHA-256 Thumbprint (RFC 7638; Ed25519 form per
- * RFC 8037 Appendix A.3) of the signing key, resolved against the agent's
- * key directory at https://{signature-agent}/.well-known/http-message-signatures-directory.
+ * keyid is a base64url JWK SHA-256 Thumbprint (RFC 7638: the Section 3.2 form
+ * for EC keys, the RFC 8037 Appendix A.3 form for Ed25519) of the signing key,
+ * resolved against the agent's key directory at
+ * https://{signature-agent}/.well-known/http-message-signatures-directory.
+ *
+ * Algorithms: ed25519 and ecdsa-p256-sha256 (see keys.ts). RSA is a stated
+ * non-goal for now, rejected with a reason that says so.
  */
 
 export {
@@ -30,6 +34,13 @@ export {
   type KeyProofStatus,
   type DirectoryProofSigner,
 } from './directory-proof.js';
+
+export {
+  directoryKeyAlgorithm,
+  directoryKeyJwk,
+  verifyWithDirectoryKey,
+  type WebBotAuthKeyAlgorithm,
+} from './keys.js';
 
 export const WEB_BOT_AUTH_TAG = 'web-bot-auth';
 export const KEY_DIRECTORY_PATH = '/.well-known/http-message-signatures-directory';
@@ -281,6 +292,22 @@ export function ed25519JwkThumbprint(x: string): string {
   return createHash('sha256').update(canonical, 'utf-8').digest('base64url');
 }
 
+/**
+ * RFC 7638 Section 3.2 JWK SHA-256 thumbprint for an EC P-256 key:
+ * base64url(SHA-256 of the canonical JSON with exactly the required members
+ * {crv, kty, x, y} in lexicographic order). -00 Section 5.2 names this form
+ * for EC request keyids.
+ */
+export function ecP256JwkThumbprint(x: string, y: string): string {
+  if (!B64URL_32_BYTES.test(x) || !B64URL_32_BYTES.test(y)) {
+    throw new WebBotAuthParseError(
+      'P-256 JWK "x" and "y" must each be 43 base64url chars (32 bytes)',
+    );
+  }
+  const canonical = `{"crv":"P-256","kty":"EC","x":"${x}","y":"${y}"}`;
+  return createHash('sha256').update(canonical, 'utf-8').digest('base64url');
+}
+
 /** One usable key out of an agent's key directory. */
 export interface WebBotAuthKey {
   /**
@@ -297,8 +324,17 @@ export interface WebBotAuthKey {
    * identity. Absent when the entry has no kid or a non-string one.
    */
   kid?: string;
-  /** Ed25519 public key, base64url (JWK "x"). */
+  /**
+   * The key's curve, which pins its one signature algorithm (ed25519 for
+   * Ed25519, ecdsa-p256-sha256 for P-256; see directoryKeyAlgorithm). Optional
+   * so the type stays additive: a key parsed by an older build carries no crv
+   * and is Ed25519, and parseDirectoryKey always sets it.
+   */
+  crv?: 'Ed25519' | 'P-256';
+  /** Public key first coordinate, base64url (JWK "x"). */
   x: string;
+  /** P-256 keys only: the second coordinate (JWK "y"). Absent on Ed25519. */
+  y?: string;
   /** Optional validity window (unix seconds) copied from the JWK. */
   nbf?: number;
   exp?: number;
@@ -339,16 +375,19 @@ export const MAX_DIRECTORY_KEYS = 100;
  *
  * Fail-closed filtering, per the draft's "a client application SHOULD validate
  * the directory format and reject malformed entries":
- *   - only OKP / Ed25519 keys with a well-formed `x` survive;
- *   - a key declaring `use` other than "sig", or an `alg` that is not an
- *     Ed25519 spelling, is dropped. -02 §5.5.1 restricts `alg` to the HTTP
- *     Signature Algorithms registry, whose name is "ed25519", but the field is
- *     optional and the JOSE spelling "EdDSA" is what JOSE tooling emits. Both
- *     are accepted, and alg-absent is accepted, because stock WebCrypto
+ *   - OKP/Ed25519 keys with a well-formed `x`, and EC/P-256 keys with
+ *     well-formed `x` and `y`, survive. Everything else is dropped with a
+ *     reason: RSA keys (a stated non-goal for now, not an accident), other EC
+ *     curves (P-384, ...), other key types, malformed coordinates.
+ *   - a key declaring `use` other than "sig" is dropped, as is a key whose
+ *     `alg` does not name its own type's algorithm. The editor's copy (WG PR
+ *     #139) has a directory JWK `alg` follow RFC 7517 §4.4, so the accepted
+ *     spellings are "EdDSA" / "Ed25519" / "ed25519" on an OKP key and "ES256"
+ *     on an EC key; a mismatch (ES256 on an Ed25519 key, EdDSA on a P-256 key)
+ *     drops the key, because that key cannot have signed what the label says.
+ *     alg-absent is accepted (the key type decides) because stock WebCrypto
  *     REJECTS `alg: "ed25519"` on import (Joshua Ashcroft's implementer report
- *     to the list, 2026-08-18), so directories have good reason to omit it or
- *     send the JOSE name. Dropping those keys would fail agents over a field
- *     they were never required to send.
+ *     to the list, 2026-08-18), so directories have good reason to omit it.
  *
  * A `kid` that differs from the computed thumbprint NEVER drops the key. -00
  * Section 5.5 says a published kid MUST be the thumbprint, but the identity of
@@ -404,18 +443,48 @@ export function parseKeyDirectory(json: unknown): WebBotAuthKey[] {
 function parseDirectoryKey(entry: unknown): WebBotAuthKey | string {
   if (typeof entry !== 'object' || entry === null) return 'not a JSON object';
   const jwk = entry as Record<string, unknown>;
-  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') return 'not an OKP/Ed25519 key';
-  if (typeof jwk.x !== 'string' || !B64URL_32_BYTES.test(jwk.x)) {
-    return '"x" is not 43 base64url chars';
+
+  let key: WebBotAuthKey;
+  const alg = jwk.alg !== undefined ? String(jwk.alg).toLowerCase() : undefined;
+  if (jwk.kty === 'OKP') {
+    if (jwk.crv !== 'Ed25519') {
+      return `OKP curve ${JSON.stringify(jwk.crv)} is not supported (Ed25519 only)`;
+    }
+    if (typeof jwk.x !== 'string' || !B64URL_32_BYTES.test(jwk.x)) {
+      return '"x" is not 43 base64url chars';
+    }
+    // "ed25519" is the HTTP Signature Algorithms registry name; "EdDSA" is the
+    // JOSE (RFC 8037) name. Both unambiguously mean Ed25519 on an OKP key.
+    // Anything else contradicts the key's own type, so the entry is unusable.
+    if (alg !== undefined && !['ed25519', 'eddsa'].includes(alg)) {
+      return `"alg" is ${JSON.stringify(jwk.alg)} on an OKP/Ed25519 key (mismatched alg)`;
+    }
+    key = { thumbprint: ed25519JwkThumbprint(jwk.x), crv: 'Ed25519', x: jwk.x };
+  } else if (jwk.kty === 'EC') {
+    if (jwk.crv !== 'P-256') {
+      return `EC curve ${JSON.stringify(jwk.crv)} is not supported (P-256 only)`;
+    }
+    if (
+      typeof jwk.x !== 'string' || !B64URL_32_BYTES.test(jwk.x)
+      || typeof jwk.y !== 'string' || !B64URL_32_BYTES.test(jwk.y)
+    ) {
+      return '"x" and "y" must each be 43 base64url chars';
+    }
+    // RFC 7517 §4.4 spelling for ECDSA P-256/SHA-256 (per the editor's copy,
+    // WG PR #139). Any other value contradicts the key's own type.
+    if (alg !== undefined && alg !== 'es256') {
+      return `"alg" is ${JSON.stringify(jwk.alg)} on an EC/P-256 key (mismatched alg; ES256 is its algorithm)`;
+    }
+    key = { thumbprint: ecP256JwkThumbprint(jwk.x, jwk.y), crv: 'P-256', x: jwk.x, y: jwk.y };
+  } else if (jwk.kty === 'RSA') {
+    // Deliberate, not an accident: say so, so an RSA directory operator reads
+    // a decision rather than a parser gap.
+    return 'RSA keys are not supported by this verifier (a stated non-goal; it verifies ed25519 and ecdsa-p256-sha256)';
+  } else {
+    return `key type ${JSON.stringify(jwk.kty)} is not supported (OKP/Ed25519 or EC/P-256)`;
   }
+
   if (jwk.use !== undefined && jwk.use !== 'sig') return `"use" is ${JSON.stringify(jwk.use)}, not "sig"`;
-  // "ed25519" is the HTTP Signature Algorithms registry name; "EdDSA" is the
-  // JOSE (RFC 8037) name. Both unambiguously mean Ed25519 on an OKP key.
-  if (jwk.alg !== undefined && !['ed25519', 'eddsa'].includes(String(jwk.alg).toLowerCase())) {
-    return `"alg" is ${JSON.stringify(jwk.alg)}, not an Ed25519 spelling`;
-  }
-  const thumbprint = ed25519JwkThumbprint(jwk.x);
-  const key: WebBotAuthKey = { thumbprint, x: jwk.x };
   // The advertised label rides along verbatim; only a string can select.
   if (typeof jwk.kid === 'string') key.kid = jwk.kid;
   if (typeof jwk.nbf === 'number' && Number.isFinite(jwk.nbf)) key.nbf = jwk.nbf;

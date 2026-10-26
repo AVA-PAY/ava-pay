@@ -137,6 +137,11 @@ export type VerificationFailureReason =
   | 'unsupported_protocol_version'
   // Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-00, formerly
   // draft-meunier-webbotauth-httpsig-protocol-02)
+  // The Signature-Agent origin has no key directory allowlisted on this
+  // merchant. That is a policy refusal to fetch, not a verification outcome:
+  // the signature was never evaluated, so the result is could-not-check
+  // (conclusive=false) and the message says no directory is allowlisted rather
+  // than anything that reads as a bad signature.
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
   // The Signature-Agent URL answered with a redirect. Section 5.5 of -02
@@ -152,7 +157,18 @@ export type VerificationFailureReason =
   // learned about the signer, and a key set served as text/html must not read
   // as unknown_key. Operator fix: serve the directory with its media type.
   | 'key_directory_unsupported_media_type'
+  // The request keyid matched no key in the directory we resolved. An absent
+  // key can mean a signer we should refuse, but it can also be rotation lag or
+  // a stale cached copy (ours or an edge's), and nothing in the response tells
+  // the two apart, so this is could-not-check (conclusive=false; trusted stays
+  // false either way). A key the directory DOES publish whose own window
+  // excludes now is the conclusive key_outside_validity_window instead.
   | 'unknown_key'
+  // The request keyid selected a published key, and that key's own JWK
+  // validity window (nbf/exp) excludes the time of the request. Unlike an
+  // absent key this is a definitive answer from the directory about this exact
+  // key, so it is conclusive.
+  | 'key_outside_validity_window'
   // Signature-Agent header names, each for what the operator must fix in that
   // header. All conclusive: the header arrived and says something definite.
   // The header is not a readable Structured Field (bad quoting, no usable
@@ -239,11 +255,12 @@ export const REASON_CONCLUSIVE = {
   mandate_constraint_violation: true,
   checkout_hash_mismatch: true,
   unsupported_protocol_version: true,
-  unknown_signature_agent: true,
+  unknown_signature_agent: false,
   key_directory_unavailable: false,
   key_directory_redirected: false,
   key_directory_unsupported_media_type: false,
-  unknown_key: true,
+  unknown_key: false,
+  key_outside_validity_window: true,
   signature_agent_malformed: true,
   signature_agent_ambiguous: true,
   signature_agent_member_missing: true,
@@ -499,11 +516,12 @@ export type VerificationResult =
        * Whether the verifier completed its checks. Fixed per reason by
        * REASON_CONCLUSIVE, which is the source of truth: false for exactly the
        * could-not-check reasons it lists (today directory_unavailable,
-       * key_directory_unavailable, key_directory_redirected and
-       * key_directory_unsupported_media_type, also exported as
-       * COULD_NOT_CHECK_REASONS), true for every other reason, where the
-       * request was definitively rejected. trusted stays false either way, so
-       * fail-closed behavior never depends on this flag.
+       * key_directory_unavailable, key_directory_redirected,
+       * key_directory_unsupported_media_type, unknown_key and
+       * unknown_signature_agent, also exported as COULD_NOT_CHECK_REASONS),
+       * true for every other reason, where the request was definitively
+       * rejected. trusted stays false either way, so fail-closed behavior
+       * never depends on this flag.
        *
        * AVA's engine always sets it, because every failure is built by
        * rejection(), which reads the table. It stays optional on the type so a

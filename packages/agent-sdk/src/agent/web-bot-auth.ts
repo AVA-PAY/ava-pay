@@ -1,6 +1,7 @@
 import { createPublicKey, randomBytes, sign as nodeSign, type KeyObject } from 'node:crypto';
 import { computeContentDigest } from '../protocol/visa/http-signatures.js';
 import {
+  ecP256JwkThumbprint,
   ed25519JwkThumbprint,
   WEB_BOT_AUTH_TAG,
   type SignatureAgentType,
@@ -14,8 +15,11 @@ import type { SignedRequest } from './visa.js';
  * Mirror image of the WebBotAuthVerifier and byte-compatible with real
  * deployed traffic (OpenAI's agents): covered components
  * ("@authority" "@method" "@path" "signature-agent"), parameters
- * created/expires/keyid/alg/nonce/tag="web-bot-auth", Ed25519 signature,
- * keyid = RFC 7638 JWK thumbprint of the signing key.
+ * created/expires/keyid/alg/nonce/tag="web-bot-auth", keyid = RFC 7638 JWK
+ * thumbprint of the signing key. Signs with Ed25519 or ECDSA P-256/SHA-256
+ * (the key type decides; alg defaults to the matching HTTP Signature
+ * Algorithms registry name, and ECDSA signatures are the raw r||s form RFC
+ * 9421 Section 3.3.4 requires, never DER).
  *
  * Draft -02 Section 5.2.1 requires signers to send the dictionary
  * Signature-Agent form and to cover the member keyed to their own label, so
@@ -52,7 +56,11 @@ export interface WebBotAuthSignInput {
   label?: string;
   /** Defaults to "web-bot-auth". Pass null to omit (negative testing). */
   tag?: string | null;
-  /** Defaults to "ed25519". Pass null to omit — verifiers resolve the alg from the directory key. */
+  /**
+   * Defaults to the signing key's own registry name ("ed25519" or
+   * "ecdsa-p256-sha256"). Pass null to omit; verifiers resolve the algorithm
+   * from the directory key.
+   */
   alg?: string | null;
   /** keyid override. Defaults to the RFC 7638 thumbprint of the signing key's public half. */
   keyid?: string;
@@ -83,8 +91,9 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
   const label = input.label ?? 'sig1';
   const nonce = input.nonce === null ? undefined : (input.nonce ?? randomBytes(64).toString('base64url'));
   const tag = input.tag === null ? undefined : (input.tag ?? WEB_BOT_AUTH_TAG);
-  const alg = input.alg === null ? undefined : (input.alg ?? 'ed25519');
-  const keyid = input.keyid ?? thumbprintOf(input.privateKey);
+  const keyInfo = signingKeyInfo(input.privateKey);
+  const alg = input.alg === null ? undefined : (input.alg ?? keyInfo.alg);
+  const keyid = input.keyid ?? keyInfo.thumbprint;
   const components = input.components ?? ['@authority', '@method', '@path', 'signature-agent'];
 
   const url = new URL(input.url);
@@ -143,7 +152,13 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
   lines.push(`"@signature-params": ${sigInputValue}`);
   const signatureBase = lines.join('\n');
 
-  const sig = nodeSign(null, Buffer.from(signatureBase), input.privateKey);
+  const sig =
+    keyInfo.alg === 'ecdsa-p256-sha256'
+      ? nodeSign('sha256', Buffer.from(signatureBase), {
+          key: input.privateKey,
+          dsaEncoding: 'ieee-p1363',
+        })
+      : nodeSign(null, Buffer.from(signatureBase), input.privateKey);
 
   return {
     method: input.method,
@@ -159,14 +174,23 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
 
 /** RFC 7638 thumbprint of a key's public half — the Web Bot Auth keyid. */
 export function webBotAuthKeyId(key: KeyObject): string {
-  return thumbprintOf(key);
+  return signingKeyInfo(key).thumbprint;
 }
 
-function thumbprintOf(key: KeyObject): string {
+/** Thumbprint + HTTP Signature Algorithms registry name for a signing key. */
+function signingKeyInfo(key: KeyObject): { thumbprint: string; alg: 'ed25519' | 'ecdsa-p256-sha256' } {
   const pub = key.type === 'private' ? createPublicKey(key) : key;
-  const jwk = pub.export({ format: 'jwk' }) as { kty?: string; crv?: string; x?: string };
-  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519' || typeof jwk.x !== 'string') {
-    throw new Error('Web Bot Auth signing requires an Ed25519 key');
+  const jwk = pub.export({ format: 'jwk' }) as {
+    kty?: string;
+    crv?: string;
+    x?: string;
+    y?: string;
+  };
+  if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519' && typeof jwk.x === 'string') {
+    return { thumbprint: ed25519JwkThumbprint(jwk.x), alg: 'ed25519' };
   }
-  return ed25519JwkThumbprint(jwk.x);
+  if (jwk.kty === 'EC' && jwk.crv === 'P-256' && typeof jwk.x === 'string' && typeof jwk.y === 'string') {
+    return { thumbprint: ecP256JwkThumbprint(jwk.x, jwk.y), alg: 'ecdsa-p256-sha256' };
+  }
+  throw new Error('Web Bot Auth signing requires an Ed25519 or EC P-256 key');
 }

@@ -73,6 +73,9 @@ export type VerificationFailureReason =
   | 'unsupported_protocol_version'
   // Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-00, formerly
   // draft-meunier-webbotauth-httpsig-protocol-02)
+  // No key directory is allowlisted for the Signature-Agent origin: a policy
+  // refusal to fetch, not a verification outcome, so could-not-check
+  // (conclusive=false); the signature itself was never evaluated.
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
   // The Signature-Agent URL answered with a redirect. Section 5.5 of -02
@@ -85,7 +88,13 @@ export type VerificationFailureReason =
   // directory type, so it was never parsed. Could-not-check, conclusive=false,
   // and never unknown_key.
   | 'key_directory_unsupported_media_type'
+  // The request keyid matched no key in the directory. Rotation lag and cache
+  // staleness are indistinguishable from a bad keyid here, so could-not-check
+  // (conclusive=false); trusted stays false either way.
   | 'unknown_key'
+  // The keyid selected a PUBLISHED key whose own nbf/exp window excludes now:
+  // a definitive answer from the directory, so conclusive.
+  | 'key_outside_validity_window'
   // What is wrong with the Signature-Agent header itself. All conclusive.
   | 'signature_agent_malformed'
   | 'signature_agent_ambiguous'
@@ -151,11 +160,12 @@ export const REASON_CONCLUSIVE = {
   mandate_constraint_violation: true,
   checkout_hash_mismatch: true,
   unsupported_protocol_version: true,
-  unknown_signature_agent: true,
+  unknown_signature_agent: false,
   key_directory_unavailable: false,
   key_directory_redirected: false,
   key_directory_unsupported_media_type: false,
-  unknown_key: true,
+  unknown_key: false,
+  key_outside_validity_window: true,
   signature_agent_malformed: true,
   signature_agent_ambiguous: true,
   signature_agent_member_missing: true,
@@ -333,8 +343,8 @@ export type VerificationResult =
        * REASON_CONCLUSIVE above (mirrored from the SDK), which is the source of
        * truth: false for exactly its could-not-check reasons (today
        * directory_unavailable, key_directory_unavailable,
-       * key_directory_redirected and key_directory_unsupported_media_type),
-       * true for every other reason. trusted stays false either way, so
+       * key_directory_redirected, key_directory_unsupported_media_type,
+       * unknown_key and unknown_signature_agent), true for every other reason. trusted stays false either way, so
        * fail-closed behavior never depends on this flag. The API always sets
        * it; an absent value, from an older API build, reads as conclusive. The
        * full ternary lands in the v1.0 contract (D4).

@@ -121,11 +121,14 @@ describe('OperatorSource composition', () => {
 
   it('never runs on a failed result', async () => {
     const multi = build(recording(async () => RECORD));
-    // Signed with a key the directory does not publish: definitive rejection.
+    // Signed with a key the directory does not publish. unknown_key is
+    // could-not-check since the conclusiveness split (rotation and cache lag
+    // are indistinguishable from a bad keyid), but trusted stays false, which
+    // is what gates the operator source.
     const stranger = generateAgentKeyPair();
     const result = await multi.verify(signedRequest(stranger));
 
-    expect(result).toMatchObject({ trusted: false, conclusive: true });
+    expect(result).toMatchObject({ trusted: false, conclusive: false });
     if (result.trusted) throw new Error('expected rejection');
     expect(result.reason).toBe('unknown_key');
     expect(calls).toEqual([]);

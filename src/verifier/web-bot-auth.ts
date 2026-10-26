@@ -8,20 +8,22 @@ import {
   parseSignature,
   parseSignatureInput,
   SignatureParseError,
-  verifyEd25519,
   type SignatureParseErrorCode,
 } from './http-signatures.js';
 import {
   classifyKeyDirectoryMediaType,
+  directoryKeyAlgorithm,
   KEY_DIRECTORY_MEDIA_TYPE,
   KEY_DIRECTORY_PATH,
   parseKeyDirectory,
   readKeyDirectory,
   parseSignatureAgent,
   verifyDirectoryProofs,
+  verifyWithDirectoryKey,
   WEB_BOT_AUTH_TAG,
   WebBotAuthParseError,
   type KeyProofStatus,
+  type WebBotAuthKeyAlgorithm,
   type WebBotAuthParseErrorCode,
   type WebBotAuthKey,
 } from '@ava-pay/agent/protocol/web-bot-auth';
@@ -39,10 +41,13 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  *
  * Pipeline:
  *   1. Parse Signature-Input / Signature (RFC 9421) + require tag="web-bot-auth".
- *   2. Algorithm gate: the key resolved from the directory pins Ed25519; an
- *      explicit alg param, if present, must agree. (Unlike Visa TAP we do not
- *      require the alg param — deployed agents may omit it and the spec keys
- *      the algorithm off the directory JWK, so there is no confusion window.)
+ *   2. Algorithm gate: ed25519 and ecdsa-p256-sha256 are the algorithms we
+ *      verify (RSA is a stated non-goal for now, and the message says so). The
+ *      key resolved from the directory pins the algorithm; an explicit alg
+ *      param, if present, must name one we verify and later agree with the
+ *      selected key's type. (Unlike Visa TAP we do not require the alg param:
+ *      deployed agents may omit it and the spec keys the algorithm off the
+ *      directory JWK, so there is no confusion window.)
  *   3. Enforce created/expires window with skew + server-side max-age cap.
  *   4. Signature-Agent header: required (it is our key-discovery root), must
  *      be covered by the signature (else an attacker could re-attribute a
@@ -53,16 +58,21 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  *      the key whose RFC 7638 thumbprint equals keyid, falling back to the
  *      advertised kid with a warning (the label is a selector, never the
  *      identity), and check its nbf/exp.
- *   7. Verify Ed25519 over the signature base.
+ *   7. Verify the signature over the base with the key's own algorithm
+ *      (ECDSA per RFC 9421 §3.3.4: raw r||s bytes, never DER).
  *   8. Replay check (post-signature): keyed on the nonce when present, else
  *      on a digest of the signature bytes — a replayed capture is
  *      byte-identical because every parameter is inside the signed base.
  *
  * Every failure is a typed `trusted:false` reason; the verifier never throws.
  * Fail closed: unreachable directory → key_directory_unavailable, origin not
- * in the trust set → unknown_signature_agent, unknown/expired key → unknown_key.
- * Each reason's outcome (invalid or could-not-check) comes from
- * REASON_CONCLUSIVE via rejection(), never from the call site.
+ * in the trust set → unknown_signature_agent (a policy refusal: no directory
+ * is allowlisted, nothing was checked), keyid absent from the directory →
+ * unknown_key (could-not-check: rotation lag and cache staleness look the
+ * same from here), a PUBLISHED key outside its own nbf/exp →
+ * key_outside_validity_window (conclusive). Each reason's outcome (invalid or
+ * could-not-check) comes from REASON_CONCLUSIVE via rejection(), never from
+ * the call site.
  */
 
 /** A directory key plus its Appendix B proof-of-possession status. */
@@ -133,7 +143,19 @@ export interface WebBotAuthVerifierOptions {
 
 const DEFAULT_SKEW = 30;
 const DEFAULT_TTL_SECONDS = 60;
+/**
+ * Server-side cap on signature lifetime from `created`, seconds: a stated
+ * policy, not an oversight. -00 Section 5.2 RECOMMENDS an `expires` of up to
+ * 24 hours; we cap at 300 s whatever the signature says, because a captured
+ * request stays replayable anywhere the nonce store does not reach until its
+ * effective expiry, and the replay guard holds every seen signature in memory
+ * until then. Merchants that want longer windows set maxAgeSeconds; the
+ * signature_expired message tells a long-expires signer that the cap, not
+ * their expires, decided.
+ */
 const DEFAULT_MAX_AGE_SECONDS = 300;
+/** The HTTP Signature Algorithms registry names this verifier accepts. */
+const SUPPORTED_WIRE_ALGS: readonly WebBotAuthKeyAlgorithm[] = ['ed25519', 'ecdsa-p256-sha256'];
 /** Clock skew tolerated on Appendix B proof created/expires, evaluated at fetch. */
 const PROOF_SKEW_SECONDS = 300;
 /**
@@ -235,13 +257,15 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
 
     // ── 2. Algorithm gate ─────────────────────────────────────────────────
-    // The directory key pins the algorithm (OKP/Ed25519 only survives
-    // parseKeyDirectory), so an omitted alg param cannot cause confusion; an
-    // explicit one must not contradict it.
-    if (alg !== undefined && alg !== 'ed25519') {
+    // The directory key pins the algorithm (only Ed25519 and P-256 keys
+    // survive parseKeyDirectory), so an omitted alg param cannot cause
+    // confusion; an explicit one must name an algorithm we verify here, and
+    // must agree with the selected key's type below.
+    if (alg !== undefined && !(SUPPORTED_WIRE_ALGS as readonly string[]).includes(alg)) {
       return fail(
         'unsupported_algorithm',
-        `Algorithm "${alg}" is not supported (require ed25519).`,
+        `Algorithm "${alg}" is not supported: this verifier accepts ed25519 and `
+          + 'ecdsa-p256-sha256. RSA algorithms are a stated non-goal for now.',
       );
     }
 
@@ -261,9 +285,18 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
     const effectiveExpires = Math.min(expires, created + this.maxAge);
     if (effectiveExpires + this.skew < now) {
+      // When the signer's own window is still open, the cap decided, and the
+      // message must say so: a signer sending the 24 h expires -00 Section 5.2
+      // recommends would otherwise read "expired" as a clock bug.
+      const cappedWhileStillValid = expires + this.skew >= now;
       return fail(
         'signature_expired',
-        `Signature expired at ${effectiveExpires} (now=${now}, max age ${this.maxAge}s).`,
+        `Signature expired at ${effectiveExpires} (now=${now}, max age ${this.maxAge}s).`
+          + (cappedWhileStillValid
+            ? ` The signature's own expires=${expires} has not passed: this verifier caps`
+              + ` signature lifetime at created + ${this.maxAge}s as a replay-window policy`
+              + ' (configurable via maxAgeSeconds).'
+            : ''),
       );
     }
 
@@ -372,9 +405,15 @@ export class WebBotAuthVerifier implements AgentVerifier {
       resolution = { status: 'unavailable' };
     }
     if (resolution.status === 'not_allowed') {
+      // A policy refusal, not a verdict on the signature: no key directory is
+      // allowlisted for this origin, so nothing was fetched and nothing was
+      // checked. The message must not read as a bad signature, and the result
+      // is could-not-check (conclusive=false via the table).
       return fail(
         'unknown_signature_agent',
-        `Signature agent "${origin}" is not in this merchant's trust set.`,
+        `No key directory is allowlisted for the Signature-Agent origin "${origin}" on this `
+          + 'merchant, so the request was not evaluated. Add the origin to the trust set '
+          + 'to have its directory resolved.',
       );
     }
     if (resolution.status === 'redirected') {
@@ -435,10 +474,27 @@ export class WebBotAuthVerifier implements AgentVerifier {
       }
     }
     if (!key) {
+      // Could-not-check (conclusive=false via the table): an absent key may be
+      // a signer to refuse, but it may equally be mid-rotation or behind a
+      // cached directory copy, and the response cannot tell us which.
       return fail(
         'unknown_key',
         `keyid "${keyid}" matched none of the ${resolution.keys.length} keys published in `
-          + `${origin}${KEY_DIRECTORY_PATH} by thumbprint or by advertised kid.`,
+          + `${origin}${KEY_DIRECTORY_PATH} by thumbprint or by advertised kid. The key may `
+          + 'be mid-rotation or behind a cached directory copy, so this is not a definitive '
+          + 'rejection.',
+      );
+    }
+    // The wire alg, when present, must agree with the selected key's type: an
+    // Ed25519 key cannot have made an ecdsa-p256-sha256 signature, and
+    // verifying with the key's own algorithm regardless of the label would
+    // accept a signature whose declared algorithm is a lie.
+    const keyAlg = directoryKeyAlgorithm(key);
+    if (alg !== undefined && alg !== keyAlg) {
+      return fail(
+        'unsupported_algorithm',
+        `Signature alg "${alg}" does not match the directory key selected by keyid "${keyid}", `
+          + `whose algorithm is ${keyAlg}.`,
       );
     }
     // Appendix B proof-of-possession gate (D2). A proof that was offered and
@@ -464,11 +520,20 @@ export class WebBotAuthVerifier implements AgentVerifier {
           : `Directory for "${origin}" served no proof-of-possession for key "${keyid}", and this source requires one.`,
       );
     }
+    // A key the directory publishes whose own window excludes now is a
+    // definitive answer about that key, so its reason is conclusive, unlike
+    // an absent key, which may just be rotation or cache lag.
     if (key.nbf !== undefined && key.nbf > now + this.skew) {
-      return fail('unknown_key', `Key "${keyid}" is not yet valid (nbf=${key.nbf}).`);
+      return fail(
+        'key_outside_validity_window',
+        `Key "${keyid}" is published but not yet valid (nbf=${key.nbf}, now=${now}).`,
+      );
     }
     if (key.exp !== undefined && key.exp + this.skew < now) {
-      return fail('unknown_key', `Key "${keyid}" expired at ${key.exp}.`);
+      return fail(
+        'key_outside_validity_window',
+        `Key "${keyid}" is published but expired at ${key.exp} (now=${now}).`,
+      );
     }
 
     // ── 7. Verify the signature ───────────────────────────────────────────
@@ -488,17 +553,23 @@ export class WebBotAuthVerifier implements AgentVerifier {
 
     let signatureOk = false;
     try {
-      signatureOk = verifyEd25519({ kty: 'OKP', crv: 'Ed25519', x: key.x }, signatureBase, signature);
+      signatureOk = verifyWithDirectoryKey(key, signatureBase, signature);
     } catch {
       signatureOk = false;
     }
     if (!signatureOk) {
-      // One Ed25519 verify returning false covers both a forgery and a signer
-      // that canonicalized a component differently (an empty @path where the
-      // rule requires "/"). We cannot tell the two apart from here, so there
-      // is no canonicalization reason: a name we cannot honestly emit would be
-      // worse than this coarse one.
-      return fail('invalid_signature', 'Ed25519 verification failed against the directory key.');
+      // One verify returning false covers both a forgery and a signer that
+      // canonicalized a component differently (an empty @path where the rule
+      // requires "/"). We cannot tell the two apart from here, so there is no
+      // canonicalization reason: a name we cannot honestly emit would be worse
+      // than this coarse one.
+      return fail(
+        'invalid_signature',
+        keyAlg === 'ecdsa-p256-sha256'
+          ? 'ECDSA P-256 verification failed against the directory key '
+            + '(signature bytes must be raw r||s per RFC 9421 Section 3.3.4, never DER).'
+          : 'Ed25519 verification failed against the directory key.',
+      );
     }
 
     // ── 8. Replay check ───────────────────────────────────────────────────
@@ -619,7 +690,10 @@ export interface FetchingKeyDirectoryResolverOptions {
    * guard: a Signature-Agent outside this set is never dereferenced.
    */
   allowedOrigins: string[];
-  /** Directory cache TTL. Default 10 minutes. */
+  /**
+   * Directory cache TTL ceiling. Default 10 minutes. A response that carries
+   * Cache-Control max-age caps the entry at min(this, max-age - Age).
+   */
   cacheTtlMs?: number;
   /** How long a fetch failure is remembered before retrying. Default 30s. */
   failureCacheTtlMs?: number;
@@ -650,6 +724,13 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * response cap; and only allowlisted origins are ever contacted (the SSRF
  * guard). Success and failure are both cached (10 min / 30 s) so a flood of
  * requests cannot turn us into a fetch cannon.
+ *
+ * The success cache honours the response's own freshness (Appendix C.4 says to
+ * use normal HTTP caching semantics): when the response carries Cache-Control
+ * max-age, the entry expires after min(cacheTtlMs, (max-age - Age)), so a key
+ * the operator removes stops verifying within the directory's own cache
+ * lifetime (§5.5.2) even when an edge served us an already-aged copy. Without
+ * max-age the configured TTL applies unchanged.
  *
  * A 3xx resolves to `redirected` rather than `unavailable` so the verifier can
  * tell a merchant which of the two happened: a directory that is up and
@@ -703,13 +784,18 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
     const now = this.nowMs();
     if (cached && cached.until > now) return cached.value;
 
-    const value = await this.fetchDirectory(origin);
-    const ttl = value.status === 'ok' ? this.cacheTtlMs : this.failureCacheTtlMs;
+    const { value, freshForMs } = await this.fetchDirectory(origin);
+    const ttl =
+      value.status === 'ok'
+        ? Math.min(this.cacheTtlMs, freshForMs ?? Number.POSITIVE_INFINITY)
+        : this.failureCacheTtlMs;
     this.cache.set(origin, { until: now + ttl, value });
     return value;
   }
 
-  private async fetchDirectory(origin: string): Promise<KeyDirectoryResolution> {
+  private async fetchDirectory(
+    origin: string,
+  ): Promise<{ value: KeyDirectoryResolution; freshForMs?: number }> {
     const url = `${origin}${KEY_DIRECTORY_PATH}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -730,19 +816,21 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         // reported the issue for. CONSEQUENCE: the shopify.com APEX directory
         // no longer resolves for identity purposes. Their www host serves the
         // directory directly and is unaffected.
-        return { status: 'redirected', detail: `HTTP ${res.status}` };
+        return { value: { status: 'redirected', detail: `HTTP ${res.status}` } };
       }
       if (res.status !== 200) {
         // Exactly 200, not any 2xx: a 204 carries no key set to parse.
-        return { status: 'unavailable', detail: `HTTP ${res.status}` };
+        return { value: { status: 'unavailable', detail: `HTTP ${res.status}` } };
       }
       const contentType = res.headers.get('content-type');
       const mediaClass = classifyKeyDirectoryMediaType(contentType);
       if (mediaClass !== 'directory' && mediaClass !== 'json') {
         await res.body?.cancel().catch(() => {});
         return {
-          status: 'unsupported_media_type',
-          detail: contentType ? `Content-Type ${contentType}` : 'no Content-Type',
+          value: {
+            status: 'unsupported_media_type',
+            detail: contentType ? `Content-Type ${contentType}` : 'no Content-Type',
+          },
         };
       }
       if (mediaClass === 'json') {
@@ -761,8 +849,10 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         // set aside.
         const why = dropped.map((d) => `#${d.index}: ${d.reason}`).join('; ');
         return {
-          status: 'unavailable',
-          detail: `directory publishes ${dropped.length} entries, none usable: ${why}`,
+          value: {
+            status: 'unavailable',
+            detail: `directory publishes ${dropped.length} entries, none usable: ${why}`,
+          },
         };
       }
       const mislabelled = keys.filter((k) => k.kid !== undefined && k.kid !== k.thumbprint);
@@ -793,16 +883,37 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         ...k,
         proof: proofByThumbprint.get(k.thumbprint) ?? 'absent',
       }));
-      return { status: 'ok', keys: resolved };
+      const freshForMs = responseFreshnessMs(res.headers);
+      return {
+        value: { status: 'ok', keys: resolved },
+        ...(freshForMs !== undefined ? { freshForMs } : {}),
+      };
     } catch (err) {
       return {
-        status: 'unavailable',
-        detail: err instanceof Error ? err.message : 'fetch failed',
+        value: {
+          status: 'unavailable',
+          detail: err instanceof Error ? err.message : 'fetch failed',
+        },
       };
     } finally {
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * Remaining freshness of a response per its own caching headers, in ms:
+ * Cache-Control max-age minus the Age an intermediary reports, floored at 0.
+ * Undefined when the response carries no max-age, in which case the caller's
+ * configured TTL stands alone.
+ */
+function responseFreshnessMs(headers: Headers): number | undefined {
+  const cacheControl = headers.get('cache-control');
+  const maxAgeMatch = cacheControl?.match(/(?:^|[,\s])max-age\s*=\s*("?)(\d{1,10})\1(?=$|[,\s;])/i);
+  if (!maxAgeMatch) return undefined;
+  const ageHeader = Number(headers.get('age') ?? '');
+  const age = Number.isFinite(ageHeader) && ageHeader > 0 ? Math.floor(ageHeader) : 0;
+  return Math.max(0, Number(maxAgeMatch[2]) - age) * 1000;
 }
 
 export async function readBounded(res: Response, maxBytes: number): Promise<string> {
