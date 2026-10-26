@@ -1,3 +1,5 @@
+import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_SIGNATURE_AGENTS,
@@ -12,6 +14,7 @@ import { Ap2AgentVerifier } from '../src/verifier/ap2.js';
 import { StaticAgentDirectory } from '../src/verifier/agent-directory.js';
 import { InMemoryReplayGuard } from '../src/verifier/replay.js';
 import {
+  ecP256JwkThumbprint,
   ed25519JwkThumbprint,
   parseKeyDirectory,
   parseSignatureAgent,
@@ -127,12 +130,16 @@ describe('WebBotAuthVerifier', () => {
     expect(result.trusted).toBe(true);
   });
 
-  it('rejects a signature made with a key the directory does not publish → unknown_key (conclusive=true)', async () => {
+  it('treats a key the directory does not publish as could-not-check → unknown_key (conclusive=false)', async () => {
     const signed = sign({ privateKey: strangerKeys.privateKey });
     const result = await verifier.verify(toIncoming(signed));
-    // Directory fetched fine, key simply absent: definitive, so conclusive stays
-    // true (contrast the unavailable-directory case, which is inconclusive).
-    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: true });
+    // Directory fetched fine, key absent. From here a bad keyid, a mid-rotation
+    // key, and a stale cached copy all look the same, so the verdict is
+    // could-not-check: trusted stays false, conclusive goes false, and the
+    // message says this is not a definitive rejection.
+    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: false });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('not a definitive rejection');
   });
 
   it('rejects a forged signature under a published keyid → invalid_signature', async () => {
@@ -152,7 +159,7 @@ describe('WebBotAuthVerifier', () => {
     expect(result).toMatchObject({ trusted: false, reason: 'invalid_signature' });
   });
 
-  it('rejects an origin outside the trust set → unknown_signature_agent', async () => {
+  it('rejects an origin outside the trust set → unknown_signature_agent (a policy refusal, inconclusive)', async () => {
     const signed = signWithWebBotAuth({
       method: 'GET',
       url: MERCHANT_URL,
@@ -161,7 +168,17 @@ describe('WebBotAuthVerifier', () => {
       created: FIXED_NOW - 5,
     });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'unknown_signature_agent' });
+    // No directory is allowlisted, so nothing was fetched and the signature
+    // was never evaluated: could-not-check, and the message must read as the
+    // policy fact it is, never as a bad signature.
+    expect(result).toMatchObject({
+      trusted: false,
+      reason: 'unknown_signature_agent',
+      conclusive: false,
+    });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('No key directory is allowlisted');
+    expect(result.message).not.toMatch(/invalid|failed/i);
   });
 
   it('fails closed when the key directory is unavailable → key_directory_unavailable (conclusive=false)', async () => {
@@ -246,12 +263,29 @@ describe('WebBotAuthVerifier', () => {
     expect(absent).toMatchObject({ trusted: false, reason: 'signature_parameter_missing', conclusive: true });
   });
 
-  it('accepts an omitted alg (directory key pins ed25519) but rejects a contradicting one', async () => {
+  it('accepts an omitted alg (the directory key pins the algorithm) but rejects what we do not verify', async () => {
     const omitted = await verifier.verify(toIncoming(sign({ alg: null })));
     expect(omitted.trusted).toBe(true);
 
-    const contradicting = await verifier.verify(toIncoming(sign({ alg: 'rsa-pss-sha512' })));
-    expect(contradicting).toMatchObject({ trusted: false, reason: 'unsupported_algorithm' });
+    // An algorithm outside {ed25519, ecdsa-p256-sha256} is refused before any
+    // directory I/O, and the message names what we verify. RSA is a stated
+    // non-goal, said out loud rather than left as an accident.
+    const rsa = await verifier.verify(toIncoming(sign({ alg: 'rsa-pss-sha512' })));
+    expect(rsa).toMatchObject({ trusted: false, reason: 'unsupported_algorithm' });
+    if (rsa.trusted) throw new Error('unreachable');
+    expect(rsa.message).toContain('ed25519 and ecdsa-p256-sha256');
+    expect(rsa.message).toContain('RSA');
+  });
+
+  it('rejects alg ecdsa-p256-sha256 when the selected key is Ed25519 (alg/key mismatch)', async () => {
+    // ecdsa-p256-sha256 is an algorithm we verify, so it passes the early
+    // gate, but the key the keyid selects is Ed25519 and cannot have made
+    // that signature. The mismatch is refused by name, not by a failed verify.
+    const result = await verifier.verify(toIncoming(sign({ alg: 'ecdsa-p256-sha256' })));
+    expect(result).toMatchObject({ trusted: false, reason: 'unsupported_algorithm', conclusive: true });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('does not match');
+    expect(result.message).toContain('ed25519');
   });
 
   it('requires signature-agent to be covered by the signature', async () => {
@@ -488,7 +522,9 @@ describe('WebBotAuthVerifier', () => {
     expect(await b.verify(signed)).toMatchObject({ trusted: false, reason: 'replay_detected' });
   });
 
-  it('rejects a directory key that is expired or not yet valid → unknown_key', async () => {
+  it('rejects a published key outside its window → key_outside_validity_window (conclusive=true)', async () => {
+    // Unlike an absent key (could-not-check), a key the directory publishes
+    // with a window that excludes now is a definitive answer about that key.
     const jwk = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
     const expired = new StaticSignatureAgentKeys();
     expired.add(AGENT_ORIGIN, { keys: [{ ...jwk, exp: FIXED_NOW - 3600 }] });
@@ -498,7 +534,13 @@ describe('WebBotAuthVerifier', () => {
     for (const r of [expired, notYet]) {
       const v = new WebBotAuthVerifier({ resolver: r, now: () => FIXED_NOW });
       const result = await v.verify(toIncoming(sign()));
-      expect(result).toMatchObject({ trusted: false, reason: 'unknown_key' });
+      expect(result).toMatchObject({
+        trusted: false,
+        reason: 'key_outside_validity_window',
+        conclusive: true,
+      });
+      if (result.trusted) throw new Error('unreachable');
+      expect(result.message).toContain('is published but');
     }
   });
 
@@ -563,6 +605,27 @@ describe('web-bot-auth protocol primitives', () => {
   it('computes the RFC 8037 A.3 thumbprint test vector', () => {
     expect(ed25519JwkThumbprint('11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo')).toBe(
       'kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k',
+    );
+  });
+
+  it('computes the RFC 7638 Section 3.2 EC thumbprint (pinned independent vector)', () => {
+    // RFC 9421 Appendix B.1.3 test-key-ecc-p256. RFC 7638 publishes no EC
+    // example, so the expected value was computed independently (Python
+    // hashlib over the canonical {"crv","kty","x","y"} members, the same
+    // script reproducing the RFC 7638 Section 3.1 RSA example exactly) and is
+    // pinned here.
+    expect(
+      ecP256JwkThumbprint(
+        'qIVYZVLCrPZHGHjP17CTW0_-D9Lfw0EkjqF7xB4FivA',
+        'Mc4nN9LTDOBhfoUeg8Ye9WedFRhnZXZJA12Qp0zZ6F0',
+      ),
+    ).toBe('ydQXMtvbsOsZyFir-Y7A8t7fKEM1gbKPvyFkdpu4fvI');
+    // Coordinates must be whole 32-byte values, both of them.
+    expect(() => ecP256JwkThumbprint('short', 'Mc4nN9LTDOBhfoUeg8Ye9WedFRhnZXZJA12Qp0zZ6F0')).toThrow(
+      WebBotAuthParseError,
+    );
+    expect(() => ecP256JwkThumbprint('qIVYZVLCrPZHGHjP17CTW0_-D9Lfw0EkjqF7xB4FivA', '')).toThrow(
+      WebBotAuthParseError,
     );
   });
 
@@ -639,34 +702,54 @@ describe('web-bot-auth protocol primitives', () => {
 
   it('drops only material it cannot use, and reports what it dropped and why', () => {
     const keys = generateAgentKeyPair();
+    const ecKeys = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const p384 = generateKeyPairSync('ec', { namedCurve: 'P-384' });
     const jwk = keys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    const ecJwk = ecKeys.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
     const { keys: parsed, dropped } = readKeyDirectory({
       keys: [
-        jwk, // good
+        jwk, // good Ed25519
         { ...jwk, kid: 'not-the-thumbprint' }, // mislabelled, but the material is fine → KEPT
+        ecJwk, // good EC P-256 → KEPT (algorithm agility)
         { ...jwk, use: 'enc' }, // wrong use → dropped
-        { ...jwk, alg: 'RS256' }, // wrong algorithm → dropped
-        { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' }, // wrong key type → dropped
+        { ...jwk, alg: 'RS256' }, // alg contradicts the OKP key → dropped
+        { ...jwk, alg: 'ES256' }, // EC alg on an Ed25519 key → dropped (mismatch)
+        { ...ecJwk, alg: 'EdDSA' }, // Ed25519 alg on an EC key → dropped (mismatch)
+        p384.publicKey.export({ format: 'jwk' }), // unsupported curve → dropped
+        { kty: 'RSA', n: 'xxx', e: 'AQAB' }, // RSA: a stated non-goal → dropped
+        { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' }, // malformed coordinates → dropped
         { kty: 'OKP', crv: 'Ed25519', x: 'too-short' }, // malformed x → dropped
         'garbage',
       ],
     });
     // A kid that differs from the thumbprint never drops the key: the label
     // rides along as a hint and the identity stays the computed thumbprint.
-    expect(parsed).toHaveLength(2);
+    expect(parsed).toHaveLength(3);
     expect(parsed[0]?.thumbprint).toBe(webBotAuthKeyId(keys.publicKey));
     expect(parsed[0]?.kid).toBeUndefined();
     expect(parsed[1]).toMatchObject({
       thumbprint: webBotAuthKeyId(keys.publicKey),
       kid: 'not-the-thumbprint',
     });
-    expect(dropped.map((d) => d.index)).toEqual([2, 3, 4, 5, 6]);
+    expect(parsed[2]).toMatchObject({
+      thumbprint: ecP256JwkThumbprint(ecJwk.x as string, ecJwk.y as string),
+      crv: 'P-256',
+    });
+    expect(dropped.map((d) => d.index)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11]);
     for (const d of dropped) expect(d.reason).toBeTruthy();
+    // The reasons are truthful: mismatches say so, RSA is a decision, curves
+    // are named.
+    expect(dropped[2]?.reason).toContain('mismatched alg');
+    expect(dropped[3]?.reason).toContain('mismatched alg');
+    expect(dropped[4]?.reason).toContain('P-384');
+    expect(dropped[5]?.reason).toContain('RSA keys are not supported');
+    expect(dropped[5]?.reason).toContain('non-goal');
 
-    // Both registry spellings of the Ed25519 algorithm survive.
+    // Registry and JOSE spellings survive on their own key types.
     for (const alg of ['ed25519', 'EdDSA']) {
       expect(parseKeyDirectory({ keys: [{ ...jwk, alg }] })).toHaveLength(1);
     }
+    expect(parseKeyDirectory({ keys: [{ ...ecJwk, alg: 'ES256' }] })).toHaveLength(1);
   });
 
   it('treats a directory of more than 100 entries as unusable, never truncated', () => {
@@ -1224,7 +1307,8 @@ describe('WebBotAuthVerifier: kid is a hint, not an identity (agent.bot.goog reg
     const result = await verifier.verify(
       toIncoming(sign({ privateKey: stranger.privateKey })),
     );
-    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: true });
+    // Could-not-check since the conclusiveness split: absence is not evidence.
+    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: false });
     if (result.trusted) throw new Error('unreachable');
     expect(result.message).toContain('matched none of the 1 keys');
     expect(result.message).toContain('by thumbprint or by advertised kid');
@@ -1269,8 +1353,11 @@ describe('WebBotAuthVerifier: kid is a hint, not an identity (agent.bot.goog reg
   });
 
   it('fails unknown_key against a directory that truly publishes no keys', async () => {
-    // An EMPTY key list with nothing dropped is a definitive answer: the
-    // directory says it holds no keys, so the request key is not attributable.
+    // An EMPTY key list with nothing dropped still refuses the request, but
+    // since the conclusiveness split it reads as could-not-check like any
+    // other absent key: a cached or mid-rotation empty list is
+    // indistinguishable from a permanent one, and the table fixes the outcome
+    // per reason.
     const fetchImpl = (async () =>
       new Response(JSON.stringify({ keys: [] }), {
         headers: { 'content-type': 'application/http-message-signatures-directory+json' },
@@ -1284,7 +1371,7 @@ describe('WebBotAuthVerifier: kid is a hint, not an identity (agent.bot.goog reg
       now: () => FIXED_NOW,
     });
     const result = await fetching.verify(toIncoming(sign()));
-    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: true });
+    expect(result).toMatchObject({ trusted: false, reason: 'unknown_key', conclusive: false });
   });
 
   it('refuses to select by an advertised kid that appears on two keys', async () => {
@@ -1298,5 +1385,272 @@ describe('WebBotAuthVerifier: kid is a hint, not an identity (agent.bot.goog reg
     expect(result).toMatchObject({ trusted: false, reason: 'unknown_key' });
     if (result.trusted) throw new Error('unreachable');
     expect(result.message).toContain('appears on 2 keys');
+  });
+});
+
+/**
+ * Algorithm agility (2026-10-26): -00 §5.2 defines keyids for RSA and EC keys
+ * too, §5.5.1 (editor's copy, WG PR #139) lets a directory JWK carry
+ * alg "ES256", and UCP's published signatures spec recommends ES256 with a WBA
+ * dual-audience shape. ecdsa-p256-sha256 verifies beside ed25519; RSA stays a
+ * stated non-goal. Real P-256 crypto throughout.
+ */
+describe('WebBotAuthVerifier algorithm agility (ES256 / ecdsa-p256-sha256)', () => {
+  let ecKeys: { publicKey: KeyObject; privateKey: KeyObject };
+  let resolver: StaticSignatureAgentKeys;
+  let verifier: WebBotAuthVerifier;
+
+  beforeEach(() => {
+    ecKeys = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    resolver = new StaticSignatureAgentKeys();
+    resolver.add(AGENT_ORIGIN, {
+      keys: [{ ...(ecKeys.publicKey.export({ format: 'jwk' }) as object), alg: 'ES256', use: 'sig' }],
+    });
+    verifier = new WebBotAuthVerifier({ resolver, now: () => FIXED_NOW });
+  });
+
+  function signEc(overrides: Partial<Parameters<typeof signWithWebBotAuth>[0]> = {}) {
+    return signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: AGENT_ORIGIN,
+      privateKey: ecKeys.privateKey,
+      created: FIXED_NOW - 5,
+      ...overrides,
+    });
+  }
+
+  it('verifies an ES256-signed request; identity is the computed EC thumbprint', async () => {
+    const signed = signEc();
+    // The SDK signer derives the wire alg and keyid from the key itself.
+    expect(signed.headers['signature-input']).toContain('alg="ecdsa-p256-sha256"');
+    const result = await verifier.verify(toIncoming(signed));
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.agent).toEqual({
+      id: AGENT_ORIGIN,
+      protocol: 'web-bot-auth',
+      keyThumbprint: webBotAuthKeyId(ecKeys.publicKey),
+      binding: 'domain',
+    });
+  });
+
+  it('verifies with alg omitted: the selected key type decides', async () => {
+    expect((await verifier.verify(toIncoming(signEc({ alg: null })))).trusted).toBe(true);
+  });
+
+  it('rejects alg ed25519 on a signature whose key is EC → unsupported_algorithm (mismatch)', async () => {
+    const result = await verifier.verify(toIncoming(signEc({ alg: 'ed25519' })));
+    expect(result).toMatchObject({ trusted: false, reason: 'unsupported_algorithm', conclusive: true });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('ecdsa-p256-sha256');
+  });
+
+  it('rejects a DER-encoded ECDSA signature: RFC 9421 §3.3.4 requires raw r||s', async () => {
+    const signed = signEc();
+    const rawB64 = signed.headers['signature']!.match(/^sig1=:(.+):$/)![1]!;
+    const der = rawToDer(Buffer.from(rawB64, 'base64'));
+    expect(der.length).not.toBe(64);
+    signed.headers['signature'] = `sig1=:${der.toString('base64')}:`;
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_value_malformed' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('64 bytes');
+  });
+
+  it('rejects a forged ES256 signature under the published keyid → invalid_signature, named truthfully', async () => {
+    const stranger = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const signed = signEc({
+      privateKey: stranger.privateKey,
+      keyid: webBotAuthKeyId(ecKeys.publicKey),
+    });
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'invalid_signature' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('ECDSA P-256');
+  });
+
+  it('drops a P-384 key: a single-key P-384 directory resolves to zero usable keys', async () => {
+    const p384 = generateKeyPairSync('ec', { namedCurve: 'P-384' });
+    const jwk = p384.publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    const { keys: parsed, dropped } = readKeyDirectory({ keys: [jwk] });
+    expect(parsed).toHaveLength(0);
+    expect(dropped[0]?.reason).toContain('P-384');
+  });
+
+  it('verifies the UCP dual-audience shape in both algorithms', async () => {
+    // UCP layers its own UCP-Agent header over a Web Bot Auth signature:
+    // Signature-Agent with tag="web-bot-auth", keyid = the key thumbprint
+    // (EC for UCP's recommended ES256 default). The extra header changes
+    // nothing for this verifier and must not be mistaken for another protocol.
+    const edKeys = generateAgentKeyPair();
+    const dualResolver = new StaticSignatureAgentKeys();
+    dualResolver.add(AGENT_ORIGIN, {
+      keys: [
+        ecKeys.publicKey.export({ format: 'jwk' }) as object,
+        edKeys.publicKey.export({ format: 'jwk' }) as object,
+      ],
+    });
+    const dualVerifier = new WebBotAuthVerifier({ resolver: dualResolver, now: () => FIXED_NOW });
+
+    for (const privateKey of [ecKeys.privateKey, edKeys.privateKey]) {
+      const signed = signWithWebBotAuth({
+        method: 'GET',
+        url: MERCHANT_URL,
+        signatureAgent: AGENT_ORIGIN,
+        privateKey,
+        created: FIXED_NOW - 5,
+        signatureAgentFormat: 'dictionary',
+        extraHeaders: { 'ucp-agent': 'profile="https://ucp.example/profiles/shopping"' },
+      });
+      expect(signed.headers['signature-input']).toContain('tag="web-bot-auth"');
+      const result = await dualVerifier.verify(toIncoming(signed));
+      if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+      expect(result.agent?.id).toBe(AGENT_ORIGIN);
+    }
+  });
+});
+
+/** Minimal DER encoding of an ECDSA r||s pair, for the negative test only. */
+function rawToDer(raw: Buffer): Buffer {
+  const int = (bytes: Buffer): Buffer => {
+    let i = 0;
+    while (i < bytes.length - 1 && bytes[i] === 0) i++;
+    let v = bytes.subarray(i);
+    if ((v[0]! & 0x80) !== 0) v = Buffer.concat([Buffer.from([0]), v]);
+    return Buffer.concat([Buffer.from([0x02, v.length]), v]);
+  };
+  const body = Buffer.concat([int(raw.subarray(0, 32)), int(raw.subarray(32))]);
+  return Buffer.concat([Buffer.from([0x30, body.length]), body]);
+}
+
+describe('FetchingKeyDirectoryResolver cache freshness (Cache-Control / Age)', () => {
+  const ORIGIN = 'https://agent.example';
+  let directoryBody: string;
+
+  beforeEach(() => {
+    const keys = generateAgentKeyPair();
+    directoryBody = JSON.stringify({ keys: [keys.publicKey.export({ format: 'jwk' })] });
+  });
+
+  function countingFetch(headers: Record<string, string>): { impl: typeof fetch; calls: string[] } {
+    const calls: string[] = [];
+    const impl = (async (input: unknown) => {
+      calls.push(String(input));
+      return new Response(directoryBody, { headers });
+    }) as typeof fetch;
+    return { impl, calls };
+  }
+
+  it('expires the cached directory with the edge copy: Age 290 of max-age 300 leaves 10 seconds', async () => {
+    let nowMs = 1_000_000;
+    const { impl, calls } = countingFetch({
+      ...DIRECTORY_TYPE.headers,
+      'cache-control': 'public, max-age=300',
+      age: '290',
+    });
+    const resolver = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [ORIGIN],
+      fetchImpl: impl,
+      nowMs: () => nowMs,
+    });
+    await resolver.resolve(ORIGIN);
+    expect(calls).toHaveLength(1);
+    nowMs += 9_000; // still inside the 10 s the edge's copy has left
+    await resolver.resolve(ORIGIN);
+    expect(calls).toHaveLength(1);
+    nowMs += 2_000; // 11 s after our fetch: the copy has expired everywhere
+    await resolver.resolve(ORIGIN);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('keeps the configured TTL without max-age, and as the ceiling under a longer max-age', async () => {
+    const variants: Record<string, string>[] = [{}, { 'cache-control': 'max-age=86400' }];
+    for (const extra of variants) {
+      let nowMs = 1_000_000;
+      const { impl, calls } = countingFetch({ ...DIRECTORY_TYPE.headers, ...extra });
+      const resolver = new FetchingKeyDirectoryResolver({
+        allowedOrigins: [ORIGIN],
+        fetchImpl: impl,
+        nowMs: () => nowMs,
+        cacheTtlMs: 60_000,
+      });
+      await resolver.resolve(ORIGIN);
+      nowMs += 59_000;
+      await resolver.resolve(ORIGIN);
+      expect(calls).toHaveLength(1);
+      nowMs += 2_000;
+      await resolver.resolve(ORIGIN);
+      expect(calls).toHaveLength(2);
+    }
+  });
+});
+
+/**
+ * Frozen ES256 fixture: directory body, Appendix B response proof, and a
+ * signed request, all made with the RFC 9421 B.1.3 P-256 test key (generator:
+ * scripts/generate-es256-wba-fixture.mjs). The clock is pinned inside the
+ * fixture, so it does not age.
+ */
+describe('the frozen ES256 Web Bot Auth fixture', () => {
+  const fixture = JSON.parse(
+    readFileSync(new URL('./fixtures/es256-web-bot-auth-2026-10-26.json', import.meta.url), 'utf8'),
+  ) as {
+    origin: string;
+    now: number;
+    thumbprint: string;
+    directory: { body: string; headers: Record<string, string> };
+    request: IncomingRequest;
+  };
+
+  const fetchImpl = (async () =>
+    new Response(fixture.directory.body, { headers: fixture.directory.headers })) as unknown as typeof fetch;
+
+  function fixtureResolver(): FetchingKeyDirectoryResolver {
+    return new FetchingKeyDirectoryResolver({
+      allowedOrigins: [fixture.origin],
+      fetchImpl,
+      nowMs: () => fixture.now * 1000,
+      onWarning: () => {},
+    });
+  }
+
+  it('pins the key thumbprint to the independently computed vector', () => {
+    expect(fixture.thumbprint).toBe('ydQXMtvbsOsZyFir-Y7A8t7fKEM1gbKPvyFkdpu4fvI');
+  });
+
+  it('classifies the EC Appendix B proof valid at the resolver', async () => {
+    const res = await fixtureResolver().resolve(fixture.origin);
+    if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.keys.map((k) => [k.thumbprint, k.proof])).toEqual([[fixture.thumbprint, 'valid']]);
+  });
+
+  it('verifies the signed request end to end, with the proof REQUIRED for this origin', async () => {
+    const verifier = new WebBotAuthVerifier({
+      resolver: fixtureResolver(),
+      proofRequiredOrigins: [fixture.origin],
+      now: () => fixture.now,
+      onWarning: () => {},
+    });
+    const result = await verifier.verify(fixture.request);
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.agent).toEqual({
+      id: fixture.origin,
+      protocol: 'web-bot-auth',
+      keyThumbprint: fixture.thumbprint,
+      binding: 'domain',
+    });
+  });
+
+  it('fails the request when a covered component is tampered', async () => {
+    const tampered = { ...fixture.request, url: 'https://shop.example.com/admin' };
+    const verifier = new WebBotAuthVerifier({
+      resolver: fixtureResolver(),
+      now: () => fixture.now,
+      onWarning: () => {},
+    });
+    expect(await verifier.verify(tampered)).toMatchObject({
+      trusted: false,
+      reason: 'invalid_signature',
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { createHash, sign as nodeSign, type KeyObject } from 'node:crypto';
-import { computeContentDigest, verifyEd25519 } from '../visa/http-signatures.js';
+import { computeContentDigest } from '../visa/http-signatures.js';
+import { directoryKeyAlgorithm, verifyWithDirectoryKey } from './keys.js';
 import type { WebBotAuthKey } from './index.js';
 
 /**
@@ -100,7 +101,12 @@ export function signDirectoryResponse(params: {
       expires: params.expires,
       keyid: signer.keyid,
     });
-    const sig = nodeSign(null, Buffer.from(base), signer.privateKey);
+    // Ed25519 signs the raw base; an EC P-256 signer produces the raw r||s
+    // form RFC 9421 Section 3.3.4 requires (never DER).
+    const sig =
+      signer.privateKey.asymmetricKeyType === 'ec'
+        ? nodeSign('sha256', Buffer.from(base), { key: signer.privateKey, dsaEncoding: 'ieee-p1363' })
+        : nodeSign(null, Buffer.from(base), signer.privateKey);
     const sigParams =
       `("@authority";req "content-digest")` +
       `;created=${params.created};expires=${params.expires}` +
@@ -307,10 +313,11 @@ function contentDigestMatchesBody(header: string | undefined, body: string): boo
  * not in the directory are ignored.
  *
  * A proof fails when its covered list is not exactly
- * `("@authority";req "content-digest")`, its `alg` is present and not
- * `ed25519`, its window is bad, its signature bytes are missing, the response
- * Content-Digest is absent or does not match the body, or the signature does
- * not verify.
+ * `("@authority";req "content-digest")`, its `alg` is present and does not
+ * name the signing key's own algorithm (ed25519 for an Ed25519 key,
+ * ecdsa-p256-sha256 for a P-256 key), its window is bad, its signature bytes
+ * are missing, the response Content-Digest is absent or does not match the
+ * body, or the signature does not verify.
  *
  * The signature base is rebuilt from the bytes the directory sent, not from a
  * template: `@signature-params` is the Signature-Input member value verbatim
@@ -417,9 +424,10 @@ export function verifyDirectoryProofs(params: {
       invalid();
       continue;
     }
-    // The key is Ed25519, so an explicit alg must say so. Absent is accepted
-    // (the E.2.3 vector carries none).
-    if (proof.params.has('alg') && stringParam(proof.params, 'alg') !== 'ed25519') {
+    // An explicit alg must name the key's own algorithm (the HTTP Signature
+    // Algorithms registry name). Absent is accepted (the E.2.3 vector carries
+    // none); the key type decides.
+    if (proof.params.has('alg') && stringParam(proof.params, 'alg') !== directoryKeyAlgorithm(key)) {
       invalid();
       continue;
     }
@@ -441,7 +449,7 @@ export function verifyDirectoryProofs(params: {
     const base = lines.join('\n');
     let ok = false;
     try {
-      ok = verifyEd25519({ kty: 'OKP', crv: 'Ed25519', x: key.x }, base, sig);
+      ok = verifyWithDirectoryKey(key, base, sig);
     } catch {
       ok = false;
     }

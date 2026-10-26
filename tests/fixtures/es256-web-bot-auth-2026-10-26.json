@@ -1,0 +1,25 @@
+{
+  "note": "ES256 Web Bot Auth fixture, RFC 9421 B.1.3 test key. See the generator script header.",
+  "origin": "https://agent-es256.example",
+  "now": 1761480005,
+  "thumbprint": "ydQXMtvbsOsZyFir-Y7A8t7fKEM1gbKPvyFkdpu4fvI",
+  "directory": {
+    "body": "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"qIVYZVLCrPZHGHjP17CTW0_-D9Lfw0EkjqF7xB4FivA\",\"y\":\"Mc4nN9LTDOBhfoUeg8Ye9WedFRhnZXZJA12Qp0zZ6F0\",\"kid\":\"ydQXMtvbsOsZyFir-Y7A8t7fKEM1gbKPvyFkdpu4fvI\",\"alg\":\"ES256\",\"use\":\"sig\"}]}",
+    "headers": {
+      "content-type": "application/http-message-signatures-directory+json",
+      "content-digest": "sha-256=:YzxQKZ+P3TGXT2fN3kYdIvzE53qIZj4Ut7Gt45yTqlU=:",
+      "signature-input": "binding0=(\"@authority\";req \"content-digest\");created=1761480000;expires=1761483600;keyid=\"ydQXMtvbsOsZyFir-Y7A8t7fKEM1gbKPvyFkdpu4fvI\";tag=\"http-message-signatures-directory\"",
+      "signature": "binding0=:tEI0WscEQvIR1ba9DIMF2vUpJvDDpPPOF+wjdCSRRGm7XdxUDElDfJDu1lM064+OSefWl4mF1jl5A6RL1MrrvQ==:"
+    }
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://shop.example.com/products/tool-1234",
+    "headers": {
+      "host": "shop.example.com",
+      "signature-agent": "sig1=\"https://agent-es256.example\"",
+      "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\";key=\"sig1\");created=1761480000;expires=1761480120;keyid=\"ydQXMtvbsOsZyFir-Y7A8t7fKEM1gbKPvyFkdpu4fvI\";alg=\"ecdsa-p256-sha256\";nonce=\"ZXMyNTYtZml4dHVyZS1ub25jZQ\";tag=\"web-bot-auth\"",
+      "signature": "sig1=:JFm3B0y0+kpiV1RyAHfVMzS1bv6iNoh5HprlliOqDL55dz3rzDMYjd+Zc1aUMxIZlYxODLRCuPtX0DVdazdRVA==:"
+    }
+  }
+}

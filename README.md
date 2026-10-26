@@ -52,7 +52,7 @@ AVA Pay/
 │   └── server.ts                   # buildServer — composes verifier, directory, static landing
 ├── public/                         # static landing page (live in-browser demo using Web Crypto)
 ├── examples/agent-demo.ts          # runnable Node demo (all four protocols)
-├── tests/                          # 597 Vitest cases — real cryptography, no fakes
+├── tests/                          # 634 Vitest cases — real cryptography, no fakes
 ├── scripts/check-type-sync.ts      # CI guardrail against API↔plugin type drift
 ├── shopify-app/                    # Shopify Remix plugin (settings + traffic dashboard + theme extension)
 ├── AGENT_ISSUERS.md                # how AI agent issuers register with the directory
@@ -68,7 +68,7 @@ AVA Pay/
 | **Visa Trusted Agent Protocol (real wire format)** | ✅ `agent-browser-auth`/`agent-payer-auth` tags, ed25519 + rsa-pss-sha256, 8-min window cap, nonce replay block, Consumer Recognition Object + Visa-signed PS256 IdToken (verified against `mcp.visa.com/.well-known/jwks`), Agentic Payment Container validation |
 | AVA TAP-style profile | ✅ RFC 9421 + Ed25519, content-digest, mandatory alg/created/nonce, server-side max signature age, `x-ava-mandate` |
 | **Google AP2 (v0.2)** | ✅ dSD-JWT delegation chains (RFC 9901 + draft-gco-oauth-delegate-sd-jwt): open→closed Checkout Mandate with checkout_jwt hash linkage, Payment Mandate with transaction_id linkage, pluggable constraint-evaluator registries (allowed_merchants, line_items, amount_range, allowed_payees, reference), aud + single-use-nonce binding; v0.1 Intent/Cart traffic gets typed `unsupported_protocol_version` |
-| **IETF Web Bot Auth** | ✅ draft-ietf-webbotauth-httpsig-protocol-00 (formerly draft-meunier-webbotauth-httpsig-protocol/-directory): `tag="web-bot-auth"`, Signature-Agent (both wire forms), RFC 7638 thumbprint keyids, allowlisted `/.well-known/http-message-signatures-directory` resolution, identity-only result (no mandate) |
+| **IETF Web Bot Auth** | ✅ draft-ietf-webbotauth-httpsig-protocol-00 (formerly draft-meunier-webbotauth-httpsig-protocol/-directory): `tag="web-bot-auth"`, Signature-Agent (both wire forms), RFC 7638 thumbprint keyids, allowlisted `/.well-known/http-message-signatures-directory` resolution, identity-only result (no mandate). Algorithms: `ed25519` and `ecdsa-p256-sha256` (ES256 directory keys, UCP's recommended default); RSA is a stated non-goal for now, rejected with a message that says what we verify |
 | **Replay protection** | ✅ nonce + cart-jti dedup via `ReplayGuard` (in-memory now, Redis-ready interface) |
 | Rate limiting | ✅ `@fastify/rate-limit`, `RATE_LIMIT_MAX`/min (default 300) per client IP; `TRUST_PROXY_HOPS` (default 1, Railway's edge) sets how many X-Forwarded-For hops are trusted, and `/healthz` echoes the derived `clientIp` so the setting can be checked from outside |
 | Fail-closed directory writes | ✅ no `DIRECTORY_REGISTRATION_TOKEN` → writes disabled (opt-in dev flag `AVA_ALLOW_OPEN_DIRECTORY_WRITES=1`); constant-time token compare |
@@ -79,7 +79,7 @@ AVA Pay/
 | Public landing page + live demo | ✅ `public/` — Web Crypto Ed25519 in the browser, signs and verifies against a pre-seeded public demo agent |
 | Agent issuer onboarding | ✅ [`AGENT_ISSUERS.md`](./AGENT_ISSUERS.md) |
 | Runnable demos | ✅ `npm run demo`, `npm run demo:ap2`, `npm run demo:wba`, `npm run demo:tap` |
-| API tests | ✅ 597 with real cryptography (real TAP + AVA profile + AP2 + Web Bot Auth + federated resolution + directory + caching + replay/hardening) |
+| API tests | ✅ 634 with real cryptography (real TAP + AVA profile + AP2 + Web Bot Auth + federated resolution + directory + caching + replay/hardening) |
 | Shopify plugin | ✅ OAuth, Polaris settings, traffic dashboard, App Proxy pass-through |
 | Plugin tests | ✅ 15 |
 | Dockerfile + compose with Redis | ✅ |
@@ -106,7 +106,7 @@ docker compose up --build    # API on :3000, Redis on :6379 (ready for the cache
 ## Test it
 
 ```bash
-npm test                  # 597 real-cryptography tests across all four protocols + directory
+npm test                  # 634 real-cryptography tests across all four protocols + directory
 npm run typecheck         # full TS strict check
 npm run check:type-sync   # API ↔ plugin VerificationFailureReason drift guard
 npm run demo              # in-process AVA TAP profile demo
@@ -118,8 +118,17 @@ npm run demo:wba          # in-process Web Bot Auth demo
 Web Bot Auth key discovery is allowlist-gated: the verifier only fetches
 `/.well-known/http-message-signatures-directory` from origins in
 `WBA_ALLOWED_SIGNATURE_AGENTS` (comma-separated https origins; defaults to
-`https://chatgpt.com`, the only major agent operator publishing a live
-directory as of July 2026).
+`https://chatgpt.com` and `https://agent.bot.goog`, the operators whose live
+directories we have verified).
+
+Web Bot Auth signature lifetime is capped server-side at `created` + 300
+seconds whatever the signature's own `expires` says. This is a stated policy,
+not a bug: the draft RECOMMENDS an `expires` of up to 24 hours, but a captured
+request stays replayable until its effective expiry wherever the nonce store
+does not reach, and the replay guard holds every seen signature until then.
+Configure per verifier with `maxAgeSeconds` (`WebBotAuthVerifierOptions`); the
+`signature_expired` message tells a long-`expires` signer when the cap, not
+their `expires`, decided.
 
 ## Hosted Agent Directory
 

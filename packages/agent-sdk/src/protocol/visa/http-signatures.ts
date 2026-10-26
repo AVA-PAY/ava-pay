@@ -5,9 +5,10 @@ type JsonWebKeyLike = { kty: string; [k: string]: unknown };
 /**
  * Minimal RFC 9421 (HTTP Message Signatures) primitives.
  *
- * Scope intentionally narrow: one signature label per request, ed25519 only,
- * derived components (`@method`, `@target-uri`, `@authority`, `@path`,
- * `@query`) plus arbitrary lowercase header references. Structured-field
+ * Scope intentionally narrow: one signature label per request, ed25519 and
+ * ecdsa-p256-sha256 verification primitives, derived components (`@method`,
+ * `@target-uri`, `@authority`, `@path`, `@query`) plus arbitrary lowercase
+ * header references. Structured-field
  * rendering of header values is not applied; values are taken as-is, which
  * matches real-world Visa TAP and Web Bot Auth signers.
  *
@@ -30,7 +31,8 @@ type JsonWebKeyLike = { kty: string; [k: string]: unknown };
  * verifier can name the fault without parsing the message:
  *   input               Signature-Input cannot be parsed, or a parameter value
  *                       cannot be read
- *   value               Signature cannot be parsed or has no member for the label
+ *   value               Signature cannot be parsed, has no member for the label,
+ *                       or is not a 64-byte value (Ed25519 / ECDSA P-256 r||s)
  *   duplicate_component the covered list repeats an identifier (Section 2.5)
  *   component_missing   a covered component is absent from the request
  *   base_unbuildable    the base cannot be built for any other reason (a derived
@@ -229,7 +231,13 @@ export function parseSignature(headerValue: string, expectedLabel: string): Buff
     throw new SignatureParseError('Signature value is not valid base64', 'value');
   }
   if (buf.length !== 64) {
-    throw new SignatureParseError(`Ed25519 signature must be 64 bytes, got ${buf.length}`, 'value');
+    // Both algorithms we verify are 64 bytes on the wire: Ed25519, and ECDSA
+    // P-256 as the raw r||s concatenation RFC 9421 Section 3.3.4 requires
+    // (a DER-encoded ECDSA value is longer and fails here).
+    throw new SignatureParseError(
+      `Signature must be 64 bytes (Ed25519, or ECDSA P-256 r||s per RFC 9421 Section 3.3.4), got ${buf.length}`,
+      'value',
+    );
   }
   return buf;
 }
@@ -344,13 +352,34 @@ export function verifyEd25519(
   signatureBase: string,
   signature: Buffer,
 ): boolean {
-  const key =
-    typeof publicKey === 'string'
-      ? createPublicKey(publicKey)
-      : publicKey instanceof Object && 'asymmetricKeyType' in (publicKey as KeyObject)
-        ? (publicKey as KeyObject)
-        : createPublicKey({ key: publicKey as JsonWebKeyLike, format: 'jwk' });
-  return cryptoVerify(null, Buffer.from(signatureBase), key, signature);
+  return cryptoVerify(null, Buffer.from(signatureBase), normalizePublicKey(publicKey), signature);
+}
+
+/**
+ * ECDSA over P-256 with SHA-256, "ecdsa-p256-sha256" in the HTTP Signature
+ * Algorithms registry. RFC 9421 Section 3.3.4 fixes the wire form as the raw
+ * 64-byte r||s concatenation (ieee-p1363); a DER-encoded signature does not
+ * verify here and must not be tolerated.
+ */
+export function verifyEcdsaP256Sha256(
+  publicKey: KeyObject | string | object,
+  signatureBase: string,
+  signature: Buffer,
+): boolean {
+  return cryptoVerify(
+    'sha256',
+    Buffer.from(signatureBase),
+    { key: normalizePublicKey(publicKey), dsaEncoding: 'ieee-p1363' },
+    signature,
+  );
+}
+
+function normalizePublicKey(publicKey: KeyObject | string | object): KeyObject {
+  return typeof publicKey === 'string'
+    ? createPublicKey(publicKey)
+    : publicKey instanceof Object && 'asymmetricKeyType' in (publicKey as KeyObject)
+      ? (publicKey as KeyObject)
+      : createPublicKey({ key: publicKey as JsonWebKeyLike, format: 'jwk' });
 }
 
 /**

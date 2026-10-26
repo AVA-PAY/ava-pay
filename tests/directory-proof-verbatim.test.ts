@@ -1,4 +1,4 @@
-import { createHash, sign as nodeSign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign as nodeSign, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -8,6 +8,7 @@ import {
 import {
   parseKeyDirectory,
   readKeyDirectory,
+  signDirectoryResponse,
   verifyDirectoryProofs,
   type KeyProofStatus,
 } from '@ava-pay/agent/protocol/web-bot-auth';
@@ -195,7 +196,11 @@ describe('directory proofs signed over arbitrary member text', () => {
     );
   });
 
-  it('rejects any alg other than ed25519', () => {
+  it('rejects an alg that does not name the signing key\'s own algorithm', () => {
+    // The key here is Ed25519, so only alg="ed25519" (or no alg) is truthful.
+    // ecdsa-p256-sha256 is an algorithm we verify, but not with THIS key;
+    // rsa-pss-sha512 is a stated non-goal; "ED25519" is not the registry
+    // spelling; a bare token is not the String Item RFC 9421 requires.
     for (const alg of ['"rsa-pss-sha512"', '"ecdsa-p256-sha256"', '"ED25519"', 'ed25519']) {
       const member = `${COVERED};${window};keyid="${keyid}";tag="${TAG}";alg=${alg}`;
       expect(status(signedResponse({ member })), alg).toBe('invalid');
@@ -554,5 +559,91 @@ describe('end to end: a possession-only proof at the verifier gates', () => {
     if (result.trusted) throw new Error('unreachable');
     expect(result.message).toContain('only a possession proof');
     expect(result.message).toContain('requires the full Appendix B proof');
+  });
+});
+
+/**
+ * Appendix B proofs made by EC P-256 keys (algorithm agility). The same rules
+ * as Ed25519 apply: the base is the bytes the directory sent, an explicit alg
+ * must name the key's own algorithm (ecdsa-p256-sha256), and the signature
+ * bytes are the raw r||s form of RFC 9421 Section 3.3.4, never DER.
+ */
+describe('directory proofs signed by EC P-256 keys', () => {
+  const AUTHORITY = 'agent.example';
+  const NOW = 1_750_000_000;
+  let ecKeys: { publicKey: KeyObject; privateKey: KeyObject };
+  let keyid: string;
+  let body: string;
+
+  beforeEach(() => {
+    ecKeys = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    keyid = webBotAuthKeyId(ecKeys.publicKey);
+    body = JSON.stringify({ keys: [ecKeys.publicKey.export({ format: 'jwk' })] });
+  });
+
+  const sha256 = (data: string): string =>
+    `sha-256=:${createHash('sha256').update(data).digest('base64')}:`;
+
+  function signedResponse(opts: { member: string; der?: boolean }): ResponseFixture {
+    const contentDigest = sha256(body);
+    const base = [
+      `"@authority";req: ${AUTHORITY}`,
+      `"content-digest": ${contentDigest}`,
+      `"@signature-params": ${opts.member}`,
+    ].join('\n');
+    const sig = opts.der
+      ? nodeSign('sha256', Buffer.from(base), ecKeys.privateKey)
+      : nodeSign('sha256', Buffer.from(base), { key: ecKeys.privateKey, dsaEncoding: 'ieee-p1363' });
+    return {
+      body,
+      contentDigest,
+      signatureInput: `proof=${opts.member}`,
+      signature: `proof=:${sig.toString('base64')}:`,
+    };
+  }
+
+  const window = `created=${NOW - 60};expires=${NOW + 3600}`;
+  const status = (response: ResponseFixture): KeyProofStatus | undefined =>
+    classify(response, { authority: AUTHORITY, now: NOW, keyid });
+
+  it('accepts an EC proof with no alg (the key type decides)', () => {
+    const member = `${COVERED};${window};keyid="${keyid}";tag="${TAG}"`;
+    expect(status(signedResponse({ member }))).toBe('valid');
+  });
+
+  it('accepts an EC proof declaring alg="ecdsa-p256-sha256"', () => {
+    const member = `${COVERED};${window};keyid="${keyid}";tag="${TAG}";alg="ecdsa-p256-sha256"`;
+    expect(status(signedResponse({ member }))).toBe('valid');
+  });
+
+  it('rejects an EC proof declaring alg="ed25519" (mismatched alg)', () => {
+    const member = `${COVERED};${window};keyid="${keyid}";tag="${TAG}";alg="ed25519"`;
+    expect(status(signedResponse({ member }))).toBe('invalid');
+  });
+
+  it('rejects a DER-encoded EC proof signature (raw r||s only)', () => {
+    const member = `${COVERED};${window};keyid="${keyid}";tag="${TAG}"`;
+    expect(status(signedResponse({ member, der: true }))).toBe('invalid');
+  });
+
+  it('round-trips through the SDK signDirectoryResponse helper', () => {
+    const headers = signDirectoryResponse({
+      signers: [{ privateKey: ecKeys.privateKey, keyid }],
+      authority: AUTHORITY,
+      body,
+      created: NOW - 60,
+      expires: NOW + 3600,
+    });
+    expect(
+      classify(
+        {
+          body,
+          contentDigest: headers['content-digest'],
+          signatureInput: headers['signature-input'],
+          signature: headers.signature,
+        },
+        { authority: AUTHORITY, now: NOW, keyid },
+      ),
+    ).toBe('valid');
   });
 });

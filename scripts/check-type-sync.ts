@@ -34,7 +34,7 @@ const ROOT = resolve(import.meta.dirname, '..');
  * this floor can. Bump it UP whenever you intentionally add reasons. Only lower
  * it as a deliberate, reviewed act of removing a reason from the contract.
  */
-export const MIN_REASONS = 48;
+export const MIN_REASONS = 49;
 
 const FILES = [
   'packages/agent-sdk/src/types.ts',

@@ -1,6 +1,8 @@
 import { createPublicKey, type KeyObject } from 'node:crypto';
 import {
   classifyKeyDirectoryMediaType,
+  directoryKeyAlgorithm,
+  directoryKeyJwk,
   JWK_SET_MEDIA_TYPE,
   parseKeyDirectory,
   type WebBotAuthKey,
@@ -179,8 +181,9 @@ function isRsaAlg(alg: string): boolean {
  * everywhere — the "one API" story.
  *
  * Only answers for 43-char base64url identifiers (thumbprint shape) and
- * ed25519-compatible algorithm hints; honors the published key's nbf/exp.
- * Origins are consulted in configured order.
+ * algorithm hints a directory key can serve (ed25519/EdDSA, es256/
+ * ecdsa-p256-sha256); honors the published key's nbf/exp. Origins are
+ * consulted in configured order.
  */
 export interface WbaPublishedKeySourceOptions {
   resolver: SignatureAgentKeyResolver;
@@ -219,7 +222,7 @@ export class WbaPublishedKeySource implements FederatedSource {
 
   async resolve(agentId: string, hints?: ResolveHints): Promise<AgentRecord | null> {
     if (!THUMBPRINT_SHAPE.test(agentId)) return null;
-    if (hints?.alg && !isEd25519Alg(hints.alg)) return null;
+    if (hints?.alg && !isDirectoryServableAlg(hints.alg)) return null;
 
     const now = this.now();
     let sawOutage = false;
@@ -246,14 +249,12 @@ export class WbaPublishedKeySource implements FederatedSource {
       if (resolution.status !== 'ok') continue;
       const key = resolution.keys.find((k) => k.thumbprint === agentId);
       if (!key) continue;
+      if (hints?.alg && !algHintMatchesKey(hints.alg, key)) continue;
       if (key.nbf !== undefined && key.nbf > now + this.skew) continue;
       if (key.exp !== undefined && key.exp + this.skew < now) continue;
       let publicKey: KeyObject;
       try {
-        publicKey = createPublicKey({
-          key: { kty: 'OKP', crv: 'Ed25519', x: key.x } as never,
-          format: 'jwk',
-        });
+        publicKey = createPublicKey({ key: directoryKeyJwk(key) as never, format: 'jwk' });
       } catch {
         continue;
       }
@@ -275,9 +276,18 @@ export class WbaPublishedKeySource implements FederatedSource {
   }
 }
 
-function isEd25519Alg(alg: string): boolean {
+/** True when the hinted algorithm is one a directory key can serve at all. */
+function isDirectoryServableAlg(alg: string): boolean {
   const lower = alg.toLowerCase();
-  return lower === 'ed25519' || lower === 'eddsa';
+  return lower === 'ed25519' || lower === 'eddsa' || lower === 'es256' || lower === 'ecdsa-p256-sha256';
+}
+
+/** True when the hinted algorithm names the key's own type (either spelling). */
+function algHintMatchesKey(alg: string, key: WebBotAuthKey): boolean {
+  const lower = alg.toLowerCase();
+  return directoryKeyAlgorithm(key) === 'ecdsa-p256-sha256'
+    ? lower === 'es256' || lower === 'ecdsa-p256-sha256'
+    : lower === 'ed25519' || lower === 'eddsa';
 }
 
 // ─── Typed jwks_uri / cimd source (url-only binding) ─────────────────────────
@@ -302,8 +312,8 @@ export interface JwksUriKeySourceOptions {
 }
 
 /**
- * Resolves an Ed25519 key by RFC 7638 thumbprint from a typed jwks_uri / cimd
- * URL (§5.5). Unlike a well-known directory, these give key continuity at an
+ * Resolves a directory key (Ed25519 or EC P-256) by RFC 7638 thumbprint from a
+ * typed jwks_uri / cimd URL (§5.5). Unlike a well-known directory, these give key continuity at an
  * ARBITRARY URL with no origin association, so a hit records url-only binding
  * and the (key, domain) pair records the URL itself. Discipline mirrors the WBA
  * directory fetcher: https only, allowlisted URLs, a redirect is an error (-02
@@ -344,7 +354,7 @@ export class JwksUriKeySource implements FederatedSource {
 
   async resolve(agentId: string, hints?: ResolveHints): Promise<AgentRecord | null> {
     if (!THUMBPRINT_SHAPE.test(agentId)) return null;
-    if (hints?.alg && !isEd25519Alg(hints.alg)) return null;
+    if (hints?.alg && !isDirectoryServableAlg(hints.alg)) return null;
 
     const now = this.now();
     let sawOutage = false;
@@ -358,14 +368,12 @@ export class JwksUriKeySource implements FederatedSource {
       }
       const key = keys.find((k) => k.thumbprint === agentId);
       if (!key) continue;
+      if (hints?.alg && !algHintMatchesKey(hints.alg, key)) continue;
       if (key.nbf !== undefined && key.nbf > now + this.skew) continue;
       if (key.exp !== undefined && key.exp + this.skew < now) continue;
       let publicKey: KeyObject;
       try {
-        publicKey = createPublicKey({
-          key: { kty: 'OKP', crv: 'Ed25519', x: key.x } as never,
-          format: 'jwk',
-        });
+        publicKey = createPublicKey({ key: directoryKeyJwk(key) as never, format: 'jwk' });
       } catch {
         continue;
       }
