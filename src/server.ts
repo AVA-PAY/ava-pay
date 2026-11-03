@@ -217,18 +217,22 @@ function resolvePublicDir(): string | null {
 }
 
 /**
- * Signature-Agent origins the Web Bot Auth verifier will resolve keys for.
+ * Signature-Agent sources the Web Bot Auth verifier will resolve keys for.
+ * Each entry is either an https origin, which means EXACTLY that origin's
+ * /.well-known/http-message-signatures-directory URL, or a full https URL,
+ * which means exactly that JWK Set identifier (-01 Section 5.5). An origin
+ * entry never admits other paths on its origin.
  *
- * WBA_ALLOWED_SIGNATURE_AGENTS (comma-separated https origins) replaces the
- * built-in default set; it does not extend it.
+ * WBA_ALLOWED_SIGNATURE_AGENTS (comma-separated) replaces the built-in
+ * default set; it does not extend it.
  *
  * WBA_EXTRA_SIGNATURE_AGENTS adds to whichever set is in force, so an operator
- * can admit one more origin without restating the defaults and silently
- * dropping chatgpt.com. Adding an origin here only means "resolve keys from
- * this origin's directory": the verifier still requires a published key whose
- * RFC 7638 thumbprint matches the signature's keyid, so an origin that serves
- * nothing can never produce a trusted verdict, only the could-not-check
- * verdict key_directory_unavailable with conclusive=false.
+ * can admit one more source without restating the defaults and silently
+ * dropping chatgpt.com. Adding an entry here only means "resolve keys from
+ * this URL": the verifier still requires a published key whose RFC 7638
+ * thumbprint matches the signature's keyid, so a source that serves nothing
+ * can never produce a trusted verdict, only the could-not-check verdict
+ * key_directory_unavailable with conclusive=false.
  */
 export function wbaAllowedOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
   // An explicitly set replacement list stays authoritative even if it parses

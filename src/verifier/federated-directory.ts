@@ -4,7 +4,9 @@ import {
   directoryKeyAlgorithm,
   directoryKeyJwk,
   JWK_SET_MEDIA_TYPE,
+  KEY_DIRECTORY_PATH,
   parseKeyDirectory,
+  signatureAgentIdentifier,
   type WebBotAuthKey,
 } from '@ava-pay/agent/protocol/web-bot-auth';
 import type { AgentDirectory, AgentRecord, ResolveHints } from './agent-directory.js';
@@ -23,10 +25,8 @@ import { readBounded, type SignatureAgentKeyResolver } from './web-bot-auth.js';
  *   2. Visa's public JWKS (mcp.visa.com)
  *   3. Web Bot Auth key directories of allowlisted signature agents
  *      ("agent cards" — keys the agent operator publishes at their origin).
- *      Web Bot Auth rules cited below as "-02 Section N" are
- *      draft-ietf-webbotauth-httpsig-protocol-00 (formerly
- *      draft-meunier-webbotauth-httpsig-protocol-02); the sections did not
- *      move on adoption.
+ *      Web Bot Auth rules cited below as "-01 Section N" are
+ *      draft-ietf-webbotauth-httpsig-protocol-01 (published 2026-10-29).
  *   4. The hosted AVA directory / private allowlist
  *
  * Semantics:
@@ -187,7 +187,11 @@ function isRsaAlg(alg: string): boolean {
  */
 export interface WbaPublishedKeySourceOptions {
   resolver: SignatureAgentKeyResolver;
-  /** Signature-agent origins to search, e.g. ["https://chatgpt.com"]. */
+  /**
+   * Signature-Agent sources to search: origins (meaning exactly their
+   * well-known directory URL) or full https JWK Set URLs, the same entries
+   * as the verifier's allowlist (server.ts wbaAllowedOrigins).
+   */
   origins: string[];
   /** Override "now" (seconds) for deterministic tests. */
   now?: () => number;
@@ -226,10 +230,16 @@ export class WbaPublishedKeySource implements FederatedSource {
 
     const now = this.now();
     let sawOutage = false;
-    for (const origin of this.origins) {
+    for (const entry of this.origins) {
+      // Entries normalize exactly as the verifier's allowlist does (-01
+      // Section 5.4 keys lookups on the identifier URL): an origin means its
+      // well-known directory URL, a full URL means itself.
+      const identifier = signatureAgentIdentifier(entry);
+      const url = new URL(identifier);
+      const wellKnown = url.pathname === KEY_DIRECTORY_PATH;
       let resolution;
       try {
-        resolution = await this.resolver.resolve(origin);
+        resolution = await this.resolver.resolve(identifier);
       } catch {
         sawOutage = true;
         continue;
@@ -241,7 +251,7 @@ export class WbaPublishedKeySource implements FederatedSource {
       ) {
         // A redirected directory, or one served under a media type we do not
         // parse, is as unresolvable as a down one for this chain's purposes
-        // (-02 Section 5.5), so it skips rather than counting as a definitive
+        // (-01 Section 5.5), so it skips rather than counting as a definitive
         // miss that would let a later root be shadowed.
         sawOutage = true;
         continue;
@@ -258,15 +268,16 @@ export class WbaPublishedKeySource implements FederatedSource {
       } catch {
         continue;
       }
-      // Discovered through the origin's well-known directory path: the (key,
-      // domain) pair is (thumbprint, origin) and the binding is domain-bound.
+      // The (key, domain) pair: through the well-known directory URL the key
+      // binds to the origin (domain binding, -01 Section 4.5); through any
+      // other URL only to that URL itself.
       return {
         agentId,
         publicKey,
         revoked: false,
-        source: `wba:${origin}`,
-        domain: origin,
-        binding: 'domain',
+        source: `wba:${wellKnown ? url.origin : identifier}`,
+        domain: wellKnown ? url.origin : identifier,
+        binding: wellKnown ? 'domain' : 'url-only',
       };
     }
     // If every origin that could have answered was down, surface it as an
@@ -316,7 +327,7 @@ export interface JwksUriKeySourceOptions {
  * typed jwks_uri / cimd URL (§5.5). Unlike a well-known directory, these give key continuity at an
  * ARBITRARY URL with no origin association, so a hit records url-only binding
  * and the (key, domain) pair records the URL itself. Discipline mirrors the WBA
- * directory fetcher: https only, allowlisted URLs, a redirect is an error (-02
+ * directory fetcher: https only, allowlisted URLs, a redirect is an error (-01
  * Section 5.5 forbids following one), bounded, honoring the published key window.
  *
  * Media type: parsed only when served as application/jwk-set+json (RFC 7517,
@@ -401,7 +412,7 @@ export class JwksUriKeySource implements FederatedSource {
         signal: controller.signal,
         headers: { accept: 'application/jwk-set+json, application/json' },
       });
-      // -02 Section 5.5: discovery MUST be served with 200 (OK). `redirect:
+      // -01 Section 5.5: discovery MUST be served with 200 (OK). `redirect:
       // 'error'` above already refuses a hop; this refuses every other status,
       // including a 2xx that carries no key set.
       if (res.status !== 200) throw new Error(`HTTP ${res.status}`);

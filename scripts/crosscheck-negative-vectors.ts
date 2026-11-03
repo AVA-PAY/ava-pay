@@ -28,7 +28,7 @@ import type {
   SignatureAgentKeyResolver,
   ResolvedDirectoryKey,
 } from '../src/verifier/web-bot-auth.js';
-import { parseKeyDirectory } from '@ava-pay/agent/protocol/web-bot-auth';
+import { parseKeyDirectory, signatureAgentIdentifier } from '@ava-pay/agent/protocol/web-bot-auth';
 import { InMemoryReplayGuard } from '../src/verifier/replay.js';
 
 type Outcome = 'verified' | 'invalid' | 'unverified';
@@ -66,18 +66,23 @@ const vectors: Vector[] = set.testGroups.flatMap((g) => g.tests);
 
 /**
  * Serves exactly the directory response the vector carries, keyed to the
- * origin that vector names. A vector with no directory block gets `not_allowed`
- * for every origin, which is what our verifier sees when it reaches for a
+ * identifier that vector's directory URL normalizes to (-01 §5.4 keys lookups
+ * on the identifier URL; the verifier passes the parsed Signature-Agent
+ * identifier here). A vector with no directory block gets `not_allowed` for
+ * every identifier, which is what our verifier sees when it reaches for a
  * directory the set says a conforming verifier never fetches.
  */
 class VectorDirectoryResolver implements SignatureAgentKeyResolver {
-  constructor(private readonly vector: Vector, private readonly forceOrigin?: string) {}
+  constructor(private readonly vector: Vector, private readonly forceIdentifier?: string) {}
 
-  async resolve(origin: string): Promise<KeyDirectoryResolution> {
+  async resolve(identifier: string): Promise<KeyDirectoryResolution> {
     const dir = this.vector.directory;
     if (!dir) return { status: 'not_allowed' };
-    const dirOrigin = this.forceOrigin ?? new URL(dir.url).origin;
-    if (origin !== dirOrigin) return { status: 'not_allowed' };
+    const allowed = signatureAgentIdentifier(this.forceIdentifier ?? dir.url);
+    // Entry side normalized above (config rule); the request identifier is
+    // compared VERBATIM, matching the resolver contract: re-normalizing it
+    // would expand a "/" path onto the well-known entry.
+    if (identifier !== allowed) return { status: 'not_allowed' };
     if (dir.status !== 200) return { status: 'unavailable' };
     let keys;
     try {
@@ -100,10 +105,10 @@ const lower = (h: Record<string, string>): Record<string, string> =>
 
 async function run(
   vector: Vector,
-  opts: { forceOrigin?: string } = {},
+  opts: { forceIdentifier?: string } = {},
 ): Promise<{ outcome: Outcome; reason: string | null; message: string | null }> {
   const verifier = new WebBotAuthVerifier({
-    resolver: new VectorDirectoryResolver(vector, opts.forceOrigin),
+    resolver: new VectorDirectoryResolver(vector, opts.forceIdentifier),
     now: () => vector.now,
     // A guard per vector: replay is not what any of these test, and a shared
     // one would make the run order-dependent.

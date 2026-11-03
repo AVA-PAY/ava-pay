@@ -135,16 +135,16 @@ export type VerificationFailureReason =
   | 'mandate_constraint_violation'
   | 'checkout_hash_mismatch'
   | 'unsupported_protocol_version'
-  // Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-00, formerly
-  // draft-meunier-webbotauth-httpsig-protocol-02)
-  // The Signature-Agent origin has no key directory allowlisted on this
-  // merchant. That is a policy refusal to fetch, not a verification outcome:
-  // the signature was never evaluated, so the result is could-not-check
-  // (conclusive=false) and the message says no directory is allowlisted rather
+  // Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-01)
+  // The Signature-Agent URL is not allowlisted on this merchant (an origin
+  // allowlist entry admits only that origin's well-known directory URL, never
+  // other paths on the origin). That is a policy refusal to fetch, not a
+  // verification outcome: the signature was never evaluated, so the result is
+  // could-not-check (conclusive=false) and the message names the URL rather
   // than anything that reads as a bad signature.
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
-  // The Signature-Agent URL answered with a redirect. Section 5.5 of -02
+  // The Signature-Agent URL answered with a redirect. Section 5.5 of -01
   // requires discovery to be served with 200 (OK) and forbids a verifier from
   // following redirects, so there is no key material to check and no identity
   // to attribute. Kept distinct from key_directory_unavailable because the
@@ -172,18 +172,22 @@ export type VerificationFailureReason =
   // Signature-Agent header names, each for what the operator must fix in that
   // header. All conclusive: the header arrived and says something definite.
   // The header is not a readable Structured Field (bad quoting, no usable
-  // member, a value that is not a URL, or only members of unknown type).
+  // member), or the covered member carries a parameter, which -01 Section
+  // 5.2.1 forbids (members MUST NOT carry parameters; a verifier MUST ignore
+  // a member that does).
   | 'signature_agent_malformed'
   // Several usable members, none keyed to the signature, so nothing says which
   // one signed. Attributing by header order is what Section 5.2.2 forbids.
   | 'signature_agent_ambiguous'
   // The signature covers a keyed member the header does not contain.
   | 'signature_agent_member_missing'
-  // The member value is not an acceptable origin: not https, carrying
-  // credentials, or (directory type) carrying a path, query or fragment.
+  // The member value is not an acceptable JWK Set URL: not https, carrying
+  // credentials or a fragment, or not an absolute URI. (Narrowed by -01: a
+  // path and a query are now legal (the value is a URL, not an origin), so
+  // the reason name outlives its original meaning to keep the union stable.)
   | 'signature_agent_not_origin'
   // A signed request that carried no Signature-Agent header. Required on every
-  // signed request by Section 5.2.1 of -02, so this is a definitive rejection
+  // signed request by Section 5.2.1 of -01, so this is a definitive rejection
   // rather than a prompt to guess an identity from keyid alone. Distinct from
   // missing_agent_credentials, which means no signature was offered at all.
   | 'missing_signature_agent'
@@ -334,21 +338,33 @@ export interface TapVerificationDetail {
  * and authorizes nothing beyond "this request really came from this agent."
  */
 export interface VerifiedAgentIdentity {
-  /** Canonical agent identifier — for Web Bot Auth, the https origin. */
+  /**
+   * Canonical agent identifier. For Web Bot Auth: the https origin when the
+   * binding is `domain` (the well-known URL names that domain, -01 §4.5);
+   * the full Signature-Agent identifier URL when the binding is `url-only`,
+   * because an arbitrary path names nothing but itself.
+   */
   id: string;
   protocol: VerifiedProtocol;
   /** RFC 7638 JWK thumbprint of the key that verified, when applicable. */
   keyThumbprint?: string;
   /**
-   * Web Bot Auth only: how strongly the identity is bound (§5.5). `domain` when
-   * the key was discovered through the reserved well-known directory path (the
-   * `directory` type), which ties the key to the origin. `url-only` when the
-   * Signature-Agent declared a `jwks_uri`/`cimd` type, which proves key
-   * continuity at an arbitrary URL with no origin association. Merchants can
-   * price the difference. Absent for protocols where the distinction does not
-   * apply.
+   * Web Bot Auth only: how strongly the identity is bound (-01 §4.5/§5.5).
+   * `domain` when the identifier is the origin's reserved well-known
+   * directory URL, which ties the key to the origin. `url-only` for any
+   * other JWK Set URL, which proves key continuity at that URL with no
+   * origin association ("TLS authenticates the host but not the path").
+   * Merchants can price the difference. Absent for protocols where the
+   * distinction does not apply.
    */
   binding?: 'domain' | 'url-only';
+  /**
+   * Web Bot Auth only: the resolved Signature-Agent identifier (-01 §5.5),
+   * the normalized JWK Set URL the key came from, query dropped. Present on
+   * every Web Bot Auth verdict; for `domain` bindings it is the origin's
+   * well-known directory URL. Additive: older results lack it.
+   */
+  signatureAgentUrl?: string;
 }
 
 /**

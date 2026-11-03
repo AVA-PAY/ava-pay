@@ -110,7 +110,7 @@ describe('the frozen chatgpt.com directory proof', () => {
       fetchImpl,
       nowMs: () => CHATGPT_CREATED * 1000,
     });
-    const res = await resolver.resolve('https://chatgpt.com');
+    const res = await resolver.resolve('https://chatgpt.com/.well-known/http-message-signatures-directory');
     if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.keys.map((k) => [k.thumbprint, k.proof])).toEqual([[CHATGPT_KEYID, 'valid']]);
   });
@@ -438,7 +438,7 @@ describe('the frozen agent.bot.goog directory (kid is a hint)', () => {
       nowMs: () => (GOOG_CREATED + 100) * 1000,
       onWarning: (message) => warnings.push(message),
     });
-    const res = await resolver.resolve('https://agent.bot.goog');
+    const res = await resolver.resolve('https://agent.bot.goog/.well-known/http-message-signatures-directory');
     if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.keys).toHaveLength(5);
     expect(res.keys.map((k) => [k.kid, k.proof])).toEqual(

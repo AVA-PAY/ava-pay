@@ -71,14 +71,14 @@ export type VerificationFailureReason =
   | 'mandate_constraint_violation'
   | 'checkout_hash_mismatch'
   | 'unsupported_protocol_version'
-  // Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-00, formerly
-  // draft-meunier-webbotauth-httpsig-protocol-02)
-  // No key directory is allowlisted for the Signature-Agent origin: a policy
-  // refusal to fetch, not a verification outcome, so could-not-check
-  // (conclusive=false); the signature itself was never evaluated.
+  // Web Bot Auth (IETF draft-ietf-webbotauth-httpsig-protocol-01)
+  // The Signature-Agent URL is not allowlisted (an origin entry admits only
+  // that origin's well-known directory URL): a policy refusal to fetch, not a
+  // verification outcome, so could-not-check (conclusive=false); the
+  // signature itself was never evaluated.
   | 'unknown_signature_agent'
   | 'key_directory_unavailable'
-  // The Signature-Agent URL answered with a redirect. Section 5.5 of -02
+  // The Signature-Agent URL answered with a redirect. Section 5.5 of -01
   // requires discovery to be served with 200 (OK) and forbids following
   // redirects, so there is no key material and no identity to attribute. Kept
   // distinct from key_directory_unavailable: reachable and misconfigured, not
@@ -101,7 +101,7 @@ export type VerificationFailureReason =
   | 'signature_agent_member_missing'
   | 'signature_agent_not_origin'
   // A signed request that carried no Signature-Agent header, required on every
-  // signed request by Section 5.2.1 of -02. Definitive rejection, not a prompt
+  // signed request by Section 5.2.1 of -01. Definitive rejection, not a prompt
   // to guess identity from keyid. Distinct from missing_agent_credentials,
   // which means no signature was offered at all.
   | 'missing_signature_agent'
@@ -198,17 +198,27 @@ export interface TapVerificationDetail {
 }
 
 export interface VerifiedAgentIdentity {
-  /** Canonical agent identifier — for Web Bot Auth, the https origin (e.g. "https://chatgpt.com"). */
+  /**
+   * Canonical agent identifier. For Web Bot Auth: the https origin (e.g.
+   * "https://chatgpt.com") when the binding is `domain`; the full
+   * Signature-Agent identifier URL when the binding is `url-only`.
+   */
   id: string;
   protocol: VerifiedProtocol;
   keyThumbprint?: string;
   /**
-   * Web Bot Auth only: how strongly the identity is bound (§5.5). `domain` when
-   * discovered via the reserved well-known directory path; `url-only` when the
-   * Signature-Agent declared a `jwks_uri`/`cimd` type (key continuity at an
-   * arbitrary URL, no origin association). Merchants can price the difference.
+   * Web Bot Auth only: how strongly the identity is bound (-01 §4.5/§5.5).
+   * `domain` when the identifier is the origin's reserved well-known
+   * directory URL; `url-only` for any other JWK Set URL (key continuity at
+   * that URL, no origin association). Merchants can price the difference.
    */
   binding?: 'domain' | 'url-only';
+  /**
+   * Web Bot Auth only: the resolved Signature-Agent identifier (-01 §5.5),
+   * the normalized JWK Set URL the key came from, query dropped. Additive:
+   * older results lack it.
+   */
+  signatureAgentUrl?: string;
 }
 
 /**

@@ -13,11 +13,13 @@ import {
 import {
   classifyKeyDirectoryMediaType,
   directoryKeyAlgorithm,
+  JWK_SET_MEDIA_TYPE,
   KEY_DIRECTORY_MEDIA_TYPE,
   KEY_DIRECTORY_PATH,
   parseKeyDirectory,
   readKeyDirectory,
   parseSignatureAgent,
+  signatureAgentIdentifier,
   verifyDirectoryProofs,
   verifyWithDirectoryKey,
   WEB_BOT_AUTH_TAG,
@@ -31,12 +33,11 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
 
 /**
  * WebBotAuthVerifier — verifies IETF Web Bot Auth signed agent traffic
- * (draft-ietf-webbotauth-httpsig-protocol-00, adopted 2026-09-01 and
- * content-identical to draft-meunier-webbotauth-httpsig-protocol-02), the
- * scheme real ChatGPT / Claude / Perplexity crawler+agent requests use.
+ * (draft-ietf-webbotauth-httpsig-protocol-01, published 2026-10-29), the
+ * scheme real ChatGPT / Google crawler+agent requests use.
  *
  * Identity, not payment authority: a passing request proves "this really is
- * the agent operated by {Signature-Agent origin}" — nothing about a buyer or
+ * the agent identified by {Signature-Agent URL}", nothing about a buyer or
  * a spend mandate. The result therefore carries `agent` but no mandate.
  *
  * Pipeline:
@@ -51,12 +52,17 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  *   3. Enforce created/expires window with skew + server-side max-age cap.
  *   4. Signature-Agent header: required (it is our key-discovery root), must
  *      be covered by the signature (else an attacker could re-attribute a
- *      captured signature), must parse to an https origin.
+ *      captured signature), must parse to an https JWK Set URL (-01 §5.5; a
+ *      bare origin resolves at the well-known path through the legacy
+ *      tolerance). The identifier is the normalized URL with the query
+ *      dropped, and everything downstream (allowlist, cache, (URL, key)
+ *      lookup per §5.4, replay namespace) keys on it.
  *   5. Covered components must include @authority or @target-uri (binds the
  *      signature to this merchant; spec MUST).
- *   6. Resolve the origin's key directory (allowlist → fetch → JWKS), find
- *      the key whose RFC 7638 thumbprint equals keyid, falling back to the
- *      advertised kid with a warning (the label is a selector, never the
+ *   6. Resolve the identifier's JWK Set (allowlist → fetch the identifier,
+ *      never a caller-chosen query → parse),
+ *      find the key whose RFC 7638 thumbprint equals keyid, falling back to
+ *      the advertised kid with a warning (the label is a selector, never the
  *      identity), and check its nbf/exp.
  *   7. Verify the signature over the base with the key's own algorithm
  *      (ECDSA per RFC 9421 §3.3.4: raw r||s bytes, never DER).
@@ -65,14 +71,19 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  *      byte-identical because every parameter is inside the signed base.
  *
  * Every failure is a typed `trusted:false` reason; the verifier never throws.
- * Fail closed: unreachable directory → key_directory_unavailable, origin not
- * in the trust set → unknown_signature_agent (a policy refusal: no directory
- * is allowlisted, nothing was checked), keyid absent from the directory →
- * unknown_key (could-not-check: rotation lag and cache staleness look the
- * same from here), a PUBLISHED key outside its own nbf/exp →
+ * Fail closed: unreachable directory → key_directory_unavailable, identifier
+ * not in the trust set → unknown_signature_agent (a policy refusal: no
+ * directory is allowlisted, nothing was fetched), keyid absent from the
+ * directory → unknown_key (could-not-check: rotation lag and cache staleness
+ * look the same from here), a PUBLISHED key outside its own nbf/exp →
  * key_outside_validity_window (conclusive). Each reason's outcome (invalid or
  * could-not-check) comes from REASON_CONCLUSIVE via rejection(), never from
  * the call site.
+ *
+ * Open resolution of non-allowlisted URLs is a stated non-goal for now: -01
+ * Appendix C.1 treats a verifier-maintained list as origin policy, and
+ * adopting open resolution needs the §6.7 address filtering and C.3 fetch
+ * coalescing first.
  */
 
 /** A directory key plus its Appendix B proof-of-possession status. */
@@ -85,7 +96,7 @@ export type KeyDirectoryResolution =
   | { status: 'not_allowed' }
   /**
    * The directory URL answered with a redirect. Separate from `unavailable`
-   * because -02 Section 5.5 makes it a configuration fault the operator can
+   * because -01 Section 5.5 makes it a configuration fault the operator can
    * fix, not an outage, and the merchant-facing reason says so.
    */
   | { status: 'redirected'; detail?: string }
@@ -97,9 +108,24 @@ export type KeyDirectoryResolution =
   | { status: 'unsupported_media_type'; detail?: string }
   | { status: 'unavailable'; detail?: string };
 
-/** Resolves a Signature-Agent origin to its published signing keys. */
+/**
+ * Resolves a Signature-Agent identifier to the signing keys its JWK Set URL
+ * publishes.
+ *
+ * `identifier` is the normalized Signature-Agent identifier (a full https
+ * URL, query dropped; -01 §5.5): what parseSignatureAgent().identifier
+ * produces, or signatureAgentIdentifier() applied to a configuration entry.
+ * Implementations compare it against their trust set VERBATIM. They must
+ * never re-apply the configuration-entry rule that expands a "/" path to the
+ * well-known URL: the identifier of the member value "https://host/?x" is
+ * "https://host/", and expanding it would alias that caller-chosen value
+ * onto the host's genuine directory entry, letting one request poison the
+ * cache entry every real request shares. Implementations fetch exactly the
+ * identifier, never a caller-supplied variant of it (a deliberate deviation
+ * from -01 §5.5's fetch-as-sent; see FetchingKeyDirectoryResolver).
+ */
 export interface SignatureAgentKeyResolver {
-  resolve(origin: string): Promise<KeyDirectoryResolution>;
+  resolve(identifier: string): Promise<KeyDirectoryResolution>;
 }
 
 export interface WebBotAuthVerifierOptions {
@@ -120,8 +146,12 @@ export interface WebBotAuthVerifierOptions {
    */
   requireContentDigest?: boolean;
   /**
-   * Signature-Agent origins that MUST serve Appendix B directory
-   * proof-of-possession (the per-source grace flag is OFF for these). Default:
+   * Signature-Agent sources that MUST serve Appendix B directory
+   * proof-of-possession (the per-source grace flag is OFF for these). Entries
+   * are origins (meaning exactly that origin's well-known directory URL) or
+   * full https URLs, like the allowlist. The check applies only to
+   * domain-bound identifiers: Appendix B validates the DOMAIN binding, which
+   * an arbitrary-path JWK Set URL does not claim (-01 Appendix B). Default:
    * none, so grace is ON everywhere and a key that offers no proof is tolerated.
    * chatgpt.com serves proofs (2026-09-25); www.shopify.com did not when last
    * checked (2026-08-09), so an ON-by-default hard fail would reject real
@@ -133,7 +163,7 @@ export interface WebBotAuthVerifierOptions {
   proofRequiredOrigins?: string[];
   /**
    * Receives operator-facing warnings about requests that verified despite a
-   * deviation from -00, today only "key selected by advertised kid instead of
+   * deviation from -01, today only "key selected by advertised kid instead of
    * thumbprint". Default console.warn; server.ts passes the app logger.
    */
   onWarning?: (message: string) => void;
@@ -145,7 +175,7 @@ const DEFAULT_SKEW = 30;
 const DEFAULT_TTL_SECONDS = 60;
 /**
  * Server-side cap on signature lifetime from `created`, seconds: a stated
- * policy, not an oversight. -00 Section 5.2 RECOMMENDS an `expires` of up to
+ * policy, not an oversight. -01 Section 5.2 RECOMMENDS an `expires` of up to
  * 24 hours; we cap at 300 s whatever the signature says, because a captured
  * request stays replayable anywhere the nonce store does not reach until its
  * effective expiry, and the replay guard holds every seen signature in memory
@@ -160,7 +190,7 @@ const SUPPORTED_WIRE_ALGS: readonly WebBotAuthKeyAlgorithm[] = ['ed25519', 'ecds
 const PROOF_SKEW_SECONDS = 300;
 /**
  * Sanity bound on the wire keyid: non-empty, visible ASCII, at most 128 chars.
- * -00 Section 5.2 says the keyid MUST be a 43-char JWK thumbprint, but a keyid
+ * -01 Section 5.2 says the keyid MUST be a 43-char JWK thumbprint, but a keyid
  * is a SELECTOR, not an identity: agent.bot.goog signs with its six-char kids
  * (seen 2026-09-29), and failing the request on the label's shape rejected a
  * signer whose key the directory publishes. Anything outside this bound is
@@ -182,7 +212,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
     this.resolver = opts.resolver;
     this.skew = opts.clockSkewSeconds ?? DEFAULT_SKEW;
     this.maxAge = opts.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS;
-    this.proofRequired = new Set((opts.proofRequiredOrigins ?? []).map(normalizeOrigin));
+    this.proofRequired = new Set((opts.proofRequiredOrigins ?? []).map(signatureAgentIdentifier));
     this.onWarning = opts.onWarning ?? ((message) => console.warn(message));
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
     // The internally-created guard must share the verifier's clock: with an
@@ -205,8 +235,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
       );
     }
     if (!sigAgentHeader) {
-      // draft-ietf-webbotauth-httpsig-protocol-00 (formerly
-      // draft-meunier-webbotauth-httpsig-protocol-02) Section 5.2.1: a signed
+      // draft-ietf-webbotauth-httpsig-protocol-01 Section 5.2.1: a signed
       // request MUST carry Signature-Agent. We do not fall back to resolving
       // the bare keyid against every directory we know: that is the (URL, key)
       // confusion Section 5.4 forbids. Conclusive, because nothing about this
@@ -219,11 +248,13 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
 
     // ── 1. Parse signature headers ────────────────────────────────────────
+    // The Signature VALUE is parsed after the tag and algorithm gates below:
+    // our wire parse enforces the 64-byte Ed25519 / ECDSA r||s length, and an
+    // RSA signer declaring alg="rsa-pss-sha512" (the -01 Appendix E.1
+    // vectors) deserves the stated-non-goal message, not "must be 64 bytes".
     let parsedInput;
-    let signature: Buffer;
     try {
       parsedInput = parseSignatureInput(sigInput);
-      signature = parseSignature(sig, parsedInput.label);
     } catch (err) {
       return err instanceof SignatureParseError
         ? fail(signatureParseReason(err.code), err.message)
@@ -269,6 +300,15 @@ export class WebBotAuthVerifier implements AgentVerifier {
       );
     }
 
+    let signature: Buffer;
+    try {
+      signature = parseSignature(sig, parsedInput.label);
+    } catch (err) {
+      return err instanceof SignatureParseError
+        ? fail(signatureParseReason(err.code), err.message)
+        : fail('signature_value_malformed', 'Could not parse the Signature header.');
+    }
+
     // ── 3. Time window ────────────────────────────────────────────────────
     const now = this.now();
     if (created === undefined || expires === undefined) {
@@ -286,7 +326,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
     const effectiveExpires = Math.min(expires, created + this.maxAge);
     if (effectiveExpires + this.skew < now) {
       // When the signer's own window is still open, the cap decided, and the
-      // message must say so: a signer sending the 24 h expires -00 Section 5.2
+      // message must say so: a signer sending the 24 h expires -01 Section 5.2
       // recommends would otherwise read "expired" as a clock bug.
       const cappedWhileStillValid = expires + this.skew >= now;
       return fail(
@@ -314,26 +354,22 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
 
     // ── 4/5. Covered-component requirements ───────────────────────────────
-    // -02 Section 5.2.1 requires the Signature-Agent member to be covered. Two
-    // shapes reach us:
-    //   keyed     ("signature-agent";key="agent2") the -02 form. We resolve THE
+    // -01 Section 5.2.1 requires the Signature-Agent member keyed to the
+    // signature label to be covered. Two shapes reach us:
+    //   keyed     ("signature-agent";key="sig2") the -01 form. We resolve THE
     //             MEMBER THE SIGNATURE COVERS, which is the invariant that
     //             matters: Section 5.2.2 forbids attributing a signature to a
     //             member it does not cover. We deliberately do NOT additionally
-    //             require key == signature label. Section 5.2.1 says "the
-    //             member keyed to the signature label", but the published
-    //             -00 Appendix E.1.1 / E.2.1 vectors label the signature sig2
-    //             and key the member agent2 (the editor's copy re-keyed both to
-    //             sig2 on 2026-10-09, WG PR #138, not yet in a published
-    //             revision), and -02 deleted the -01 sentence that made
-    //             matching a RECOMMENDED. Enforcing it would reject the
-    //             published -00 vectors while adding no security over
-    //             resolving the covered member.
+    //             require key == signature label: the published -00 Appendix
+    //             E.2.1 vector keyed the member agent2 under label sig2 (-01
+    //             re-keyed it, WG PR #138), and enforcing the match adds no
+    //             security over resolving the covered member.
     //   unkeyed   the deployed form (chatgpt.com sends the bare sf-string
     //             header with an unkeyed component). Covering the field covers
     //             every member, so the label-matched member is still what the
     //             signer committed to, and Section 5.2.1 explicitly lets a
-    //             verifier accept the legacy form.
+    //             verifier accept the legacy form as a dictionary with a
+    //             single member keyed to the covering signature's label.
     const sigAgentComponent = parsedInput.componentIds.find((c) => c.name === 'signature-agent');
     if (!sigAgentComponent) {
       return fail(
@@ -352,9 +388,10 @@ export class WebBotAuthVerifier implements AgentVerifier {
     }
 
     let origin: string;
-    // Binding strength (D3) is declarative: it reflects the Signature-Agent
-    // discovery type the agent asserted, which is what a merchant prices. A
-    // `directory` type binds the key to the origin; jwks_uri/cimd do not.
+    let identifier: string;
+    // Binding strength (D3) reflects the URL's shape (-01 §4.5): the
+    // well-known directory URL names a domain; any other path names only
+    // itself, which is what a merchant prices.
     let binding: 'domain' | 'url-only';
     try {
       // Keyed: resolve exactly the covered member, strictly (no fallback to
@@ -366,7 +403,8 @@ export class WebBotAuthVerifier implements AgentVerifier {
           ? parseSignatureAgent(sigAgentHeader, sigAgentComponent.key, { strict: true })
           : parseSignatureAgent(sigAgentHeader, parsedInput.label);
       origin = parsedAgent.origin;
-      binding = parsedAgent.type === 'directory' ? 'domain' : 'url-only';
+      identifier = parsedAgent.identifier;
+      binding = parsedAgent.binding;
     } catch (err) {
       return err instanceof WebBotAuthParseError
         ? fail(signatureAgentReason(err.code), err.message)
@@ -400,20 +438,23 @@ export class WebBotAuthVerifier implements AgentVerifier {
     // ── 6. Key directory resolution ───────────────────────────────────────
     let resolution: KeyDirectoryResolution;
     try {
-      resolution = await this.resolver.resolve(origin);
+      resolution = await this.resolver.resolve(identifier);
     } catch {
       resolution = { status: 'unavailable' };
     }
     if (resolution.status === 'not_allowed') {
-      // A policy refusal, not a verdict on the signature: no key directory is
-      // allowlisted for this origin, so nothing was fetched and nothing was
-      // checked. The message must not read as a bad signature, and the result
-      // is could-not-check (conclusive=false via the table).
+      // A policy refusal, not a verdict on the signature: this identifier is
+      // not allowlisted, so nothing was fetched and nothing was checked. The
+      // message must not read as a bad signature, and the result is
+      // could-not-check (conclusive=false via the table). An origin allowlist
+      // entry admits only the well-known URL, never other paths on the origin
+      // ("TLS authenticates the host but not the path", -01 §5.5), so a
+      // request naming an arbitrary path on a trusted origin lands here too.
       return fail(
         'unknown_signature_agent',
-        `No key directory is allowlisted for the Signature-Agent origin "${origin}" on this `
-          + 'merchant, so the request was not evaluated. Add the origin to the trust set '
-          + 'to have its directory resolved.',
+        `No key directory is allowlisted for the Signature-Agent URL "${identifier}" on this `
+          + 'merchant, so the request was not evaluated and nothing was fetched. Add the URL '
+          + 'to the trust set to have it resolved.',
       );
     }
     if (resolution.status === 'redirected') {
@@ -422,8 +463,8 @@ export class WebBotAuthVerifier implements AgentVerifier {
       // reporting "unreachable" for a directory that answered would be untrue.
       return fail(
         'key_directory_redirected',
-        `Key directory for "${origin}" answered with a redirect; `
-          + 'draft-ietf-webbotauth-httpsig-protocol Section 5.5 requires 200 (OK) and forbids following it.',
+        `Key directory "${identifier}" answered with a redirect; `
+          + 'draft-ietf-webbotauth-httpsig-protocol-01 Section 5.5 requires 200 (OK) and forbids following it.',
       );
     }
     if (resolution.status === 'unsupported_media_type') {
@@ -431,7 +472,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
       // about the signer and must not read as unknown_key.
       return fail(
         'key_directory_unsupported_media_type',
-        `Key directory for "${origin}" was not served as ${KEY_DIRECTORY_MEDIA_TYPE} or application/json`
+        `Key directory "${identifier}" was not served under an accepted media type`
           + `${resolution.detail ? ` (${resolution.detail})` : ''}; its body was not parsed.`,
       );
     }
@@ -444,31 +485,35 @@ export class WebBotAuthVerifier implements AgentVerifier {
       // definitive unknown_key.
       return fail(
         'key_directory_unavailable',
-        `Key directory for "${origin}" could not be used`
+        `Key directory "${identifier}" could not be used`
           + `${resolution.detail ? ` (${resolution.detail})` : ''}.`,
       );
     }
 
     // Select by computed thumbprint first: the thumbprint is the key's
-    // identity and what -00 Section 5.2 says the keyid is. Fall back to the
-    // advertised kid when it selects exactly one key: a label that does not
-    // follow -00 is the directory's fault, never a reason to fail a request
-    // that verifies (agent.bot.goog publishes six-char kids, 2026-09-29).
+    // identity and what -01 Section 5.2 says the keyid is. Fall back to the
+    // advertised kid when it selects exactly one key. At the well-known URL a
+    // kid that is not the thumbprint deviates from the -01 §5.5 note and is
+    // warned (agent.bot.goog publishes six-char kids, 2026-09-29); at any
+    // other URL kid is an operator-chosen label and matching it is simply how
+    // §5.5 says selection works there, so no warning.
     let key = resolution.keys.find((k) => k.thumbprint === keyid);
     if (!key) {
       const byKid = resolution.keys.filter((k) => k.kid === keyid);
       if (byKid.length === 1) {
         key = byKid[0];
-        this.onWarning(
-          `Web Bot Auth keyid "${keyid}" from "${origin}" matched a directory key by its advertised kid, `
-            + `not by thumbprint (${key!.thumbprint}); draft-ietf-webbotauth-httpsig-protocol-00 `
-            + 'Sections 5.2 and 5.5 require both to be the JWK thumbprint.',
-        );
+        if (binding === 'domain') {
+          this.onWarning(
+            `Web Bot Auth keyid "${keyid}" from "${identifier}" matched a directory key by its advertised kid, `
+              + `not by thumbprint (${key!.thumbprint}); the draft-ietf-webbotauth-httpsig-protocol-01 `
+              + 'Section 5.5 note requires a kid at the well-known URL to be the JWK thumbprint.',
+          );
+        }
       } else if (byKid.length > 1) {
         return fail(
           'unknown_key',
-          `keyid "${keyid}" matched none of the ${resolution.keys.length} keys published in `
-            + `${origin}${KEY_DIRECTORY_PATH} by thumbprint, and its advertised kid appears on `
+          `keyid "${keyid}" matched none of the ${resolution.keys.length} keys published at `
+            + `${identifier} by thumbprint, and its advertised kid appears on `
             + `${byKid.length} keys, so it selects none of them.`,
         );
       }
@@ -479,8 +524,8 @@ export class WebBotAuthVerifier implements AgentVerifier {
       // cached directory copy, and the response cannot tell us which.
       return fail(
         'unknown_key',
-        `keyid "${keyid}" matched none of the ${resolution.keys.length} keys published in `
-          + `${origin}${KEY_DIRECTORY_PATH} by thumbprint or by advertised kid. The key may `
+        `keyid "${keyid}" matched none of the ${resolution.keys.length} keys published at `
+          + `${identifier} by thumbprint or by advertised kid. The key may `
           + 'be mid-rotation or behind a cached directory copy, so this is not a definitive '
           + 'rejection.',
       );
@@ -511,13 +556,15 @@ export class WebBotAuthVerifier implements AgentVerifier {
         `Directory proof-of-possession for key "${keyid}" was offered but failed verification.`,
       );
     }
-    if (key.proof !== 'valid' && this.proofRequired.has(origin)) {
+    // Proof-required applies only to domain-bound identifiers: Appendix B
+    // validates the DOMAIN binding, which an arbitrary-path URL never claims.
+    if (key.proof !== 'valid' && binding === 'domain' && this.proofRequired.has(identifier)) {
       return fail(
         'unsigned_key',
         key.proof === 'possession-only'
-          ? `Directory for "${origin}" served only a possession proof for key "${keyid}" `
+          ? `Directory "${identifier}" served only a possession proof for key "${keyid}" `
             + '(no content-digest coverage), and this source requires the full Appendix B proof.'
-          : `Directory for "${origin}" served no proof-of-possession for key "${keyid}", and this source requires one.`,
+          : `Directory "${identifier}" served no proof-of-possession for key "${keyid}", and this source requires one.`,
       );
     }
     // A key the directory publishes whose own window excludes now is a
@@ -581,13 +628,13 @@ export class WebBotAuthVerifier implements AgentVerifier {
       ? `n:${nonce}`
       : `s:${createHash('sha256').update(signature).digest('base64url')}`;
     const fresh = await this.replayGuard.checkAndStore(
-      `wba:${origin}:${keyid}:${replayId}`,
+      `wba:${identifier}:${keyid}:${replayId}`,
       effectiveExpires + this.skew,
     );
     if (!fresh) {
       return fail(
         'replay_detected',
-        `Signature from "${origin}" has already been seen within its validity window.`,
+        `Signature from "${identifier}" has already been seen within its validity window.`,
       );
     }
 
@@ -595,11 +642,21 @@ export class WebBotAuthVerifier implements AgentVerifier {
       trusted: true,
       conclusive: true,
       protocol: 'web-bot-auth',
-      // Always the COMPUTED thumbprint, never the wire keyid: when the key was
-      // selected by advertised kid the two differ, and the identity reported
-      // downstream, plus the (URL, key) keying of Section 5.5.2, must stay
-      // derived from the material.
-      agent: { id: origin, protocol: 'web-bot-auth', keyThumbprint: key.thumbprint, binding },
+      // agent.id: the origin for a domain-bound identifier (the well-known
+      // URL names that domain, -01 §4.5, and the twins, mandates and admin
+      // views key on it), the identifier URL itself for url-only, which
+      // names nothing but itself. keyThumbprint is always the COMPUTED
+      // thumbprint, never the wire keyid: when the key was selected by
+      // advertised kid the two differ, and the identity reported downstream,
+      // plus the (URL, key) keying of Section 5.4, must stay derived from
+      // the material.
+      agent: {
+        id: binding === 'domain' ? origin : identifier,
+        protocol: 'web-bot-auth',
+        keyThumbprint: key.thumbprint,
+        binding,
+        signatureAgentUrl: identifier,
+      },
       ttlSeconds: DEFAULT_TTL_SECONDS,
     };
   }
@@ -645,7 +702,9 @@ function signatureAgentReason(code: WebBotAuthParseErrorCode): VerificationFailu
 // ─── Key directory resolvers ────────────────────────────────────────────────
 
 /**
- * Signature-Agent origins we resolve by default. Only origins whose live
+ * Signature-Agent sources we resolve by default. Entries are origins, which
+ * mean EXACTLY that origin's well-known directory URL (a full https URL is
+ * also accepted and means exactly that identifier). Only sources whose live
  * directory we have verified belong here. Merchants extend the set via
  * WBA_ALLOWED_SIGNATURE_AGENTS or WBA_EXTRA_SIGNATURE_AGENTS.
  *
@@ -660,23 +719,28 @@ function signatureAgentReason(code: WebBotAuthParseErrorCode): VerificationFailu
  */
 export const DEFAULT_SIGNATURE_AGENTS = ['https://chatgpt.com', 'https://agent.bot.goog'];
 
-/** Static resolver for tests and private allowlists: origin → parsed JWKS. */
+/** Static resolver for tests and private allowlists: identifier → parsed JWKS. */
 export class StaticSignatureAgentKeys implements SignatureAgentKeyResolver {
-  private readonly byOrigin = new Map<string, WebBotAuthKey[]>();
+  private readonly byIdentifier = new Map<string, WebBotAuthKey[]>();
   private readonly unavailable = new Set<string>();
 
-  add(origin: string, directoryJson: unknown): void {
-    this.byOrigin.set(normalizeOrigin(origin), parseKeyDirectory(directoryJson));
+  /** `entry` is an origin (= its well-known URL) or a full https URL. */
+  add(entry: string, directoryJson: unknown): void {
+    this.byIdentifier.set(signatureAgentIdentifier(entry), parseKeyDirectory(directoryJson));
   }
 
-  /** Simulate an unreachable directory for the origin (tests). */
-  markUnavailable(origin: string): void {
-    this.unavailable.add(normalizeOrigin(origin));
+  /** Simulate an unreachable directory for the entry (tests). */
+  markUnavailable(entry: string): void {
+    this.unavailable.add(signatureAgentIdentifier(entry));
   }
 
-  async resolve(origin: string): Promise<KeyDirectoryResolution> {
-    if (this.unavailable.has(origin)) return { status: 'unavailable' };
-    const keys = this.byOrigin.get(origin);
+  async resolve(identifier: string): Promise<KeyDirectoryResolution> {
+    // Entries were normalized at add(); the request identifier is compared
+    // VERBATIM. Re-normalizing here with the entry rule would expand the "/"
+    // path, aliasing the identifier of "https://host/?x" onto the host's
+    // well-known entry (the resolver-interface contract).
+    if (this.unavailable.has(identifier)) return { status: 'unavailable' };
+    const keys = this.byIdentifier.get(identifier);
     if (!keys) return { status: 'not_allowed' };
     // A static key list carries no wire response, hence no proof-of-possession:
     // proof is honestly 'absent' (tolerated under grace, dropped without it).
@@ -686,8 +750,13 @@ export class StaticSignatureAgentKeys implements SignatureAgentKeyResolver {
 
 export interface FetchingKeyDirectoryResolverOptions {
   /**
-   * Origins we are willing to fetch key material from. Doubles as the SSRF
-   * guard: a Signature-Agent outside this set is never dereferenced.
+   * What we are willing to fetch key material from. An entry that is an
+   * origin means EXACTLY that origin's well-known directory URL. It never
+   * admits other paths on the origin, because a JWK Set at an arbitrary path
+   * does not name the host's operator ("TLS authenticates the host but not
+   * the path", -01 §5.5). An entry that is a full https URL means exactly
+   * that identifier. Doubles as the SSRF guard: a Signature-Agent outside
+   * this set is never dereferenced.
    */
   allowedOrigins: string[];
   /**
@@ -697,6 +766,14 @@ export interface FetchingKeyDirectoryResolverOptions {
   cacheTtlMs?: number;
   /** How long a fetch failure is remembered before retrying. Default 30s. */
   failureCacheTtlMs?: number;
+  /**
+   * -01 §6.10 stale-on-error window: how long the last successfully resolved
+   * key set keeps serving while refreshes FAIL (network, TLS, timeout,
+   * non-200, redirect, media type, parse), measured from that last good
+   * fetch. Default 1 hour. A refresh that RESOLVES, including one whose
+   * entries are all unusable, is evidence and replaces the entry at once.
+   */
+  staleIfErrorMs?: number;
   /** Per-fetch timeout. Default 5000ms. */
   timeoutMs?: number;
   /** Maximum directory response size. Default 64 KiB. */
@@ -714,16 +791,31 @@ export interface FetchingKeyDirectoryResolverOptions {
 }
 
 const TEN_MINUTES_MS = 10 * 60 * 1000;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 /**
- * Fetches https://{origin}/.well-known/http-message-signatures-directory,
- * bounded and cached.
+ * Fetches a Signature-Agent identifier's JWK Set URL, bounded and cached.
+ *
+ * Keying is by identifier (-01 §5.4: key lookup MUST be keyed on the
+ * (URL, key) pair): the allowlist, the cache, the stale-on-error state AND
+ * the network request all use the normalized identifier. Fetching the
+ * identifier rather than the member value as sent is a deliberate deviation
+ * from -01 §5.5. Under fetch-as-sent, every query spelling shares the one
+ * cache entry its identifier names, so any spelling that makes the directory
+ * host answer differently (an error, a WAF page, or a 200 with a different
+ * key set, which §6.10 treats as evidence) would displace the entry every
+ * other spelling shares: one request carrying a chosen query could evict the
+ * canonical key set for the whole failure window. §5.5's own rationale is
+ * that the query is not identity, and §6.7 says to constrain what is
+ * dereferenced, so a member value's query is accepted, dropped from the
+ * identifier, and never sent.
  *
  * Fetch discipline: the response MUST be 200 (OK) and redirects are never
- * followed, both required by -02 Section 5.5; https only; 5s timeout; 64 KiB
- * response cap; and only allowlisted origins are ever contacted (the SSRF
- * guard). Success and failure are both cached (10 min / 30 s) so a flood of
- * requests cannot turn us into a fetch cannon.
+ * followed, both required by -01 Section 5.5; https only; 5s timeout; 64 KiB
+ * response cap; and only allowlisted identifiers are ever contacted (the SSRF
+ * guard). Success and failure are both cached (10 min / 30 s; -01 Appendix
+ * C.5 caps negative caching at five minutes) so a flood of requests cannot
+ * turn us into a fetch cannon.
  *
  * The success cache honours the response's own freshness (Appendix C.4 says to
  * use normal HTTP caching semantics): when the response carries Cache-Control
@@ -732,30 +824,42 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
  * lifetime (§5.5.2) even when an edge served us an already-aged copy. Without
  * max-age the configured TTL applies unchanged.
  *
+ * Stale on error (-01 §6.10 MUST): a directory that fails to resolve is not
+ * evidence and never evicts the last good key set: an operator's outage
+ * must not revoke its keys here. While refreshes fail, the last good set
+ * keeps serving for up to staleIfErrorMs from the fetch that produced it
+ * (warned once per identifier), with the failure cached for
+ * failureCacheTtlMs between retries. A refresh that RESOLVES (a 200 that
+ * parses, with or without the key, including one whose entries are all
+ * unusable) is evidence and replaces the entry immediately.
+ *
  * A 3xx resolves to `redirected` rather than `unavailable` so the verifier can
  * tell a merchant which of the two happened: a directory that is up and
  * misconfigured is an operator fix, an unreachable one is an outage.
  *
- * Media type: the body is parsed only when Content-Type is the registered
- * KEY_DIRECTORY_MEDIA_TYPE or plain application/json (accepted with a warning,
- * because it is a common server default). Anything else, including no
- * Content-Type, resolves to `unsupported_media_type` without parsing, so a JWK
- * Set that happens to appear in an HTML page never stands in for a directory.
- * Both live directories we resolve serve the registered type (checked
- * chatgpt.com and www.shopify.com 2026-09-25).
+ * Media type: at the well-known URL the body is parsed only when Content-Type
+ * is the registered KEY_DIRECTORY_MEDIA_TYPE (a -01 §5.5.1 MUST for that URL)
+ * or plain application/json (accepted with a warning, because it is a common
+ * server default). At any other URL application/jwk-set+json is also
+ * accepted: that is the natural media type of a JWK Set resource (RFC 7517
+ * §8.5.1). Anything else, including no Content-Type, resolves to
+ * `unsupported_media_type` without parsing, so a JWK Set that happens to
+ * appear in an HTML page never stands in for a directory.
  *
  * Directory responses are trusted on the strength of TLS to an allowlisted
- * origin, plus Appendix B proof-of-possession when the directory serves it:
- * each key is classified valid/invalid/absent/possession-only
- * (verifyDirectoryProofs) and the verifier applies the per-source grace flag. chatgpt.com serves proofs (seen
- * 2026-09-25, with an `alg="ed25519"` parameter); www.shopify.com did not when
- * last checked (2026-08-09), so grace defaults on and absent proofs are
- * tolerated until every source ships them.
+ * identifier, plus Appendix B proof-of-possession when the directory serves
+ * it: each key is classified valid/invalid/absent/possession-only
+ * (verifyDirectoryProofs) and the verifier applies the per-source grace flag.
+ * chatgpt.com serves proofs (seen 2026-09-25, with an `alg="ed25519"`
+ * parameter); www.shopify.com did not when last checked (2026-08-09), so
+ * grace defaults on and absent proofs are tolerated until every source ships
+ * them.
  */
 export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   private readonly allowed: Set<string>;
   private readonly cacheTtlMs: number;
   private readonly failureCacheTtlMs: number;
+  private readonly staleIfErrorMs: number;
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
   private readonly fetchImpl: typeof fetch;
@@ -765,11 +869,17 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
     string,
     { until: number; value: KeyDirectoryResolution }
   >();
+  /** Last successfully RESOLVED ok value per identifier, for §6.10. */
+  private readonly lastGood = new Map<
+    string,
+    { value: KeyDirectoryResolution; fetchedAtMs: number; staleWarned: boolean }
+  >();
 
   constructor(opts: FetchingKeyDirectoryResolverOptions) {
-    this.allowed = new Set(opts.allowedOrigins.map(normalizeOrigin));
+    this.allowed = new Set(opts.allowedOrigins.map(signatureAgentIdentifier));
     this.cacheTtlMs = opts.cacheTtlMs ?? TEN_MINUTES_MS;
     this.failureCacheTtlMs = opts.failureCacheTtlMs ?? 30_000;
+    this.staleIfErrorMs = opts.staleIfErrorMs ?? ONE_HOUR_MS;
     this.timeoutMs = opts.timeoutMs ?? 5_000;
     this.maxBytes = opts.maxResponseBytes ?? 64 * 1024;
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -777,66 +887,112 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
     this.onWarning = opts.onWarning ?? ((message) => console.warn(message));
   }
 
-  async resolve(origin: string): Promise<KeyDirectoryResolution> {
-    if (!this.allowed.has(origin)) return { status: 'not_allowed' };
+  async resolve(identifier: string): Promise<KeyDirectoryResolution> {
+    // Allowlist entries were normalized at construction; the request
+    // identifier is compared VERBATIM. Re-normalizing here with the entry
+    // rule would expand a "/" path to the well-known URL, so the identifier
+    // of "https://host/?x" (which is "https://host/") would pass the
+    // allowlist of an allowlisted host, the caller-chosen query would be
+    // fetched, and its answer cached under the host's genuine identifier
+    // (the resolver-interface contract; office finding 2026-11-03).
+    const id = identifier;
+    if (!this.allowed.has(id)) return { status: 'not_allowed' };
 
-    const cached = this.cache.get(origin);
+    const cached = this.cache.get(id);
     const now = this.nowMs();
     if (cached && cached.until > now) return cached.value;
 
-    const { value, freshForMs } = await this.fetchDirectory(origin);
-    const ttl =
-      value.status === 'ok'
-        ? Math.min(this.cacheTtlMs, freshForMs ?? Number.POSITIVE_INFINITY)
-        : this.failureCacheTtlMs;
-    this.cache.set(origin, { until: now + ttl, value });
+    // Fetch exactly the identifier (the §5.5 deviation in the class doc).
+    const { value, freshForMs, resolved } = await this.fetchDirectory(id);
+    if (value.status === 'ok') {
+      this.lastGood.set(id, { value, fetchedAtMs: now, staleWarned: false });
+      const ttl = Math.min(this.cacheTtlMs, freshForMs ?? Number.POSITIVE_INFINITY);
+      this.cache.set(id, { until: now + ttl, value });
+      return value;
+    }
+    if (resolved) {
+      // The directory answered and we read it: that is evidence (-01 §6.10),
+      // so it replaces whatever we held, including the stale-on-error copy.
+      this.lastGood.delete(id);
+      this.cache.set(id, { until: now + this.failureCacheTtlMs, value });
+      return value;
+    }
+    // A failure to resolve is NOT evidence (-01 §6.10 MUST NOT evict). Serve
+    // the last good set inside the stale window; cache that decision for the
+    // failure TTL so the retry cadence stays bounded either way.
+    const good = this.lastGood.get(id);
+    if (good && now < good.fetchedAtMs + this.staleIfErrorMs) {
+      if (!good.staleWarned) {
+        good.staleWarned = true;
+        this.onWarning(
+          `Key directory ${id} failed to refresh`
+            + `${value.status === 'unavailable' && value.detail ? ` (${value.detail})` : ''}; `
+            + `serving the key set fetched ${Math.round((now - good.fetchedAtMs) / 1000)}s ago `
+            + `for up to ${Math.round(this.staleIfErrorMs / 1000)}s from that fetch `
+            + '(draft-ietf-webbotauth-httpsig-protocol-01 Section 6.10: a failed fetch is not evidence).',
+        );
+      }
+      this.cache.set(id, { until: now + this.failureCacheTtlMs, value: good.value });
+      return good.value;
+    }
+    this.cache.set(id, { until: now + this.failureCacheTtlMs, value });
     return value;
   }
 
   private async fetchDirectory(
-    origin: string,
-  ): Promise<{ value: KeyDirectoryResolution; freshForMs?: number }> {
-    const url = `${origin}${KEY_DIRECTORY_PATH}`;
+    url: string,
+  ): Promise<{ value: KeyDirectoryResolution; freshForMs?: number; resolved: boolean }> {
+    // -01 §5.5.1: the registered directory media type is a MUST at the
+    // well-known URL; elsewhere a JWK Set may serve other consumers under its
+    // own media type.
+    const wellKnown = isWellKnownDirectoryUrl(url);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       // `manual` so a 3xx is observed and refused rather than followed by the
-      // fetch implementation. -02 Section 5.5: discovery MUST be served with
+      // fetch implementation. -01 Section 5.5: discovery MUST be served with
       // 200 (OK), and a verifier MUST NOT automatically follow redirects.
       const res = await this.fetchImpl(url, {
         redirect: 'manual',
         signal: controller.signal,
-        headers: { accept: 'application/http-message-signatures-directory+json, application/json' },
+        headers: {
+          accept: wellKnown
+            ? 'application/http-message-signatures-directory+json, application/json'
+            : 'application/http-message-signatures-directory+json, application/jwk-set+json, application/json',
+        },
       });
       if (res.status >= 300 && res.status < 400) {
-        // Until -02 we followed up to three https, allowlisted hops, because
-        // shopify.com's apex 301 to www was the deployed reality (built
-        // 2026-08-11). -02 makes that non-conformant, so the tolerance is
-        // gone and accept-deployed-reality yields to a published MUST that we
-        // reported the issue for. CONSEQUENCE: the shopify.com APEX directory
-        // no longer resolves for identity purposes. Their www host serves the
-        // directory directly and is unaffected.
-        return { value: { status: 'redirected', detail: `HTTP ${res.status}` } };
+        // Until -02 (now -01's §5.5) we followed up to three https,
+        // allowlisted hops, because shopify.com's apex 301 to www was the
+        // deployed reality (built 2026-08-11). The published MUST made that
+        // non-conformant, so the tolerance is gone. CONSEQUENCE: the
+        // shopify.com APEX directory does not resolve for identity purposes.
+        // Their www host serves the directory directly and is unaffected.
+        return { value: { status: 'redirected', detail: `HTTP ${res.status}` }, resolved: false };
       }
       if (res.status !== 200) {
         // Exactly 200, not any 2xx: a 204 carries no key set to parse.
-        return { value: { status: 'unavailable', detail: `HTTP ${res.status}` } };
+        return { value: { status: 'unavailable', detail: `HTTP ${res.status}` }, resolved: false };
       }
       const contentType = res.headers.get('content-type');
       const mediaClass = classifyKeyDirectoryMediaType(contentType);
-      if (mediaClass !== 'directory' && mediaClass !== 'json') {
+      const accepted = wellKnown
+        ? mediaClass === 'directory' || mediaClass === 'json'
+        : mediaClass === 'directory' || mediaClass === 'jwk-set' || mediaClass === 'json';
+      if (!accepted) {
         await res.body?.cancel().catch(() => {});
         return {
           value: {
             status: 'unsupported_media_type',
             detail: contentType ? `Content-Type ${contentType}` : 'no Content-Type',
           },
+          resolved: false,
         };
       }
       if (mediaClass === 'json') {
         this.onWarning(
           `Key directory ${url} is served as application/json; `
-            + `the registered media type is ${KEY_DIRECTORY_MEDIA_TYPE}.`,
+            + `the expected media type is ${wellKnown ? KEY_DIRECTORY_MEDIA_TYPE : JWK_SET_MEDIA_TYPE}.`,
         );
       }
       const body = await readBounded(res, this.maxBytes);
@@ -846,28 +1002,33 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         // definitive about any signer, so it is could-not-check (the verifier
         // maps it to key_directory_unavailable), never a key-not-published
         // negative. The detail records what was seen and why each entry was
-        // set aside.
+        // set aside. It RESOLVED, though: the answer is evidence and replaces
+        // a cached entry (-01 §6.10).
         const why = dropped.map((d) => `#${d.index}: ${d.reason}`).join('; ');
         return {
           value: {
             status: 'unavailable',
             detail: `directory publishes ${dropped.length} entries, none usable: ${why}`,
           },
+          resolved: true,
         };
       }
       const mislabelled = keys.filter((k) => k.kid !== undefined && k.kid !== k.thumbprint);
-      if (mislabelled.length > 0) {
-        // Once per fetch (the result is cached), not per request.
+      if (wellKnown && mislabelled.length > 0) {
+        // Once per fetch (the result is cached), not per request. Only at the
+        // well-known URL: the -01 §5.5 note scopes the thumbprint MUST to it,
+        // and at any other URL kid is an operator-chosen label.
         this.onWarning(
           `Key directory ${url} advertises kid labels that are not JWK thumbprints on `
             + `${mislabelled.length} of ${keys.length} keys (e.g. kid "${mislabelled[0]!.kid}"); `
-            + 'draft-ietf-webbotauth-httpsig-protocol-00 Section 5.5 requires kid to be the thumbprint. '
+            + 'the draft-ietf-webbotauth-httpsig-protocol-01 Section 5.5 note requires a kid at '
+            + 'the well-known URL to be the thumbprint. '
             + 'Keys are kept and identified by their computed thumbprints.',
         );
       }
       // Appendix B: classify each key by its response proof-of-possession.
-      // The request authority is the host we actually fetched (post-redirect),
-      // which is what the directory operator signs over (@authority;req).
+      // The request authority is the host we actually fetched, which is what
+      // the directory operator signs over (@authority;req).
       const proofByThumbprint = verifyDirectoryProofs({
         authority: new URL(url).host,
         body,
@@ -879,14 +1040,15 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
         keys,
         onWarning: this.onWarning,
       });
-      const resolved: ResolvedDirectoryKey[] = keys.map((k) => ({
+      const resolvedKeys: ResolvedDirectoryKey[] = keys.map((k) => ({
         ...k,
         proof: proofByThumbprint.get(k.thumbprint) ?? 'absent',
       }));
       const freshForMs = responseFreshnessMs(res.headers);
       return {
-        value: { status: 'ok', keys: resolved },
+        value: { status: 'ok', keys: resolvedKeys },
         ...(freshForMs !== undefined ? { freshForMs } : {}),
+        resolved: true,
       };
     } catch (err) {
       return {
@@ -894,10 +1056,21 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
           status: 'unavailable',
           detail: err instanceof Error ? err.message : 'fetch failed',
         },
+        resolved: false,
       };
     } finally {
       clearTimeout(timer);
     }
+  }
+}
+
+/** True when the identifier is an origin's §8.1 well-known directory URL. */
+function isWellKnownDirectoryUrl(identifier: string): boolean {
+  try {
+    const url = new URL(identifier);
+    return url.pathname === KEY_DIRECTORY_PATH && url.search === '';
+  } catch {
+    return false;
   }
 }
 
@@ -936,12 +1109,4 @@ export async function readBounded(res: Response, maxBytes: number): Promise<stri
     chunks.push(value);
   }
   return Buffer.concat(chunks).toString('utf-8');
-}
-
-function normalizeOrigin(origin: string): string {
-  const url = new URL(origin);
-  if (url.protocol !== 'https:') {
-    throw new Error(`Signature-Agent origins must be https, got: ${origin}`);
-  }
-  return url.origin.toLowerCase();
 }

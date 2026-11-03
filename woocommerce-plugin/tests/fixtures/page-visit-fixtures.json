@@ -40,9 +40,9 @@
         "HTTP_X_FORWARDED_PROTO": "http",
         "HTTP_X_FORWARDED_FOR": "198.51.100.9, 10.0.0.1",
         "HTTP_HOST": "shop.example:8443",
-        "HTTP_SIGNATURE_AGENT": "sig1=\"https://agent.example\"",
+        "HTTP_SIGNATURE_AGENT": "sig1=\"https://agent.example/.well-known/http-message-signatures-directory\"",
         "HTTP_SIGNATURE_INPUT": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0x\";tag=\"web-bot-auth\"",
-        "HTTP_SIGNATURE": "sig1=:bsp9mhWwzhe42b1KK0dUlvJP1tCiIejzBjLeyW9ejO+rTaAn1UlA1rilH81oC6Wkxf+hNo1wm7o7/mfHOhaFDQ==:"
+        "HTTP_SIGNATURE": "sig1=:mKD0rJCT40Dn6IQE3SKOwkTuMJmXD0HHP8yO7SVpARtOR5MTmMFRXj45Er9/4d3BaJwcusRrVCx4FoV/IiI0Cg==:"
       },
       "isSsl": true,
       "expected": {
@@ -50,9 +50,9 @@
         "url": "https://shop.example:8443/product/widget?color=blue&size=m",
         "headers": {
           "host": "shop.example:8443",
-          "signature-agent": "sig1=\"https://agent.example\"",
+          "signature-agent": "sig1=\"https://agent.example/.well-known/http-message-signatures-directory\"",
           "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0x\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:bsp9mhWwzhe42b1KK0dUlvJP1tCiIejzBjLeyW9ejO+rTaAn1UlA1rilH81oC6Wkxf+hNo1wm7o7/mfHOhaFDQ==:"
+          "signature": "sig1=:mKD0rJCT40Dn6IQE3SKOwkTuMJmXD0HHP8yO7SVpARtOR5MTmMFRXj45Er9/4d3BaJwcusRrVCx4FoV/IiI0Cg==:"
         }
       },
       "expectedPath": "/product/widget"
@@ -78,9 +78,9 @@
         "HTTP_X_FORWARDED_PROTO": "http",
         "HTTP_X_FORWARDED_FOR": "198.51.100.9, 10.0.0.1",
         "HTTP_HOST": "shop.example",
-        "HTTP_SIGNATURE_AGENT": "\"https://agent.example\"",
-        "HTTP_SIGNATURE_INPUT": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0y\";tag=\"web-bot-auth\"",
-        "HTTP_SIGNATURE": "sig1=:/k6y1TZzbxfjfriFg5lmdkVrXiKpypDjhH0t5FeYeGWxRGbcRd0i+kfppUfbdf4CJ6LX3wqR5N7FaTH+7xq4CQ==:"
+        "HTTP_SIGNATURE_AGENT": "sig1=\"https://agent.example/.well-known/http-message-signatures-directory\"",
+        "HTTP_SIGNATURE_INPUT": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\";key=\"sig1\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0y\";tag=\"web-bot-auth\"",
+        "HTTP_SIGNATURE": "sig1=:HO2FqX3WKRjuxnAv7ph3Jr7PcnwyoANwa4G633Tf+F07gFFFU9onGXZSf+tIMtBwKMsCiRAnmxQVWFzhcDOrBg==:"
       },
       "isSsl": true,
       "expected": {
@@ -88,9 +88,9 @@
         "url": "https://shop.example/shop/",
         "headers": {
           "host": "shop.example",
-          "signature-agent": "\"https://agent.example\"",
-          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0y\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:/k6y1TZzbxfjfriFg5lmdkVrXiKpypDjhH0t5FeYeGWxRGbcRd0i+kfppUfbdf4CJ6LX3wqR5N7FaTH+7xq4CQ==:"
+          "signature-agent": "sig1=\"https://agent.example/.well-known/http-message-signatures-directory\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\";key=\"sig1\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0y\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:HO2FqX3WKRjuxnAv7ph3Jr7PcnwyoANwa4G633Tf+F07gFFFU9onGXZSf+tIMtBwKMsCiRAnmxQVWFzhcDOrBg==:"
         }
       },
       "expectedPath": "/shop/"
@@ -116,9 +116,9 @@
         "HTTP_X_FORWARDED_PROTO": "http",
         "HTTP_X_FORWARDED_FOR": "198.51.100.9, 10.0.0.1",
         "HTTP_HOST": "shop.example",
-        "HTTP_SIGNATURE_AGENT": "sig1=\"https://agent.example\"",
+        "HTTP_SIGNATURE_AGENT": "sig1=\"https://agent.example/.well-known/http-message-signatures-directory\"",
         "HTTP_SIGNATURE_INPUT": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\" \"user-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0z\";tag=\"web-bot-auth\"",
-        "HTTP_SIGNATURE": "sig1=:twVdrE8XFzP33CQ9fkkgNFgdw8jbcPaVG62f4dYG47IyotF0mmvV4yYEOiBjNblZdzfEhyWzRFJ7vVm2JYsCCw==:"
+        "HTTP_SIGNATURE": "sig1=:BH7gZZ689MQ5YBZlYrqxymrFT7oq1A+Vfm9u6MKJNWoevtXESnL8oS5Na5ILfG8JTRZmuES/j4nUbqScy5QqCA==:"
       },
       "isSsl": true,
       "expected": {
@@ -127,9 +127,9 @@
         "headers": {
           "user-agent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0",
           "host": "shop.example",
-          "signature-agent": "sig1=\"https://agent.example\"",
+          "signature-agent": "sig1=\"https://agent.example/.well-known/http-message-signatures-directory\"",
           "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"@query\" \"signature-agent\";key=\"sig1\" \"user-agent\");created=1790345533;expires=1790345833;keyid=\"vaJPtef-vPnGAIWE19qlMPDYWGaER3zeeJM_3r1WO7E\";alg=\"ed25519\";nonce=\"cGFnZS12aXNpdC0z\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:twVdrE8XFzP33CQ9fkkgNFgdw8jbcPaVG62f4dYG47IyotF0mmvV4yYEOiBjNblZdzfEhyWzRFJ7vVm2JYsCCw==:"
+          "signature": "sig1=:BH7gZZ689MQ5YBZlYrqxymrFT7oq1A+Vfm9u6MKJNWoevtXESnL8oS5Na5ILfG8JTRZmuES/j4nUbqScy5QqCA==:"
         }
       },
       "expectedPath": "/product/caf%C3%A9-mug"
