@@ -131,12 +131,17 @@ export function demoteDemoResult(
 
 /**
  * The https origin a verified result is about, or undefined when there is none
- * to ask about. Web Bot Auth identities ARE origins; other protocols may
- * identify an agent by an opaque id, and an opaque id is not a name a registry
- * can be asked about, so we do not guess one.
+ * to ask about. Web Bot Auth `domain`-bound identities ARE origins; a
+ * `url-only` identity is an arbitrary JWK Set URL whose host's operator the
+ * identity does not name (-01 §5.5 "TLS authenticates the host but not the
+ * path"), so asking a registry about that host would attribute the agent to
+ * someone the protocol never bound it to. Other protocols may identify an
+ * agent by an opaque id, and an opaque id is not a name a registry can be
+ * asked about, so we do not guess one.
  */
 function originOf(result: VerificationResult): string | undefined {
   if (!result.trusted) return undefined;
+  if (result.agent?.binding === 'url-only') return undefined;
   const id = result.agent?.id;
   if (!id) return undefined;
   let url: URL;

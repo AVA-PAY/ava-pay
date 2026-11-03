@@ -94,23 +94,39 @@ describe('WebBotAuthVerifier', () => {
       id: AGENT_ORIGIN,
       protocol: 'web-bot-auth',
       keyThumbprint: webBotAuthKeyId(keys.publicKey),
-      // Discovered via the well-known directory path → domain-bound (D3).
+      // Discovered via the well-known directory URL → domain-bound (-01 §4.5).
       binding: 'domain',
+      signatureAgentUrl: `${AGENT_ORIGIN}/.well-known/http-message-signatures-directory`,
     });
     // Identity is not payment authority.
     expect(result.mandate).toBeUndefined();
     expect(result.buyerInfo).toBeUndefined();
   });
 
-  it('marks a jwks_uri-typed Signature-Agent as url-only binding (D3)', async () => {
-    // Same origin + key, but the agent declares the jwks_uri discovery type,
-    // which gives key continuity without an origin association. The verdict
-    // must surface that as url-only so a merchant can price it lower.
-    const result = await verifier.verify(
-      toIncoming(sign({ signatureAgentFormat: 'dictionary', signatureAgentType: 'jwks_uri' })),
-    );
-    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
-    expect(result.agent?.binding).toBe('url-only');
+  it('rejects a ;type=jwks_uri member (the UCP-shaped header) with the §5.2.1 message', async () => {
+    // -00 defined a `type` parameter; -01 §5.2.1 says members MUST NOT carry
+    // parameters and a verifier MUST ignore a member that does. Ignoring the
+    // one covered member leaves nothing to resolve, and the message must say
+    // which parameter did it and what to send instead, not a bare
+    // member_missing.
+    const signed = sign();
+    signed.headers['signature-agent'] = `sig1="${AGENT_ORIGIN}/jwks.json";type=jwks_uri`;
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_agent_malformed', conclusive: true });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('"type"');
+    expect(result.message).toContain('Section 5.2.1');
+    expect(result.message).toContain('bare member value');
+  });
+
+  it('rejects a member carrying an unknown parameter with the same §5.2.1 message', async () => {
+    const signed = sign();
+    signed.headers['signature-agent'] = `sig1="${AGENT_ORIGIN}";proto=wba`;
+    const result = await verifier.verify(toIncoming(signed));
+    expect(result).toMatchObject({ trusted: false, reason: 'signature_agent_malformed' });
+    if (result.trusted) throw new Error('unreachable');
+    expect(result.message).toContain('"proto"');
+    expect(result.message).toContain('Section 5.2.1');
   });
 
   it('accepts a padded-base64 nonce, which -02 makes simply correct', async () => {
@@ -333,61 +349,155 @@ describe('WebBotAuthVerifier', () => {
     });
   });
 
-  // ── draft -02 Section 5.2.1: the keyed Signature-Agent component ──────────
+  // ── -01 Appendix E vectors, published and as rewritten by WG PR #153 ──────
+  //
+  // The strongest oracle available: the working group's own Ed25519 request
+  // vectors, signed with the RFC 9421 Appendix B.1.4 test key. Nothing here is
+  // produced by our own signer, so it cannot drift into agreeing with us. The
+  // published -01 E.2.1/E.2.2 vectors carry a bare origin (they verify through
+  // the legacy tolerance); WG PR #153 (thibmeu, commit ac04545, open) rewrites
+  // them to carry the well-known path explicitly, with new signatures. Both
+  // spellings must verify with the same agent.id and binding 'domain'.
 
-  it('verifies the draft -02 Appendix E.2.1 vector byte for byte', async () => {
-    // The strongest oracle available: the working group's own published Ed25519
-    // request vector, signed with the RFC 9421 Appendix B.1.4 test key, in the
-    // keyed dictionary form -02 requires. Nothing here is produced by our own
-    // signer, so it cannot drift into agreeing with us.
+  describe('-01 Appendix E.2 Ed25519 vectors (published + WG PR #153)', () => {
     const VECTOR_ORIGIN = 'https://signature-agent.test';
+    const WELL_KNOWN = `${VECTOR_ORIGIN}/.well-known/http-message-signatures-directory`;
     const CREATED = 1_735_689_600;
-    const vectorResolver = new StaticSignatureAgentKeys();
-    vectorResolver.add(VECTOR_ORIGIN, {
-      keys: [
-        {
-          kty: 'OKP',
-          crv: 'Ed25519',
-          x: 'JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs',
-          use: 'sig',
-        },
-      ],
-    });
-    const vectorVerifier = new WebBotAuthVerifier({
-      resolver: vectorResolver,
-      // The vector is dated 2025-01-01 with a century-long expires, so the
-      // server-side max-age cap has to be lifted to replay it at all.
-      now: () => CREATED + 60,
-      maxAgeSeconds: 3600,
-    });
+    const KEYID = 'poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U';
 
-    const result = await vectorVerifier.verify({
-      method: 'POST',
-      url: 'https://example.com/foo?param=Value&Pet=dog',
-      headers: {
-        host: 'example.com',
-        'signature-agent': 'agent2="https://signature-agent.test"',
-        'signature-input':
-          'sig2=("@authority" "signature-agent";key="agent2");created=1735689600' +
-          ';keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519"' +
-          ';expires=4889289600' +
-          ';nonce="n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA=="' +
-          ';tag="web-bot-auth"',
+    function vectorVerifier(): WebBotAuthVerifier {
+      const vectorResolver = new StaticSignatureAgentKeys();
+      vectorResolver.add(VECTOR_ORIGIN, {
+        keys: [
+          {
+            kty: 'OKP',
+            crv: 'Ed25519',
+            x: 'JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs',
+            use: 'sig',
+          },
+        ],
+      });
+      return new WebBotAuthVerifier({
+        resolver: vectorResolver,
+        // The vectors are dated 2025-01-01 (some with a century-long expires),
+        // so the server-side max-age cap has to be lifted to replay them.
+        now: () => CREATED + 60,
+        maxAgeSeconds: 3600,
+      });
+    }
+
+    const E21_NONCE =
+      'n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA==';
+    const E22_NONCE =
+      'e8N7S2MFd/qrd6T2R3tdfAuuANngKI7LFtKYI/vowzk4lAZYadIX6wW25MwG7DCT9RUKAJ0qVkU0mEeLElW1qg==';
+
+    const vectors: { name: string; agentHeader: string; input: string; signature: string }[] = [
+      {
+        name: 'published E.2.1 (keyed dictionary, bare origin → legacy tolerance)',
+        agentHeader: `sig2="${VECTOR_ORIGIN}"`,
+        input:
+          `sig2=("@authority" "signature-agent";key="sig2");created=${CREATED}`
+          + `;keyid="${KEYID}";alg="ed25519";expires=4889289600`
+          + `;nonce="${E21_NONCE}";tag="web-bot-auth"`,
         signature:
-          'sig2=:RdNFx5Bj6au3YgAMQL/RzmUlZE8QZLIaXGRpw985hWnwPfMxT228NMk6ehRS1PSl4e8PhbNZACSanGdhEwYCCg==:',
+          'sig2=:CGokAoY/FrPpyuzTe1Fb2kLTAH9Idw6qSFd1+D77r1firsMRCxeuLu5e6O+ek3zQgDMAzjiXtLVfqE00xnABCQ==:',
       },
-    });
+      {
+        name: 'published E.2.2 (legacy sf-string, bare origin → legacy tolerance)',
+        agentHeader: `"${VECTOR_ORIGIN}"`,
+        input:
+          `sig2=("@authority" "signature-agent");created=${CREATED}`
+          + `;keyid="${KEYID}";alg="ed25519";expires=${CREATED + 3600}`
+          + `;nonce="${E22_NONCE}";tag="web-bot-auth"`,
+        signature:
+          'sig2=:jdq0SqOwHdyHr9+r5jw3iYZH6aNGKijYp/EstF4RQTQdi5N5YYKrD+mCT1HA1nZDsi6nJKuHxUi/5Syp3rLWBA==:',
+      },
+      {
+        name: 'PR #153 E.2.1 (keyed dictionary, explicit well-known path)',
+        agentHeader: `sig2="${WELL_KNOWN}"`,
+        input:
+          `sig2=("@authority" "signature-agent";key="sig2");created=${CREATED}`
+          + `;keyid="${KEYID}";alg="ed25519";expires=4889289600`
+          + `;nonce="${E21_NONCE}";tag="web-bot-auth"`,
+        signature:
+          'sig2=:K/yVRxeBAr93LLpXNu+7VJysBLJzHbx5ei/qkTDFY2qm0ogzJaAWn0p8j/7NoG3VpFpBehIHOGDkczVCm2epDw==:',
+      },
+      {
+        name: 'PR #153 E.2.2 (legacy sf-string, explicit well-known path)',
+        agentHeader: `"${WELL_KNOWN}"`,
+        input:
+          `sig2=("@authority" "signature-agent");created=${CREATED}`
+          + `;keyid="${KEYID}";alg="ed25519";expires=${CREATED + 3600}`
+          + `;nonce="${E22_NONCE}";tag="web-bot-auth"`,
+        signature:
+          'sig2=:RgpOdhNGFX7UR38+uNNf79CsAQ/ll8H7FvrSoQyjUHMg0apFVJ691/TZIu4boservbg7ciRcoDnY0XLI4j/AAA==:',
+      },
+    ];
 
-    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
-    expect(result.agent?.id).toBe(VECTOR_ORIGIN);
-    expect(result.agent?.keyThumbprint).toBe('poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U');
-    expect(result.agent?.binding).toBe('domain');
+    for (const vector of vectors) {
+      it(`verifies ${vector.name} byte for byte`, async () => {
+        const result = await vectorVerifier().verify({
+          method: 'GET',
+          url: 'https://example.com/',
+          headers: {
+            host: 'example.com',
+            'signature-agent': vector.agentHeader,
+            'signature-input': vector.input,
+            signature: vector.signature,
+          },
+        });
+        if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+        // Both spellings resolve to the same identifier, identity, binding.
+        expect(result.agent?.id).toBe(VECTOR_ORIGIN);
+        expect(result.agent?.keyThumbprint).toBe(KEYID);
+        expect(result.agent?.binding).toBe('domain');
+        expect(result.agent?.signatureAgentUrl).toBe(WELL_KNOWN);
+      });
+    }
+
+    it('stops the E.1 rsa-pss-sha512 vectors at the algorithm gate in both spellings', async () => {
+      // PR #50 non-goal: we do not verify RSA. Both the published bare-origin
+      // spelling and the PR #153 well-known spelling must get past the
+      // Signature-Agent parse (shown directly below) and fail on the
+      // algorithm by name, never on the header.
+      for (const member of [VECTOR_ORIGIN, WELL_KNOWN]) {
+        const parsed = parseSignatureAgent(`sig2="${member}"`, 'sig2');
+        expect(parsed.identifier).toBe(WELL_KNOWN);
+
+        const result = await vectorVerifier().verify({
+          method: 'GET',
+          url: 'https://example.com/',
+          headers: {
+            host: 'example.com',
+            'signature-agent': `sig2="${member}"`,
+            'signature-input':
+              `sig2=("@authority" "signature-agent";key="sig2");created=${CREATED}`
+              + ';keyid="oD0HwocPBSfpNy5W3bpJeyFGY_IQ_YpqxSjQ3Yd-CLA";alg="rsa-pss-sha512"'
+              + ';expires=4889289600;tag="web-bot-auth"',
+            signature: 'sig2=:AAAA:',
+          },
+        });
+        expect(result).toMatchObject({ trusted: false, reason: 'unsupported_algorithm' });
+        if (result.trusted) throw new Error('unreachable');
+        expect(result.message).toContain('RSA');
+      }
+    });
   });
 
-  it('verifies the keyed component form round-trip through the SDK signer', async () => {
-    const signed = sign({ signatureAgentFormat: 'dictionary' });
-    // The signer must be emitting the -02 shape, not just something we accept.
+  it('emits the -01 shape by default: keyed dictionary with the well-known path', async () => {
+    const signed = sign();
+    // The signer must be emitting the -01 shape (WG PR #153), not just
+    // something we accept: the dictionary form is a signer MUST (§5.2.1) and
+    // the member value is the JWK Set URL, not a bare origin.
     expect(signed.headers['signature-input']).toContain('"signature-agent";key="sig1"');
+    expect(signed.headers['signature-agent']).toBe(
+      `sig1="${AGENT_ORIGIN}/.well-known/http-message-signatures-directory"`,
+    );
+    expect((await verifier.verify(toIncoming(signed))).trusted).toBe(true);
+  });
+
+  it('keeps the legacy bare-origin emission behind an explicit flag', async () => {
+    const signed = sign({ legacyBareOrigin: true });
     expect(signed.headers['signature-agent']).toBe(`sig1="${AGENT_ORIGIN}"`);
     expect((await verifier.verify(toIncoming(signed))).trusted).toBe(true);
   });
@@ -585,6 +695,10 @@ describe('wire-format compatibility (real ChatGPT agent traffic shape)', () => {
       method: 'GET',
       url: 'https://shop.example.com/collections/all',
       signatureAgent: 'https://chatgpt.com',
+      // Reproduce the deployed wire shape: bare sf-string, bare origin. The
+      // SDK default is now the -01 dictionary + well-known path form.
+      signatureAgentFormat: 'item',
+      legacyBareOrigin: true,
       privateKey: keys.privateKey,
       created: FIXED_NOW - 1,
       expires: FIXED_NOW + 3599, // real traffic uses a 3600s window
@@ -629,11 +743,14 @@ describe('web-bot-auth protocol primitives', () => {
     );
   });
 
-  it('parses bare-string and dictionary Signature-Agent forms (bare string is directory type)', () => {
+  it('parses bare-string and dictionary Signature-Agent forms (bare origin → legacy tolerance)', () => {
     expect(parseSignatureAgent('"https://ChatGPT.com"')).toEqual({
       target: 'https://ChatGPT.com',
+      fetchUrl: 'https://chatgpt.com/.well-known/http-message-signatures-directory',
+      identifier: 'https://chatgpt.com/.well-known/http-message-signatures-directory',
       origin: 'https://chatgpt.com',
-      type: 'directory',
+      binding: 'domain',
+      legacyBareOrigin: true,
     });
     expect(parseSignatureAgent('sig1="https://agent.example"', 'sig1').origin).toBe(
       'https://agent.example',
@@ -645,58 +762,90 @@ describe('web-bot-auth protocol primitives', () => {
     ).toBe('https://agent.example');
   });
 
-  it('parses the §5.5 discovery type; default directory only when NO type param is present', () => {
-    expect(parseSignatureAgent('sig1="https://agent.example";type=jwks_uri', 'sig1').type).toBe(
-      'jwks_uri',
+  it('parses a member value carrying a path as that URL, identified without its query (-01 §5.5)', () => {
+    // -01: the member value is a URL to a JWK Set, fetched as sent. A path is
+    // simply legal now (under -00 a directory-type value with a path was
+    // refused as not_origin).
+    const withPath = parseSignatureAgent('sig1="https://agent.example/jwks.json"', 'sig1');
+    expect(withPath).toEqual({
+      target: 'https://agent.example/jwks.json',
+      fetchUrl: 'https://agent.example/jwks.json',
+      identifier: 'https://agent.example/jwks.json',
+      origin: 'https://agent.example',
+      binding: 'url-only',
+      legacyBareOrigin: false,
+    });
+
+    // The explicit well-known path is the shape -01 intends (WG PR #153):
+    // domain binding, no legacy flag.
+    const wellKnown = parseSignatureAgent(
+      'sig1="https://agent.example/.well-known/http-message-signatures-directory"',
+      'sig1',
     );
-    expect(parseSignatureAgent('sig1="https://agent.example";type=cimd', 'sig1').type).toBe('cimd');
-    // Quoted token form is tolerated.
-    expect(parseSignatureAgent('sig1="https://agent.example";type="cimd"', 'sig1').type).toBe(
-      'cimd',
+    expect(wellKnown.binding).toBe('domain');
+    expect(wellKnown.legacyBareOrigin).toBe(false);
+    expect(wellKnown.identifier).toBe(
+      'https://agent.example/.well-known/http-message-signatures-directory',
     );
-    // No type param at all → the default directory.
-    expect(parseSignatureAgent('sig1="https://agent.example"', 'sig1').type).toBe('directory');
-    // A path that looks like a jwks_uri does NOT change the type: the type is
-    // never inferred from the path shape. With no type param the member is a
-    // `directory` value, and §5.5 requires a directory value to be a bare
-    // origin, so it is refused rather than silently read as a jwks_uri.
-    expect(() => parseSignatureAgent('sig1="https://agent.example/jwks.json"', 'sig1')).toThrow(
-      /not an origin serialization/,
+
+    // A query is kept on the fetch URL and dropped from the identifier, so
+    // one key set cannot mint an identifier per spelling (-01 §5.5).
+    const withQuery = parseSignatureAgent('sig1="https://agent.example/jwks.json?v=2"', 'sig1');
+    expect(withQuery.fetchUrl).toBe('https://agent.example/jwks.json?v=2');
+    expect(withQuery.identifier).toBe('https://agent.example/jwks.json');
+
+    // RFC 3986 §6.2.2/§6.2.3 normalization: case, default port, dot
+    // segments, percent-encoded unreserved characters.
+    const spelled = parseSignatureAgent(
+      'sig1="https://Agent.Example:443/a/../jwks%2Ejson"',
+      'sig1',
     );
-    // Declared as jwks_uri, the same URL is fine: that type points at a file.
-    expect(
-      parseSignatureAgent('sig1="https://agent.example/jwks.json";type=jwks_uri', 'sig1').type,
-    ).toBe('jwks_uri');
+    expect(spelled.identifier).toBe('https://agent.example/jwks.json');
   });
 
-  it('rejects a label-matched member with an unrecognized type (never upgraded to directory)', () => {
-    // The spec says to ignore an unrecognized type; granting it directory (and
-    // thus domain binding) would be exactly the misbinding to avoid. The
-    // authoritative label-matched member is therefore rejected, fail closed.
-    expect(() =>
-      parseSignatureAgent('sig1="https://agent.example";type=bogus', 'sig1'),
-    ).toThrow(WebBotAuthParseError);
-  });
-
-  it('skips an unrecognized-type member when choosing an unlabeled fallback', () => {
-    // First member has an unrecognized type and must be passed over; the
-    // second, well-typed member is chosen instead. Called without a label.
+  it('ignores any member carrying a parameter and names it when nothing usable remains (-01 §5.2.1)', () => {
+    // The retired -00 `type` parameter and any other parameter alike.
+    for (const header of [
+      'sig1="https://agent.example";type=jwks_uri',
+      'sig1="https://agent.example";type=cimd',
+      'sig1="https://agent.example";type="cimd"',
+      'sig1="https://agent.example";anything=else',
+    ]) {
+      expect(() => parseSignatureAgent(header, 'sig1')).toThrow(/Section 5.2.1/);
+    }
+    // Unlabeled fallback: a parameterized member is never a candidate; the
+    // one parameter-free member is chosen.
     const parsed = parseSignatureAgent(
       'sig1="https://skip.example";type=bogus, sig2="https://good.example"',
     );
     expect(parsed.origin).toBe('https://good.example');
-    expect(parsed.type).toBe('directory');
+    // All members parameterized and no label match: the error names the
+    // parameter rather than claiming the header was empty.
+    expect(() =>
+      parseSignatureAgent('a="https://a.example";type=jwks_uri, b="https://b.example";x=1'),
+    ).toThrow(/"type"/);
   });
 
-  it('rejects malformed and non-https Signature-Agent values', () => {
+  it('rejects malformed, non-https, credentialed and fragment-carrying values', () => {
     for (const bad of [
       '',
       '"',
       '"not a url"',
       '"http://agent.example"',
       '"https://user:pw@agent.example"',
+      '"https://agent.example/jwks.json#frag"',
     ]) {
       expect(() => parseSignatureAgent(bad, 'sig1')).toThrow(WebBotAuthParseError);
+    }
+    // The fragment and not-a-URI cases carry the not_origin code (narrowed
+    // meaning: not an acceptable JWK Set URL).
+    for (const bad of ['"not a url"', '"https://agent.example/x#frag"']) {
+      try {
+        parseSignatureAgent(bad, 'sig1');
+        throw new Error('unreachable');
+      } catch (err) {
+        expect((err as WebBotAuthParseError).code).toBe('not_origin');
+      }
     }
   });
 
@@ -949,6 +1098,173 @@ describe('FetchingKeyDirectoryResolver', () => {
   });
 });
 
+describe('FetchingKeyDirectoryResolver under -01 (identifier keying, media types, stale on error)', () => {
+  const ORIGIN = 'https://agent.example';
+  const WELL_KNOWN = `${ORIGIN}/.well-known/http-message-signatures-directory`;
+  let keys: AgentKeyPair;
+  let directoryBody: string;
+
+  beforeEach(() => {
+    keys = generateAgentKeyPair();
+    directoryBody = JSON.stringify({ keys: [keys.publicKey.export({ format: 'jwk' })] });
+  });
+
+  function fakeFetch(handler: (url: string) => Response): { impl: typeof fetch; calls: string[] } {
+    const calls: string[] = [];
+    const impl = (async (input: any) => {
+      calls.push(String(input));
+      return handler(url(input));
+    }) as typeof fetch;
+    const url = (input: any) => String(input);
+    return { impl, calls };
+  }
+
+  it('fetches a query as sent, drops it from the identifier: two spellings, one fetch, one entry', async () => {
+    const JWKS_URL = `${ORIGIN}/jwks.json`;
+    const { impl, calls } = fakeFetch(() =>
+      new Response(directoryBody, { headers: { 'content-type': 'application/jwk-set+json' } }),
+    );
+    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [JWKS_URL], fetchImpl: impl });
+
+    // First spelling carries a query: the request keeps it (-01 §5.5 "fetches
+    // the member value as sent")...
+    const first = await resolver.resolve(JWKS_URL, `${JWKS_URL}?v=2`);
+    expect(first.status).toBe('ok');
+    expect(calls).toEqual([`${JWKS_URL}?v=2`]);
+
+    // ...and the second spelling shares the identifier's cache entry, so a
+    // query cannot mint fetches (or identifiers).
+    const second = await resolver.resolve(JWKS_URL, `${JWKS_URL}?v=3`);
+    expect(second.status).toBe('ok');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('accepts application/jwk-set+json off the well-known URL and refuses it on it', async () => {
+    const JWKS_URL = `${ORIGIN}/jwks.json`;
+    const serveJwkSet = () =>
+      new Response(directoryBody, { headers: { 'content-type': 'application/jwk-set+json' } });
+
+    const offWellKnown = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [JWKS_URL],
+      fetchImpl: fakeFetch(serveJwkSet).impl,
+    });
+    expect((await offWellKnown.resolve(JWKS_URL)).status).toBe('ok');
+
+    // At the well-known URL the registered directory type is a -01 §5.5.1
+    // MUST, and application/json is the only tolerated fallback.
+    const atWellKnown = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [ORIGIN],
+      fetchImpl: fakeFetch(serveJwkSet).impl,
+    });
+    const refused = await atWellKnown.resolve(WELL_KNOWN);
+    expect(refused.status).toBe('unsupported_media_type');
+  });
+
+  it('keys lookups by (identifier, key): one key at two allowlisted URLs is two identities', async () => {
+    const URL_A = `${ORIGIN}/jwks.json`;
+    const URL_B = 'https://other.example/keys/set.json';
+    const resolver = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [URL_A, URL_B],
+      fetchImpl: fakeFetch(() =>
+        new Response(directoryBody, { headers: { 'content-type': 'application/jwk-set+json' } }),
+      ).impl,
+    });
+    const verifier = new WebBotAuthVerifier({ resolver, now: () => FIXED_NOW });
+
+    for (const agentUrl of [URL_A, URL_B]) {
+      const signed = signWithWebBotAuth({
+        method: 'GET',
+        url: MERCHANT_URL,
+        signatureAgent: agentUrl,
+        privateKey: keys.privateKey,
+        created: FIXED_NOW - 5,
+      });
+      const result = await verifier.verify(toIncoming(signed));
+      if (!result.trusted) throw new Error(`expected trusted for ${agentUrl}, got ${JSON.stringify(result)}`);
+      // Same key material, two different identifiers: -01 §5.4's (URL, key)
+      // pair, and B.2's "the binding attaches to the pair the verifier
+      // validated, not to the key on its own".
+      expect(result.agent?.id).toBe(agentUrl);
+      expect(result.agent?.binding).toBe('url-only');
+      expect(result.agent?.keyThumbprint).toBe(webBotAuthKeyId(keys.publicKey));
+    }
+  });
+
+  it('keeps serving the last good key set while refreshes fail, inside staleIfErrorMs (-01 §6.10)', async () => {
+    let nowMs = 1_000_000;
+    let failing = false;
+    const warnings: string[] = [];
+    const { impl, calls } = fakeFetch(() => {
+      if (failing) throw new Error('network down');
+      return new Response(directoryBody, DIRECTORY_TYPE);
+    });
+    const resolver = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [ORIGIN],
+      fetchImpl: impl,
+      nowMs: () => nowMs,
+      cacheTtlMs: 60_000,
+      failureCacheTtlMs: 30_000,
+      staleIfErrorMs: 3_600_000,
+      onWarning: (m) => warnings.push(m),
+    });
+
+    expect((await resolver.resolve(WELL_KNOWN)).status).toBe('ok');
+    expect(calls).toHaveLength(1);
+
+    // TTL lapses, the refresh fails: the outage is not evidence, so the last
+    // good set keeps serving, with one warning.
+    failing = true;
+    nowMs += 61_000;
+    const stale = await resolver.resolve(WELL_KNOWN);
+    expect(stale.status).toBe('ok');
+    expect(warnings.filter((w) => w.includes('Section 6.10'))).toHaveLength(1);
+
+    // Still stale-serving after more failures, no repeat warning.
+    nowMs += 31_000;
+    expect((await resolver.resolve(WELL_KNOWN)).status).toBe('ok');
+    expect(warnings.filter((w) => w.includes('Section 6.10'))).toHaveLength(1);
+
+    // Past the stale window the outage finally surfaces as unavailable (the
+    // verifier reports the inconclusive key_directory_unavailable).
+    nowMs += 3_600_000;
+    expect((await resolver.resolve(WELL_KNOWN)).status).toBe('unavailable');
+  });
+
+  it('replaces the entry immediately when a refresh RESOLVES without the key (evidence)', async () => {
+    let nowMs = 1_000_000;
+    let body = directoryBody;
+    const { impl } = fakeFetch(() => new Response(body, DIRECTORY_TYPE));
+    const resolver = new FetchingKeyDirectoryResolver({
+      allowedOrigins: [ORIGIN],
+      fetchImpl: impl,
+      nowMs: () => nowMs,
+      cacheTtlMs: 60_000,
+    });
+    const verifier = new WebBotAuthVerifier({
+      resolver,
+      now: () => Math.floor(nowMs / 1000) + FIXED_NOW,
+    });
+    const signed = () =>
+      signWithWebBotAuth({
+        method: 'GET',
+        url: MERCHANT_URL,
+        signatureAgent: ORIGIN,
+        privateKey: keys.privateKey,
+        created: Math.floor(nowMs / 1000) + FIXED_NOW - 5,
+      });
+
+    expect((await verifier.verify(toIncoming(signed()))).trusted).toBe(true);
+
+    // The operator removes the key; the next refresh RESOLVES to an empty
+    // list. That is evidence (-01 §6.10) and replaces the entry at once: the
+    // removed key stops verifying, no stale-on-error grace.
+    body = JSON.stringify({ keys: [] });
+    nowMs += 61_000;
+    const after = await verifier.verify(toIncoming(signed()));
+    expect(after).toMatchObject({ trusted: false, reason: 'unknown_key' });
+  });
+});
+
 describe('WebBotAuthVerifier Appendix B proof-of-possession (real crypto)', () => {
   const ORIGIN = 'https://agent.example';
   const HOST = 'agent.example';
@@ -1188,6 +1504,9 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
       method: 'GET',
       url: MERCHANT_URL,
       signatureAgent: AGENT_ORIGIN,
+      // Unkeyed coverage (the deployed shape): the whole field is covered, so
+      // the ambiguity rule, not the keyed member_missing rule, decides.
+      signatureAgentFormat: 'item',
       privateKey: keys.privateKey,
       created: FIXED_NOW - 5,
     });
@@ -1208,14 +1527,17 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
   it('still resolves a single Signature-Agent member that does not match the label', () => {
     const parsed = parseSignatureAgent(`only="${AGENT_ORIGIN}"`, 'sig1');
     expect(parsed.origin).toBe(AGENT_ORIGIN);
-    expect(parsed.type).toBe('directory');
+    expect(parsed.binding).toBe('domain');
   });
 
-  // NV-17. §5.5: the directory member value "MUST be the ASCII serialization of
-  // an origin ... and a verifier MUST ignore a member carrying anything else".
-  // We used to take url.origin and discard the path, then verify the request
-  // and report binding="domain" for it.
-  it('refuses a directory-type Signature-Agent that carries a path → signature_agent_not_origin', async () => {
+  // NV-17, re-read under -01. Under -00 a directory-type value carrying a
+  // path was refused at the parse (signature_agent_not_origin); -01 §5.5
+  // makes the value a URL to a JWK Set, so the parse now succeeds and the
+  // decision moves to the allowlist: an origin entry admits ONLY the
+  // well-known URL ("TLS authenticates the host but not the path"), so a
+  // path on a trusted origin is simply not allowlisted, nothing is fetched,
+  // and the verdict is the inconclusive unknown_signature_agent.
+  it('does not fetch a non-well-known path on an allowlisted origin → unknown_signature_agent', async () => {
     const signed = signWithWebBotAuth({
       method: 'GET',
       url: MERCHANT_URL,
@@ -1224,15 +1546,37 @@ describe('WebBotAuthVerifier: negative-vector cross-check regressions', () => {
       created: FIXED_NOW - 5,
     });
     const result = await verifier.verify(toIncoming(signed));
-    expect(result).toMatchObject({ trusted: false, reason: 'signature_agent_not_origin', conclusive: true });
+    expect(result).toMatchObject({
+      trusted: false,
+      reason: 'unknown_signature_agent',
+      conclusive: false,
+    });
     if (result.trusted) throw new Error('unreachable');
-    expect(result.message).toMatch(/not an origin serialization/);
+    expect(result.message).toContain(`${AGENT_ORIGIN}/keys`);
+    expect(result.message).toContain('nothing was fetched');
   });
 
-  // A bare origin's URL pathname is "/", which §5.5 exempts explicitly.
+  // With the exact URL in the trust set, the same request resolves url-only.
+  it('resolves that same path when the exact URL is allowlisted, as url-only', async () => {
+    resolver.add(`${AGENT_ORIGIN}/keys`, jwksFor(keys));
+    const signed = signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: `${AGENT_ORIGIN}/keys`,
+      privateKey: keys.privateKey,
+      created: FIXED_NOW - 5,
+    });
+    const result = await verifier.verify(toIncoming(signed));
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(result.agent?.id).toBe(`${AGENT_ORIGIN}/keys`);
+    expect(result.agent?.binding).toBe('url-only');
+    expect(result.agent?.signatureAgentUrl).toBe(`${AGENT_ORIGIN}/keys`);
+  });
+
+  // A bare origin still resolves at the well-known path (legacy tolerance).
   it('still accepts a bare origin, whose parsed path is a single slash', () => {
     expect(parseSignatureAgent(`sig1="${AGENT_ORIGIN}"`, 'sig1').origin).toBe(AGENT_ORIGIN);
-    expect(parseSignatureAgent(`sig1="${AGENT_ORIGIN}/"`, 'sig1').origin).toBe(AGENT_ORIGIN);
+    expect(parseSignatureAgent(`sig1="${AGENT_ORIGIN}/"`, 'sig1').legacyBareOrigin).toBe(true);
   });
 });
 
@@ -1292,7 +1636,7 @@ describe('WebBotAuthVerifier: kid is a hint, not an identity (agent.bot.goog reg
     expect(result.agent?.keyThumbprint).toBe(webBotAuthKeyId(keys.publicKey));
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain(AGENT_ORIGIN);
-    expect(warnings[0]).toContain('draft-ietf-webbotauth-httpsig-protocol-00');
+    expect(warnings[0]).toContain('draft-ietf-webbotauth-httpsig-protocol-01');
   });
 
   it('verifies a thumbprint keyid against the same directory with no warning', async () => {
@@ -1431,6 +1775,7 @@ describe('WebBotAuthVerifier algorithm agility (ES256 / ecdsa-p256-sha256)', () 
       protocol: 'web-bot-auth',
       keyThumbprint: webBotAuthKeyId(ecKeys.publicKey),
       binding: 'domain',
+      signatureAgentUrl: `${AGENT_ORIGIN}/.well-known/http-message-signatures-directory`,
     });
   });
 
@@ -1638,6 +1983,7 @@ describe('the frozen ES256 Web Bot Auth fixture', () => {
       protocol: 'web-bot-auth',
       keyThumbprint: fixture.thumbprint,
       binding: 'domain',
+      signatureAgentUrl: `${fixture.origin}/.well-known/http-message-signatures-directory`,
     });
   });
 

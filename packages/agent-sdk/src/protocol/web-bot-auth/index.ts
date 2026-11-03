@@ -3,24 +3,23 @@ import { createHash } from 'node:crypto';
 /**
  * Web Bot Auth protocol primitives.
  *
- * Targets draft-ietf-webbotauth-httpsig-protocol-00 (adopted 2026-09-01),
- * which is content-identical to draft-meunier-webbotauth-httpsig-protocol-02
- * (2026-08-18), the individual draft it was adopted from. That draft folded
- * the separate -httpsig-directory draft into itself at -01. Section numbers in
- * this file are unchanged by adoption and are cited as -02's.
+ * Targets draft-ietf-webbotauth-httpsig-protocol-01 (published 2026-10-29).
+ * -01 redefined what a Signature-Agent value is: a member value is an https
+ * URL to a JWK Set, fetched as sent and identified by its normalized form
+ * with the query dropped (Section 5.5). The well-known URI registered in
+ * Section 8.1 is a special case whose URL additionally names a domain
+ * (Section 4.5); any other path gives key continuity at a URL with no origin
+ * association, because TLS authenticates the host but not the path.
  *
- * Deployed reality (verified against live traffic, 2026-07): OpenAI's agents
- * still emit the pre-restructure shape — `Signature-Agent: "https://chatgpt.com"`
- * as a bare Structured Field string, covered components
- * ("@authority" "@method" "@path" "signature-agent"), and parameters
- * created/expires/keyid/nonce/tag="web-bot-auth"/alg="ed25519". The new draft
- * moves Signature-Agent to a Dictionary keyed by signature label
- * (`sig1="https://..."`). We accept both forms; everything else is identical.
+ * Deployed reality (measured 2026-10-31): chatgpt.com still sends the bare
+ * sf-string `"https://chatgpt.com"`, Google sends `g="https://agent.bot.goog"`,
+ * Shopify signs with `"https://shopify.com"`, all bare origins, with keys
+ * served only at the well-known path. The legacy bare-origin tolerance below
+ * keeps resolving those at the well-known path.
  *
  * keyid is a base64url JWK SHA-256 Thumbprint (RFC 7638: the Section 3.2 form
  * for EC keys, the RFC 8037 Appendix A.3 form for Ed25519) of the signing key,
- * resolved against the agent's key directory at
- * https://{signature-agent}/.well-known/http-message-signatures-directory.
+ * resolved against the JWK Set the Signature-Agent URL serves.
  *
  * Algorithms: ed25519 and ecdsa-p256-sha256 (see keys.ts). RSA is a stated
  * non-goal for now, rejected with a reason that says so.
@@ -72,13 +71,14 @@ export function classifyKeyDirectoryMediaType(contentType: string | null | undef
 /**
  * What a WebBotAuthParseError from parseSignatureAgent is about, so a verifier
  * can name the fault without parsing the message:
- *   malformed      not a readable Structured Field, no usable member, a value
- *                  that is not a URL, or only members of unrecognized type
+ *   malformed      not a readable Structured Field, no usable member, or a
+ *                  member that carries parameters (-01 Section 5.2.1 says
+ *                  members MUST NOT carry them and a verifier MUST ignore a
+ *                  member that does)
  *   ambiguous      several usable members and none keyed to the signature
  *   member_missing the covered (keyed) member is not in the header
- *   not_origin     the value is not an acceptable origin: not https, carrying
- *                  credentials, or a directory-type value with a path, query
- *                  or fragment
+ *   not_origin     the value is not an acceptable JWK Set URL: not https,
+ *                  carrying credentials or a fragment, or not an absolute URI
  * Errors from the key directory helpers are always `malformed`.
  */
 export type WebBotAuthParseErrorCode = 'malformed' | 'ambiguous' | 'member_missing' | 'not_origin';
@@ -96,55 +96,68 @@ export class WebBotAuthParseError extends Error {
 /** base64url of a 32-byte value is always exactly 43 chars, no padding. */
 const B64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/;
 
-/**
- * §5.5 discovery type. `directory` (the default, and the type of a bare string)
- * binds a domain via the reserved well-known path. `jwks_uri` and `cimd` give
- * key continuity at an arbitrary URL with NO origin association, so a verifier
- * must price them differently (see the `binding` on the verdict).
- */
-export type SignatureAgentType = 'directory' | 'jwks_uri' | 'cimd';
-
-const KNOWN_SIGNATURE_AGENT_TYPES: readonly SignatureAgentType[] = ['directory', 'jwks_uri', 'cimd'];
-
 export interface SignatureAgentValue {
-  /** The decoded member value, e.g. "https://chatgpt.com". */
+  /** The decoded member value exactly as sent, e.g. "https://chatgpt.com". */
   target: string;
-  /** Normalized https origin (lowercase), used for allowlisting + directory fetch. */
+  /**
+   * The URL a verifier GETs for this member: -01 §5.5 "The verifier fetches
+   * the member value as sent", so a query survives here (and only here). For
+   * a legacy bare origin this is the origin's well-known directory URL.
+   */
+  fetchUrl: string;
+  /**
+   * The identifier: the fetched URL normalized per RFC 3986 §6.2.2 and §6.2.3
+   * with any query dropped (-01 §5.5: "The URL the verifier resolved is the
+   * identifier, with any query discarded... Otherwise one key set would yield
+   * an identifier per spelling, and an Agent could mint them at will").
+   * Allowlists, caches and (URL, key) lookups key on this.
+   */
+  identifier: string;
+  /** Lowercase https origin of the identifier. */
   origin: string;
   /**
-   * Discovery type from the §5.5 `type` parameter. `directory` is the default
-   * ONLY when no type parameter is present (and for a bare string). A member
-   * carrying an UNRECOGNIZED type is ignored, never upgraded to `directory`;
-   * the type is never inferred from the path shape.
+   * `domain` when the identifier is the §8.1 well-known URL on its origin,
+   * which names the domain (-01 §4.5); `url-only` for any other path, which
+   * names nothing but itself ("TLS authenticates the host but not the path",
+   * -01 §5.5).
    */
-  type: SignatureAgentType;
+  binding: 'domain' | 'url-only';
+  /**
+   * True when the member value was a bare origin (empty or "/" path, no
+   * query) resolved at the well-known path by the legacy tolerance. -01 does
+   * not sanction this shape (WG PR #153 rewrites every example and vector to
+   * carry the well-known path explicitly), but chatgpt.com, agent.bot.goog
+   * and shopify.com all still send bare origins (measured 2026-10-31), with
+   * keys served only at the well-known path. Accept-deployed-reality: the
+   * tolerance is on by default and this flag records that it fired.
+   */
+  legacyBareOrigin: boolean;
 }
 
 /**
  * Parse a Signature-Agent header value.
  *
- * Accepts both wire forms (accept-both tolerance; the legacy vectors moved to
- * App E.1.2 / E.2.2 in -02, which dropped the Signature-Agent-absent ones):
- *   - bare SF string (deployed today, an explicit verifier-MAY): "https://chatgpt.com"
- *   - dictionary keyed by signature label (signers MUST send this): sig1="https://chatgpt.com"
+ * Accepts both wire forms:
+ *   - bare SF string (deployed today; -01 §5.2.1 lets a verifier accept it as
+ *     a dictionary with a single member): "https://chatgpt.com"
+ *   - dictionary keyed by signature label (signers MUST send this):
+ *     sig1="https://signer.example/.well-known/http-message-signatures-directory"
  *
- * The §5.5 `type` parameter is parsed and returned so the caller can price the
- * binding strength. `directory` / `jwks_uri` / `cimd` are all accepted. A
- * member with an unrecognized type is skipped, never treated as `directory`
- * (that would grant domain binding to a member the spec says to ignore): the
- * label-matched member is rejected outright, and an unrecognized-type member
- * is never chosen as the unlabeled fallback.
+ * -01 §5.2.1: "Dictionary members MUST NOT carry parameters. A verifier MUST
+ * ignore a member that carries parameters." A member with ANY parameter
+ * (including the retired -00 `;type=`) is therefore ignored. When that leaves
+ * the member the signature covers unusable, the error names the parameter and
+ * says what to send instead, because "ignored" would otherwise surface as a
+ * baffling member_missing to the operator who sent it.
  *
  * `strict` controls what happens when `label` names no member. Off (default),
  * a single usable member is taken, which is the tolerance the deployed
- * bare-string traffic and the published -00 E.2.1 vector need (that vector
- * labels the signature sig2 and keys the member agent2; the editor's copy
- * re-keyed it to sig2 on 2026-10-09, WG PR #138). SEVERAL usable members and no
- * label match is an error either way: nothing says which one signed, so any
- * choice would be attribution by header order. ON, the absence is an error too:
- * a caller that knows the signature covers one NAMED member must resolve that
- * member or nothing, because falling back would attribute the signature to a
- * member it never covered (-02 §5.2.2).
+ * bare-string traffic needs. SEVERAL usable members and no label match is an
+ * error either way: nothing says which one signed, so any choice would be
+ * attribution by header order. ON, the absence is an error too: a caller that
+ * knows the signature covers one NAMED member must resolve that member or
+ * nothing, because falling back would attribute the signature to a member it
+ * never covered (-01 §5.2.2).
  */
 export function parseSignatureAgent(
   headerValue: string,
@@ -155,9 +168,8 @@ export function parseSignatureAgent(
   if (value === '') throw new WebBotAuthParseError('Signature-Agent header is empty');
 
   let target: string | undefined;
-  let type: SignatureAgentType = 'directory';
   if (value.startsWith('"')) {
-    // Bare sf-string form: no parameters, so the discovery type is the default.
+    // Bare sf-string form: a String Item carries no dictionary parameters.
     if (!value.endsWith('"') || value.length < 3 || value.slice(1, -1).includes('"')) {
       throw new WebBotAuthParseError('Signature-Agent is not a valid quoted string');
     }
@@ -166,32 +178,38 @@ export function parseSignatureAgent(
     // Dictionary form: member(s) of shape  label="value"[;param...]
     const memberRe = /([a-z][a-z0-9_.*-]*)="([^"]*)"((?:;[^,;=]+(?:=[^,;]+)?)*)/g;
     let m: RegExpExecArray | null;
-    // Every member whose discovery type we recognize. An unrecognized-type
-    // member is dropped here and never becomes a candidate: §5.2.1 says to
-    // ignore it, and promoting it to `directory` would grant domain binding to
-    // a member the spec says to skip.
-    const candidates: { target: string; type: SignatureAgentType }[] = [];
-    let matched: { target: string; type: SignatureAgentType | null } | undefined;
+    // Members without parameters are the usable candidates. A member carrying
+    // ANY parameter is ignored (-01 §5.2.1 MUST); the first such parameter is
+    // remembered so the error can name it when ignoring left nothing usable.
+    const candidates: string[] = [];
+    let matched: { target: string; params: string } | undefined;
+    let ignoredParameter: string | undefined;
     while ((m = memberRe.exec(value)) !== null) {
-      const memberType = parseDiscoveryType(m[3] ?? '');
+      const params = m[3] ?? '';
       if (label !== undefined && m[1] === label) {
         // The label-matched member is authoritative for this signature; capture
-        // it even if its type is unrecognized (null), and reject below.
-        matched = { target: m[2] as string, type: memberType };
+        // it even when it carries parameters, and reject below by name.
+        matched = { target: m[2] as string, params };
         break;
       }
-      if (memberType !== null) {
-        candidates.push({ target: m[2] as string, type: memberType });
+      if (params === '') {
+        candidates.push(m[2] as string);
+      } else {
+        ignoredParameter ??= params.slice(1).split(/[;=]/)[0];
       }
     }
+    const parameterError = (params: string): WebBotAuthParseError => {
+      const name = params.replace(/^;/, '').split(/[;=]/)[0];
+      return new WebBotAuthParseError(
+        `Signature-Agent member carries a parameter ("${name}"), which `
+          + 'draft-ietf-webbotauth-httpsig-protocol-01 Section 5.2.1 forbids: members MUST NOT '
+          + 'carry parameters and a verifier MUST ignore a member that does. Send the JWK Set '
+          + 'URL as the bare member value instead.',
+      );
+    };
     if (matched) {
-      if (matched.type === null) {
-        throw new WebBotAuthParseError(
-          'Signature-Agent member carries an unrecognized discovery type parameter',
-        );
-      }
+      if (matched.params !== '') throw parameterError(matched.params);
       target = matched.target;
-      type = matched.type;
     } else if (options.strict === true) {
       // Name the failure for what it is. A header we could not read as a
       // dictionary at all is malformed; "no member keyed X" is true only of a
@@ -204,8 +222,7 @@ export function parseSignatureAgent(
             'member_missing',
           );
     } else if (candidates.length === 1) {
-      target = candidates[0]!.target;
-      type = candidates[0]!.type;
+      target = candidates[0]!;
     } else if (candidates.length > 1) {
       // Several usable members and nothing says which one signed. Picking one
       // would attribute the signature to a member chosen by header order, which
@@ -215,9 +232,13 @@ export function parseSignatureAgent(
         `Signature-Agent carries ${candidates.length} usable members and none is keyed "${label}", so the signature cannot be attributed to one of them`,
         'ambiguous',
       );
+    } else if (ignoredParameter !== undefined) {
+      // Every member was ignored for carrying parameters: say which parameter
+      // did it rather than reporting an empty header.
+      throw parameterError(`;${ignoredParameter}`);
     } else {
       throw new WebBotAuthParseError(
-        'Signature-Agent has no usable member (empty, unparseable, or unrecognized type only)',
+        'Signature-Agent has no usable member (empty or unparseable)',
       );
     }
   }
@@ -226,32 +247,98 @@ export function parseSignatureAgent(
   try {
     url = new URL(target);
   } catch {
-    throw new WebBotAuthParseError(`Signature-Agent value is not a valid URL: ${target}`);
+    throw new WebBotAuthParseError(
+      `Signature-Agent value is not an absolute URI: ${target}`,
+      'not_origin',
+    );
   }
   if (url.protocol !== 'https:') {
-    throw new WebBotAuthParseError('Signature-Agent must be an https origin', 'not_origin');
+    throw new WebBotAuthParseError('Signature-Agent must be an https URL', 'not_origin');
   }
   if (url.username !== '' || url.password !== '') {
     throw new WebBotAuthParseError('Signature-Agent must not carry credentials', 'not_origin');
   }
-  // §5.5: for the `directory` type "The member value MUST be the ASCII
-  // serialization of an origin ... and a verifier MUST ignore a member carrying
-  // anything else (an empty path / MAY be accepted though)." The directory path
-  // is fixed by the well-known registration, so a value carrying its own path
-  // is either a jwks_uri sent under the wrong type or an attempt to point
-  // discovery outside the reservation. Taking url.origin and discarding the
-  // rest, as we did before, silently rewrote the second case into a request we
-  // would then verify with binding="domain".
-  //
-  // jwks_uri and cimd values are URLs to a file, so a path is correct there and
-  // this does not apply.
-  if (type === 'directory' && (url.pathname !== '/' || url.search !== '' || url.hash !== '')) {
-    throw new WebBotAuthParseError(
-      `Signature-Agent value "${target}" is not an origin serialization; a directory-type member must carry no path, query or fragment`,
-      'not_origin',
-    );
+  if (url.hash !== '') {
+    // A fragment is client-side state; it can neither be fetched nor identify
+    // a resource, so there is nothing -01 §5.5 could resolve.
+    throw new WebBotAuthParseError('Signature-Agent must not carry a fragment', 'not_origin');
   }
-  return { target, origin: url.origin.toLowerCase(), type };
+  const origin = url.origin.toLowerCase();
+
+  // Legacy bare-origin tolerance, ON by default: a value whose path is empty
+  // or "/" with no query resolves at the origin's well-known directory URL.
+  // -01 does not sanction this shape (its §5.5 fetches the member value as
+  // sent, and WG PR #153 rewrites every example and vector to carry the
+  // well-known path explicitly), but every live signer still sends bare
+  // origins (chatgpt.com and shopify.com as bare sf-strings,
+  // agent.bot.goog as g="https://agent.bot.goog", all measured 2026-10-31)
+  // and their keys exist only at the well-known path. Accept-deployed-reality
+  // until they migrate.
+  if (url.pathname === '/' && url.search === '') {
+    const wellKnown = `${origin}${KEY_DIRECTORY_PATH}`;
+    return {
+      target,
+      fetchUrl: wellKnown,
+      identifier: wellKnown,
+      origin,
+      binding: 'domain',
+      legacyBareOrigin: true,
+    };
+  }
+
+  // -01 §5.5: fetch the member value as sent (query kept); the identifier is
+  // the normalized URL with the query discarded.
+  const identifier = `${origin}${normalizePathPercentEncoding(url.pathname)}`;
+  const fetchUrl = `${identifier}${url.search}`;
+  return {
+    target,
+    fetchUrl,
+    identifier,
+    origin,
+    // -01 §4.5: the well-known URL additionally names a domain; any other
+    // path names only itself.
+    binding: identifier === `${origin}${KEY_DIRECTORY_PATH}` ? 'domain' : 'url-only',
+    legacyBareOrigin: false,
+  };
+}
+
+/**
+ * Normalize a Signature-Agent allowlist entry or identifier to the identifier
+ * form the parser produces, so allowlists, caches and key lookups all compare
+ * the same octets (-01 §5.5: identifiers are compared after RFC 3986 §6.2.2
+ * and §6.2.3 normalization).
+ *
+ * An entry whose path is empty or "/" (an origin) means EXACTLY that origin's
+ * well-known directory URL. It never admits other paths on the origin,
+ * because a JWK Set at an arbitrary path does not name the host's operator
+ * ("TLS authenticates the host but not the path", -01 §5.5). A full https URL
+ * means exactly that identifier, query and fragment dropped.
+ */
+export function signatureAgentIdentifier(entry: string): string {
+  const url = new URL(entry);
+  if (url.protocol !== 'https:') {
+    throw new Error(`Signature-Agent identifiers must be https, got: ${entry}`);
+  }
+  const origin = url.origin.toLowerCase();
+  if (url.pathname === '/') return `${origin}${KEY_DIRECTORY_PATH}`;
+  return `${origin}${normalizePathPercentEncoding(url.pathname)}`;
+}
+
+/**
+ * RFC 3986 §6.2.2 percent-encoding normalization over a URL path the WHATWG
+ * parser already case- and scheme-normalized (lowercase host, default port
+ * dropped, dot-segments removed): decode percent-encoded unreserved
+ * characters and uppercase the hex digits of every other escape, so two
+ * spellings of one path compare octet for octet.
+ */
+function normalizePathPercentEncoding(pathname: string): string {
+  return pathname.replace(/%([0-9a-fA-F]{2})/g, (escape, hex: string) => {
+    const code = parseInt(hex, 16);
+    const char = String.fromCharCode(code);
+    // RFC 3986 §2.3 unreserved: ALPHA / DIGIT / "-" / "." / "_" / "~"
+    if (/[A-Za-z0-9\-._~]/.test(char)) return char;
+    return `%${hex.toUpperCase()}`;
+  });
 }
 
 /**
@@ -262,21 +349,6 @@ export function parseSignatureAgent(
 function hasUnparsedResidue(value: string, memberRe: RegExp): boolean {
   const pattern = new RegExp(memberRe.source, 'g');
   return value.replace(pattern, '').replace(/[\s,]+/g, '') !== '';
-}
-
-/**
- * Read the §5.5 `type` parameter from a Structured Field member's parameter
- * string. An ABSENT parameter defaults to `directory`. A recognized value is
- * returned as-is. An unrecognized value returns null (the member must be
- * skipped, never upgraded to `directory` and never inferred from the URL path).
- */
-function parseDiscoveryType(params: string): SignatureAgentType | null {
-  const typeMatch = params.match(/;\s*type=([^;]+)/);
-  if (!typeMatch) return 'directory';
-  const raw = typeMatch[1]!.trim().replace(/^"|"$/g, '').toLowerCase();
-  return (KNOWN_SIGNATURE_AGENT_TYPES as readonly string[]).includes(raw)
-    ? (raw as SignatureAgentType)
-    : null;
 }
 
 /**

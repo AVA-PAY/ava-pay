@@ -3,17 +3,16 @@ import { computeContentDigest } from '../protocol/visa/http-signatures.js';
 import {
   ecP256JwkThumbprint,
   ed25519JwkThumbprint,
+  KEY_DIRECTORY_PATH,
   WEB_BOT_AUTH_TAG,
-  type SignatureAgentType,
 } from '../protocol/web-bot-auth/index.js';
 import type { SignedRequest } from './visa.js';
 
 /**
- * Web Bot Auth — agent-side signing (IETF draft-ietf-webbotauth-httpsig-protocol-00,
- * formerly draft-meunier-webbotauth-httpsig-protocol).
+ * Web Bot Auth: agent-side signing (IETF
+ * draft-ietf-webbotauth-httpsig-protocol-01).
  *
- * Mirror image of the WebBotAuthVerifier and byte-compatible with real
- * deployed traffic (OpenAI's agents): covered components
+ * Mirror image of the WebBotAuthVerifier: covered components
  * ("@authority" "@method" "@path" "signature-agent"), parameters
  * created/expires/keyid/alg/nonce/tag="web-bot-auth", keyid = RFC 7638 JWK
  * thumbprint of the signing key. Signs with Ed25519 or ECDSA P-256/SHA-256
@@ -21,22 +20,34 @@ import type { SignedRequest } from './visa.js';
  * Algorithms registry name, and ECDSA signatures are the raw r||s form RFC
  * 9421 Section 3.3.4 requires, never DER).
  *
- * Draft -02 Section 5.2.1 requires signers to send the dictionary
- * Signature-Agent form and to cover the member keyed to their own label, so
- * `signatureAgentFormat: "dictionary"` covers `"signature-agent";key="<label>"`
- * and puts that member's value in the base, matching the Appendix E vectors.
- * The bare-string form stays available for reproducing deployed traffic.
+ * -01 Section 5.2.1 requires signers to send the dictionary Signature-Agent
+ * form and to cover the member keyed to their own label, so the default
+ * covers `"signature-agent";key="<label>"` and puts that member's value in
+ * the base, matching the Appendix E vectors. Members MUST NOT carry
+ * parameters, so there is no type parameter. The bare-string 'item' form
+ * stays available for reproducing deployed traffic (chatgpt.com still sends
+ * it, and -01 Appendix E keeps legacy vectors for it).
  */
 
 export interface WebBotAuthSignInput {
   method: string;
   url: string;
   /**
-   * The agent's Signature-Agent origin, e.g. "https://chatgpt.com". The
-   * verifier fetches this origin's /.well-known/http-message-signatures-directory
-   * to resolve the key, so the public key must be published there.
+   * The agent's Signature-Agent value: the https URL of the JWK Set the
+   * public key is published at (-01 Section 5.5), e.g.
+   * "https://signer.example/.well-known/http-message-signatures-directory".
+   * A bare origin is emitted with the well-known directory path appended,
+   * the shape -01 intends (WG PR #153), unless `legacyBareOrigin` asks for
+   * the deployed bare-origin form.
    */
   signatureAgent: string;
+  /**
+   * Emit a bare-origin `signatureAgent` exactly as given instead of
+   * appending the well-known path. This reproduces what deployed agents
+   * send today (chatgpt.com, agent.bot.goog, shopify.com, measured
+   * 2026-10-31); verifiers resolve it through their legacy tolerance.
+   */
+  legacyBareOrigin?: boolean;
   privateKey: KeyObject;
   /** Headers beyond the ones the SDK adds (host, signature-agent, Signature*). */
   extraHeaders?: Record<string, string>;
@@ -65,24 +76,19 @@ export interface WebBotAuthSignInput {
   /** keyid override. Defaults to the RFC 7638 thumbprint of the signing key's public half. */
   keyid?: string;
   /**
-   * Wire form of the Signature-Agent header. "item" (default) is the bare
-   * quoted string deployed agents send today; "dictionary" is the
-   * label-keyed form of the restructured draft.
+   * Wire form of the Signature-Agent header. "dictionary" (default) is the
+   * label-keyed form -01 Section 5.2.1 requires signers to send; "item" is
+   * the legacy bare quoted string deployed agents still emit, kept for
+   * reproducing that traffic in tests.
    */
   signatureAgentFormat?: 'item' | 'dictionary';
   /**
    * Cover `"signature-agent";key="<label>"` rather than the whole field.
-   * Defaults to true for the dictionary form (what -02 requires) and false for
-   * the bare-string form, which has no members to key. Set false with the
-   * dictionary form only to reproduce a pre--02 signer.
+   * Defaults to true for the dictionary form (what -01 Section 5.2.1
+   * requires) and false for the bare-string form, which has no members to
+   * key. Set false with the dictionary form only to reproduce an older signer.
    */
   keyedSignatureAgentComponent?: boolean;
-  /**
-   * §5.5 discovery type, emitted as a `;type=` parameter on the dictionary
-   * member (only meaningful with signatureAgentFormat "dictionary", since a
-   * bare string carries no parameters). Omit for the default `directory`.
-   */
-  signatureAgentType?: SignatureAgentType;
 }
 
 export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
@@ -97,14 +103,20 @@ export function signWithWebBotAuth(input: WebBotAuthSignInput): SignedRequest {
   const components = input.components ?? ['@authority', '@method', '@path', 'signature-agent'];
 
   const url = new URL(input.url);
-  const typeParam =
-    input.signatureAgentType !== undefined ? `;type=${input.signatureAgentType}` : '';
-  const isDictionary = input.signatureAgentFormat === 'dictionary';
+  const isDictionary = (input.signatureAgentFormat ?? 'dictionary') === 'dictionary';
+  // A bare origin becomes the well-known directory URL, the shape -01
+  // intends a Signature-Agent value to have (WG PR #153), unless the caller
+  // explicitly wants the deployed legacy form.
+  const agentUrl = new URL(input.signatureAgent);
+  const signatureAgentValue =
+    !input.legacyBareOrigin && agentUrl.pathname === '/' && agentUrl.search === ''
+      ? `${input.signatureAgent.replace(/\/$/, '')}${KEY_DIRECTORY_PATH}`
+      : input.signatureAgent;
   /** The dictionary member value on its own: what a keyed component covers. */
-  const signatureAgentMember = `"${input.signatureAgent}"${typeParam}`;
+  const signatureAgentMember = `"${signatureAgentValue}"`;
   const signatureAgentHeader = isDictionary
     ? `${label}=${signatureAgentMember}`
-    : `"${input.signatureAgent}"`;
+    : signatureAgentMember;
   const keyed = input.keyedSignatureAgentComponent ?? isDictionary;
 
   const headers: Record<string, string> = {

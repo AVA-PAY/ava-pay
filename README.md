@@ -68,7 +68,7 @@ AVA Pay/
 | **Visa Trusted Agent Protocol (real wire format)** | ✅ `agent-browser-auth`/`agent-payer-auth` tags, ed25519 + rsa-pss-sha256, 8-min window cap, nonce replay block, Consumer Recognition Object + Visa-signed PS256 IdToken (verified against `mcp.visa.com/.well-known/jwks`), Agentic Payment Container validation |
 | AVA TAP-style profile | ✅ RFC 9421 + Ed25519, content-digest, mandatory alg/created/nonce, server-side max signature age, `x-ava-mandate` |
 | **Google AP2 (v0.2)** | ✅ dSD-JWT delegation chains (RFC 9901 + draft-gco-oauth-delegate-sd-jwt): open→closed Checkout Mandate with checkout_jwt hash linkage, Payment Mandate with transaction_id linkage, pluggable constraint-evaluator registries (allowed_merchants, line_items, amount_range, allowed_payees, reference), aud + single-use-nonce binding; v0.1 Intent/Cart traffic gets typed `unsupported_protocol_version` |
-| **IETF Web Bot Auth** | ✅ draft-ietf-webbotauth-httpsig-protocol-00 (formerly draft-meunier-webbotauth-httpsig-protocol/-directory): `tag="web-bot-auth"`, Signature-Agent (both wire forms), RFC 7638 thumbprint keyids, allowlisted `/.well-known/http-message-signatures-directory` resolution, identity-only result (no mandate). Algorithms: `ed25519` and `ecdsa-p256-sha256` (ES256 directory keys, UCP's recommended default); RSA is a stated non-goal for now, rejected with a message that says what we verify |
+| **IETF Web Bot Auth** | ✅ draft-ietf-webbotauth-httpsig-protocol-01: `tag="web-bot-auth"`, Signature-Agent as a JWK Set URL (both wire forms; bare origins resolve at the well-known path via the legacy tolerance), identifier-keyed (URL, key) lookup, RFC 7638 thumbprint keyids, allowlisted resolution with stale-on-error (§6.10), identity-only result (no mandate). Algorithms: `ed25519` and `ecdsa-p256-sha256` (ES256 directory keys, UCP's recommended default); RSA is a stated non-goal for now, rejected with a message that says what we verify |
 | **Replay protection** | ✅ nonce + cart-jti dedup via `ReplayGuard` (in-memory now, Redis-ready interface) |
 | Rate limiting | ✅ `@fastify/rate-limit`, `RATE_LIMIT_MAX`/min (default 300) per client IP; `TRUST_PROXY_HOPS` (default 1, Railway's edge) sets how many X-Forwarded-For hops are trusted, and `/healthz` echoes the derived `clientIp` so the setting can be checked from outside |
 | Fail-closed directory writes | ✅ no `DIRECTORY_REGISTRATION_TOKEN` → writes disabled (opt-in dev flag `AVA_ALLOW_OPEN_DIRECTORY_WRITES=1`); constant-time token compare |
@@ -116,10 +116,28 @@ npm run demo:wba          # in-process Web Bot Auth demo
 ```
 
 Web Bot Auth key discovery is allowlist-gated: the verifier only fetches
-`/.well-known/http-message-signatures-directory` from origins in
-`WBA_ALLOWED_SIGNATURE_AGENTS` (comma-separated https origins; defaults to
-`https://chatgpt.com` and `https://agent.bot.goog`, the operators whose live
-directories we have verified).
+JWK Set URLs named by `WBA_ALLOWED_SIGNATURE_AGENTS` (comma-separated;
+defaults to `https://chatgpt.com` and `https://agent.bot.goog`, the
+operators whose live directories we have verified). Per
+draft-ietf-webbotauth-httpsig-protocol-01 Section 5.5 a Signature-Agent
+value is an https URL to a JWK Set, identified by its normalized form with
+the query dropped. An allowlist entry that is an origin admits EXACTLY that
+origin's `/.well-known/http-message-signatures-directory` URL, never other
+paths on the origin; an entry that is a full https URL admits exactly that
+identifier (verified with `url-only` binding).
+
+Legacy bare-origin tolerance, on by default: a Signature-Agent value that is
+a bare origin (what chatgpt.com, agent.bot.goog and shopify.com all still
+send, measured 2026-10-31) resolves at that origin's well-known directory
+URL. -01 does not sanction the bare-origin shape; the tolerance is
+accept-deployed-reality and verdicts flag it (`legacyBareOrigin` in the
+parser).
+
+Stale on error (-01 Section 6.10): a directory fetch that fails is not
+evidence and never evicts the last good key set: it keeps serving for up to
+`staleIfErrorMs` (default 1 hour, `FetchingKeyDirectoryResolverOptions`)
+while refreshes fail. A refresh that resolves without the key replaces the
+entry immediately, which is how a removed key stops verifying.
 
 Web Bot Auth signature lifetime is capped server-side at `created` + 300
 seconds whatever the signature's own `expires` says. This is a stated policy,

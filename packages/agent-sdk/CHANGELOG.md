@@ -6,6 +6,51 @@ This package is a pre-1.0 developer preview, so a minor version may tighten
 verification behaviour. Type-level changes are called out as additive or
 breaking on each entry.
 
+## [0.6.0] - 2026-11-03
+
+**Upgrade note.** Web Bot Auth moves to
+draft-ietf-webbotauth-httpsig-protocol-01 (published 2026-10-29), which
+redefined what a Signature-Agent value is: an https URL to a JWK Set,
+fetched as sent and identified by its normalized form with the query dropped
+(Section 5.5). The well-known URL is the special case that also names a
+domain (Section 4.5). Deployed bare origins (chatgpt.com, agent.bot.goog,
+shopify.com, measured 2026-10-31) keep resolving at the well-known path
+through an on-by-default legacy tolerance.
+
+### Breaking
+
+- `parseSignatureAgent` return shape: `{ target, fetchUrl, identifier,
+  origin, binding, legacyBareOrigin }` replaces `{ target, origin, type }`.
+  A path and a query are now legal in the member value; a fragment,
+  credentials, a non-https scheme, or a non-absolute URI reject with the
+  `not_origin` code (previously a value that was not a URL rejected as
+  `malformed`).
+- The `type` member parameter is gone, and so is the exported
+  `SignatureAgentType` type (REMOVED, no deprecated alias): -01 Section
+  5.2.1 says members MUST NOT carry parameters and a verifier MUST ignore a
+  member that carries them. A member carrying ANY parameter is ignored;
+  when that leaves the covered member unusable the error names the
+  parameter, cites Section 5.2.1, and says to send the JWK Set URL as the
+  bare member value.
+- `signWithWebBotAuth`: `signatureAgentFormat` now defaults to
+  `'dictionary'` with the keyed `"signature-agent";key="<label>"` component
+  (-01 Section 5.2.1 signer MUST); a bare-origin `signatureAgent` is
+  emitted as the origin's well-known directory URL unless the new
+  `legacyBareOrigin: true` asks for the deployed bare-origin form; the
+  `signatureAgentType` input is removed. The `'item'` wire form stays
+  available for reproducing deployed traffic.
+
+### Added
+
+- `signatureAgentIdentifier(entry)`: normalizes an allowlist entry or
+  identifier the way -01 Section 5.5 compares them (RFC 3986 6.2.2/6.2.3,
+  query dropped); an origin-shaped entry means exactly that origin's
+  well-known directory URL.
+- `VerifiedAgentIdentity.signatureAgentUrl` (additive): the resolved
+  Signature-Agent identifier, on every Web Bot Auth verdict. For `url-only`
+  bindings `agent.id` is now the identifier URL rather than the origin;
+  for `domain` bindings it stays the origin.
+
 ## [0.5.0] - 2026-10-26
 
 **Upgrade note.** Web Bot Auth gains algorithm agility: EC P-256 keys parse

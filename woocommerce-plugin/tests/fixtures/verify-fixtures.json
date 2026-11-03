@@ -12,9 +12,9 @@
         "headers": {
           "host": "demo-store.example",
           "content-digest": "sha-256=:bOr7ySKVN1cFwOcEmvDplebnL6158gyYgBli3aT/Tck=:",
-          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3OTA1NDIzNzciLCJpYXQiOjE3OTA1NDIzNzIsImV4cCI6MTc5MDU0Mjk3NywibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
-          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790542377;expires=1790542437;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"a357d7bd-7f6c-4463-96f2-6e7caa1c2cc4\"",
-          "signature": "sig1=:l/fgfpuGnQHpu5uvU2qA/wR8RNr8+GCPyWUaQPS0RSzo5cVcBpJZbAYbwi08UPNipmTk8uIOkONZnIc59L61CA==:"
+          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3OTM3MjI4NjMiLCJpYXQiOjE3OTM3MjI4NTgsImV4cCI6MTc5MzcyMzQ2MywibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
+          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1793722863;expires=1793722923;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"a151f5dd-c298-406a-868a-1f01c68b78fa\"",
+          "signature": "sig1=:6ThCA5K+MWozuxlWmqVMu9MqV0rMVCpPycIrlr3wY6u6duPKGZW798461sD92rs0lYXElnRunDkB3TpBS1LvBA==:"
         },
         "body": "{\"cart\":[{\"sku\":\"WOO-1\",\"qty\":1,\"price_minor\":4999}],\"total_minor\":4999,\"currency\":\"USD\"}"
       },
@@ -34,9 +34,9 @@
             "displayName": "Fixture Buyer"
           },
           "mandate": {
-            "id": "mandate_woo_1790542377",
-            "iat": 1790542372,
-            "exp": 1790542977,
+            "id": "mandate_woo_1793722863",
+            "iat": 1793722858,
+            "exp": 1793723463,
             "maxAmountMinor": 50000,
             "currency": "USD",
             "allowedMerchants": [
@@ -60,9 +60,9 @@
         "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
         "headers": {
           "host": "demo-store.example",
-          "signature-agent": "\"https://agent-demo.ava.example\"",
-          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790542377;expires=1790542677;keyid=\"k7M1gRbIYKJpqGwL39C8ouyhxhaWL9QgrWD49z8AznY\";alg=\"ed25519\";nonce=\"YI7ZylyBHTvjxErJ-PVMubn-if31vxdMbb07oz16XIwqECnXTNWjCc9DF4a3lHPZH0uHzZPmZy8QfKR9zERv2Q\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:4YsXQBTov7M8OWl4deTsZ1AWO3lO/bF38ASpJaphggEj1CkCjoX4jjG6jKPB8e0sgogsDscm/dfWTamtx7EqBg==:"
+          "signature-agent": "sig1=\"https://agent-demo.ava.example/.well-known/http-message-signatures-directory\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\";key=\"sig1\");created=1793722863;expires=1793723163;keyid=\"72qxRhjHYBopQHg-vkwrRDVk4pCEi5m9YBRCmnoEnns\";alg=\"ed25519\";nonce=\"DLys85K50zY0lqPyZwm-DuxBJsHlk2WqWvoeqMI54-bzsSaZrb2XiLbAXjoR63GlJz4jm08wIRHYMzLjWHpI7A\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:xuEZvCSP8fhIdHVKg6TMkaN0YRbkNBRfmAifyavS1FGmOgRQj2wmza0KxBIYjf+l4rCpctBD9zqwQUQfDHcLBQ==:"
         }
       },
       "response": {
@@ -74,8 +74,9 @@
           "agent": {
             "id": "https://agent-demo.ava.example",
             "protocol": "web-bot-auth",
-            "keyThumbprint": "k7M1gRbIYKJpqGwL39C8ouyhxhaWL9QgrWD49z8AznY",
-            "binding": "domain"
+            "keyThumbprint": "72qxRhjHYBopQHg-vkwrRDVk4pCEi5m9YBRCmnoEnns",
+            "binding": "domain",
+            "signatureAgentUrl": "https://agent-demo.ava.example/.well-known/http-message-signatures-directory"
           },
           "ttlSeconds": 60
         }
@@ -89,9 +90,9 @@
         "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
         "headers": {
           "host": "demo-store.example",
-          "signature-agent": "\"https://agent-demo.ava.example\"",
-          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790542377;expires=1790542677;keyid=\"k7M1gRbIYKJpqGwL39C8ouyhxhaWL9QgrWD49z8AznY\";alg=\"ed25519\";nonce=\"MSYFg2WLMSrwLf9ABDHU_uH_MdFplrqktwg3v8ix99YEolCWE5OShtqhq_RAljtSjS_895Z0VeVPGSm33MgpwA\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:Qrr+E4Kko5lNbru4WkL8NBHwp3YKr+u9VJxP8QjytdkXnMrwmhpOC64a9hLbRxzrNIZnQxhNr2Sko1ehID70AA==:"
+          "signature-agent": "sig1=\"https://agent-demo.ava.example/.well-known/http-message-signatures-directory\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\";key=\"sig1\");created=1793722863;expires=1793723163;keyid=\"72qxRhjHYBopQHg-vkwrRDVk4pCEi5m9YBRCmnoEnns\";alg=\"ed25519\";nonce=\"aEje_xptd5oCuTzPecCvc68alOYbwdjemDt8HPBfh6wUPLWBLTEg48gVYljH3SVD0jPzmW9kNqGeetjdjkKvGw\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:DvqjHpmMPzXYidyR82GLIG3e/J9y7gHOFG7RFVwV/7Y+fpNjIEz7PcqCVowZJW0Knxyzs3F1mP0n3PeaJj9mCA==:"
         }
       },
       "response": {
@@ -134,9 +135,9 @@
         "headers": {
           "host": "demo-store.example",
           "content-digest": "sha-256=:bOr7ySKVN1cFwOcEmvDplebnL6158gyYgBli3aT/Tck=:",
-          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3OTA1NDIzNzciLCJpYXQiOjE3OTA1NDIzNzIsImV4cCI6MTc5MDU0Mjk3NywibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
-          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1790542377;expires=1790542437;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"a357d7bd-7f6c-4463-96f2-6e7caa1c2cc4\"",
-          "signature": "sig1=:l/fgfpuGnQHpu5uvU2qA/wR8RNr8+GCPyWUaQPS0RSzo5cVcBpJZbAYbwi08UPNipmTk8uIOkONZnIc59L61CA==:"
+          "x-ava-mandate": "eyJpZCI6Im1hbmRhdGVfd29vXzE3OTM3MjI4NjMiLCJpYXQiOjE3OTM3MjI4NTgsImV4cCI6MTc5MzcyMzQ2MywibWF4QW1vdW50TWlub3IiOjUwMDAwLCJjdXJyZW5jeSI6IlVTRCIsImFsbG93ZWRNZXJjaGFudHMiOlsiZGVtby1zdG9yZS5leGFtcGxlIl0sImJ1eWVyIjp7ImJ1eWVySWQiOiJidXllcl9maXh0dXJlXzAwMSIsImNvdW50cnkiOiJVUyIsImRpc3BsYXlOYW1lIjoiRml4dHVyZSBCdXllciJ9fQ==",
+          "signature-input": "sig1=(\"@method\" \"@target-uri\" \"host\" \"content-digest\" \"x-ava-mandate\");created=1793722863;expires=1793722923;keyid=\"agent_woo_fixture\";alg=\"ed25519\";nonce=\"a151f5dd-c298-406a-868a-1f01c68b78fa\"",
+          "signature": "sig1=:6ThCA5K+MWozuxlWmqVMu9MqV0rMVCpPycIrlr3wY6u6duPKGZW798461sD92rs0lYXElnRunDkB3TpBS1LvBA==:"
         },
         "body": "{\"cart\":[{\"sku\":\"WOO-1\",\"qty\":1,\"price_minor\":4999}],\"total_minor\":4999,\"currency\":\"USD\"}"
       },
@@ -158,9 +159,9 @@
         "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
         "headers": {
           "host": "demo-store.example",
-          "signature-agent": "\"https://agent-demo.ava.example\"",
-          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790542377;expires=1790542677;keyid=\"k7M1gRbIYKJpqGwL39C8ouyhxhaWL9QgrWD49z8AznY\";alg=\"ed25519\";nonce=\"FLMLF_YkL0nQ5f0lG-9dkCJsl4x8s5KlRvePO8mkquLMBXHlX6JVYc8ZyJJ1mcfAILsc2BsjciMehmT9zhk5PQ\";tag=\"other-protocol\"",
-          "signature": "sig1=:TBUlwsu7F28qWUIdeT6hy9CiXV+fsPwGMwkat2mjm3xJ1x5lqHoauw+XKqohBxNGpaBkfX5bgYmn6zN+NLM9Aw==:"
+          "signature-agent": "sig1=\"https://agent-demo.ava.example/.well-known/http-message-signatures-directory\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\";key=\"sig1\");created=1793722863;expires=1793723163;keyid=\"72qxRhjHYBopQHg-vkwrRDVk4pCEi5m9YBRCmnoEnns\";alg=\"ed25519\";nonce=\"tLda8bxLoXTmp3DZLCqAG4LYQd41zK7Gf5RXRnTt8ew3eqH_HcE1gjo1f-MYmmHIavt3kfFtNsI-SVwjSRDguQ\";tag=\"other-protocol\"",
+          "signature": "sig1=:E/b93LG0aK2kU2xalhTZ+fdsXiKyie51vKtqVdQWq+vbmDgnbwmSHgTIQvu/EYqca4R6cN1dE7gQTo850ZeoAQ==:"
         }
       },
       "response": {
@@ -181,9 +182,9 @@
         "url": "https://demo-store.example/wp-json/ava-pay/v1/verify-agent",
         "headers": {
           "host": "demo-store.example",
-          "signature-agent": "\"https://agent-demo.ava.example\"",
-          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\");created=1790542377;expires=1790542677;keyid=\"k7M1gRbIYKJpqGwL39C8ouyhxhaWL9QgrWD49z8AznY\";alg=\"ed25519\";nonce=\"YI7ZylyBHTvjxErJ-PVMubn-if31vxdMbb07oz16XIwqECnXTNWjCc9DF4a3lHPZH0uHzZPmZy8QfKR9zERv2Q\";tag=\"web-bot-auth\"",
-          "signature": "sig1=:4YsXQBTov7M8OWl4deTsZ1AWO3lO/bF38ASpJaphggEj1CkCjoX4jjG6jKPB8e0sgogsDscm/dfWTamtx7EqBg==:"
+          "signature-agent": "sig1=\"https://agent-demo.ava.example/.well-known/http-message-signatures-directory\"",
+          "signature-input": "sig1=(\"@authority\" \"@method\" \"@path\" \"signature-agent\";key=\"sig1\");created=1793722863;expires=1793723163;keyid=\"72qxRhjHYBopQHg-vkwrRDVk4pCEi5m9YBRCmnoEnns\";alg=\"ed25519\";nonce=\"DLys85K50zY0lqPyZwm-DuxBJsHlk2WqWvoeqMI54-bzsSaZrb2XiLbAXjoR63GlJz4jm08wIRHYMzLjWHpI7A\";tag=\"web-bot-auth\"",
+          "signature": "sig1=:xuEZvCSP8fhIdHVKg6TMkaN0YRbkNBRfmAifyavS1FGmOgRQj2wmza0KxBIYjf+l4rCpctBD9zqwQUQfDHcLBQ==:"
         }
       },
       "response": {
@@ -191,7 +192,7 @@
         "body": {
           "trusted": false,
           "reason": "key_directory_unsupported_media_type",
-          "message": "Key directory for \"https://agent-demo.ava.example\" was not served as application/http-message-signatures-directory+json or application/json (Content-Type text/html; charset=utf-8); its body was not parsed.",
+          "message": "Key directory \"https://agent-demo.ava.example/.well-known/http-message-signatures-directory\" was not served under an accepted media type (Content-Type text/html; charset=utf-8); its body was not parsed.",
           "conclusive": false
         }
       }
