@@ -24,9 +24,10 @@
  *   both twins' signed-URL reconstruction.
  * - `"content-digest"`: this endpoint takes a body on POST, and a covered
  *   Content-Digest binds it; a digest that is present is always validated
- *   strictly. An agent signing a bodyless request cannot cover it and MAY
- *   ignore the request (RFC 9421 Section 5.2), which is the standard's own
- *   escape hatch, not a failure.
+ *   strictly, and a digest of the empty body is valid on a bodyless request
+ *   (the verifier checks it against the empty body that arrived). An agent
+ *   MAY also ignore any requested component (RFC 9421 Section 5.2), which is
+ *   the standard's own escape hatch, not a failure.
  * - `"signature-agent";key="sig1"`: -01 Section 5.2.1 requires the member
  *   keyed to the signature label to be signed as a component.
  * - `created;expires`: requested WITHOUT values, which RFC 9421 Section 5.1
