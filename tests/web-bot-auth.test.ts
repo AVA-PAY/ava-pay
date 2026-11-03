@@ -961,6 +961,9 @@ describe('web-bot-auth protocol primitives', () => {
 
 describe('FetchingKeyDirectoryResolver', () => {
   const ORIGIN = 'https://agent.example';
+  // resolve() takes the normalized identifier (what parseSignatureAgent
+  // produces); an ORIGIN allowlist entry admits exactly this URL.
+  const WELL_KNOWN = `${ORIGIN}/.well-known/http-message-signatures-directory`;
   let keys: AgentKeyPair;
   let directoryBody: string;
 
@@ -984,9 +987,22 @@ describe('FetchingKeyDirectoryResolver', () => {
   it('never fetches origins outside the allowlist (SSRF guard)', async () => {
     const { impl, calls } = fakeFetch(() => new Response(directoryBody, DIRECTORY_TYPE));
     const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
-    expect(await resolver.resolve('https://internal.metadata.example')).toEqual({
+    expect(await resolver.resolve('https://internal.metadata.example/.well-known/http-message-signatures-directory')).toEqual({
       status: 'not_allowed',
     });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('never expands a request identifier: a "/" path is not the well-known entry', async () => {
+    // The configuration rule (origin means its well-known URL) applies to
+    // allowlist ENTRIES only. A request-derived identifier is compared
+    // verbatim: "https://agent.example/" is what parseSignatureAgent produces
+    // for the member value "https://agent.example/?x", and expanding it here
+    // would alias that caller-chosen value onto the host's genuine entry.
+    const { impl, calls } = fakeFetch(() => new Response(directoryBody, DIRECTORY_TYPE));
+    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
+    expect(await resolver.resolve(ORIGIN)).toEqual({ status: 'not_allowed' });
+    expect(await resolver.resolve(`${ORIGIN}/`)).toEqual({ status: 'not_allowed' });
     expect(calls).toHaveLength(0);
   });
 
@@ -994,12 +1010,12 @@ describe('FetchingKeyDirectoryResolver', () => {
     const { impl, calls } = fakeFetch(() => new Response(directoryBody, DIRECTORY_TYPE));
     const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
 
-    const first = await resolver.resolve(ORIGIN);
+    const first = await resolver.resolve(WELL_KNOWN);
     if (first.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(first)}`);
     expect(first.keys[0]?.thumbprint).toBe(webBotAuthKeyId(keys.publicKey));
-    expect(calls).toEqual([`${ORIGIN}/.well-known/http-message-signatures-directory`]);
+    expect(calls).toEqual([WELL_KNOWN]);
 
-    await resolver.resolve(ORIGIN);
+    await resolver.resolve(WELL_KNOWN);
     expect(calls).toHaveLength(1); // served from cache
   });
 
@@ -1016,7 +1032,7 @@ describe('FetchingKeyDirectoryResolver', () => {
         allowedOrigins: [ORIGIN],
         fetchImpl: fakeFetch(handler as (url: string) => Response).impl,
       });
-      expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
+      expect((await resolver.resolve(WELL_KNOWN)).status).toBe('unavailable');
     }
   });
 
@@ -1026,7 +1042,7 @@ describe('FetchingKeyDirectoryResolver', () => {
       allowedOrigins: [ORIGIN],
       fetchImpl: fakeFetch(() => new Response(huge, DIRECTORY_TYPE)).impl,
     });
-    expect((await resolver.resolve(ORIGIN)).status).toBe('unavailable');
+    expect((await resolver.resolve(WELL_KNOWN)).status).toBe('unavailable');
   });
 
   // -02 Section 5.5 requires 200 (OK) and forbids following redirects. These
@@ -1048,7 +1064,7 @@ describe('FetchingKeyDirectoryResolver', () => {
     });
     // Even with the redirect target allowlisted, and serving a directory that
     // would have parsed, the hop is not taken.
-    expect((await resolver.resolve(ORIGIN)).status).toBe('redirected');
+    expect((await resolver.resolve(WELL_KNOWN)).status).toBe('redirected');
     expect(calls).toEqual([`${ORIGIN}/.well-known/http-message-signatures-directory`]);
   });
 
@@ -1063,7 +1079,7 @@ describe('FetchingKeyDirectoryResolver', () => {
           }),
         ).impl,
       });
-      const resolution = await resolver.resolve(ORIGIN);
+      const resolution = await resolver.resolve(WELL_KNOWN);
       expect(resolution.status).toBe('redirected');
       expect(resolution.status === 'redirected' && resolution.detail).toBe(`HTTP ${status}`);
     }
@@ -1077,7 +1093,7 @@ describe('FetchingKeyDirectoryResolver', () => {
       }),
     );
     const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
-    expect((await resolver.resolve(ORIGIN)).status).toBe('redirected');
+    expect((await resolver.resolve(WELL_KNOWN)).status).toBe('redirected');
     expect(calls).toHaveLength(1);
   });
 
@@ -1087,7 +1103,7 @@ describe('FetchingKeyDirectoryResolver', () => {
         allowedOrigins: [ORIGIN],
         fetchImpl: fakeFetch(() => new Response(null, { status })).impl,
       });
-      const resolution = await resolver.resolve(ORIGIN);
+      const resolution = await resolver.resolve(WELL_KNOWN);
       expect(resolution.status).toBe('unavailable');
       expect(resolution.status === 'unavailable' && resolution.detail).toBe(`HTTP ${status}`);
     }
@@ -1119,24 +1135,134 @@ describe('FetchingKeyDirectoryResolver under -01 (identifier keying, media types
     return { impl, calls };
   }
 
-  it('fetches a query as sent, drops it from the identifier: two spellings, one fetch, one entry', async () => {
+  it('drops a member query everywhere: two spellings, one fetch, and the fetch is the identifier', async () => {
     const JWKS_URL = `${ORIGIN}/jwks.json`;
     const { impl, calls } = fakeFetch(() =>
       new Response(directoryBody, { headers: { 'content-type': 'application/jwk-set+json' } }),
     );
     const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [JWKS_URL], fetchImpl: impl });
+    const verifier = new WebBotAuthVerifier({ resolver, now: () => FIXED_NOW });
 
-    // First spelling carries a query: the request keeps it (-01 §5.5 "fetches
-    // the member value as sent")...
-    const first = await resolver.resolve(JWKS_URL, `${JWKS_URL}?v=2`);
-    expect(first.status).toBe('ok');
-    expect(calls).toEqual([`${JWKS_URL}?v=2`]);
+    // Two query spellings of one identifier: both verify as the same
+    // identity through the identifier's single cache entry, and the one
+    // network request is the identifier itself, with neither query. Sending
+    // a caller's query is the deliberate -01 §5.5 deviation documented on
+    // the resolver: a spelling the host answers differently would displace
+    // the entry every other spelling shares.
+    for (const spelling of [`${JWKS_URL}?v=2`, `${JWKS_URL}?v=3`]) {
+      const signed = signWithWebBotAuth({
+        method: 'GET',
+        url: MERCHANT_URL,
+        signatureAgent: spelling,
+        privateKey: keys.privateKey,
+        created: FIXED_NOW - 5,
+      });
+      const result = await verifier.verify(toIncoming(signed));
+      if (!result.trusted) {
+        throw new Error(`expected trusted for ${spelling}, got ${JSON.stringify(result)}`);
+      }
+      expect(result.agent?.id).toBe(JWKS_URL);
+      expect(result.agent?.signatureAgentUrl).toBe(JWKS_URL);
+    }
+    expect(calls).toEqual([JWKS_URL]);
+  });
 
-    // ...and the second spelling shares the identifier's cache entry, so a
-    // query cannot mint fetches (or identifiers).
-    const second = await resolver.resolve(JWKS_URL, `${JWKS_URL}?v=3`);
-    expect(second.status).toBe('ok');
-    expect(calls).toHaveLength(1);
+  it('a query on an allowlisted host root is unknown_signature_agent and nothing is fetched (office finding 2026-11-03)', async () => {
+    // sig1="https://agent.example/?x" is NOT a legacy bare origin (it has a
+    // query), so its identifier is "https://agent.example/", which no entry
+    // can express: an ORIGIN entry means exactly the well-known URL. Before
+    // the resolver stopped re-normalizing request identifiers, the "/" path
+    // expanded to the well-known URL, the allowlist passed, the caller's ?x
+    // was fetched on the host root, and the HTML failure was cached under
+    // the host's genuine identifier: one throwaway-key request made real
+    // bare-origin traffic fail for the failure TTL, repeatably.
+    const { impl, calls } = fakeFetch(() => new Response(directoryBody, DIRECTORY_TYPE));
+    const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
+    const verifier = new WebBotAuthVerifier({ resolver, now: () => FIXED_NOW });
+
+    // Both wire forms: the keyed dictionary and the bare sf-string.
+    for (const format of ['dictionary', 'item'] as const) {
+      const poisoned = signWithWebBotAuth({
+        method: 'GET',
+        url: MERCHANT_URL,
+        signatureAgent: `${ORIGIN}/?x`,
+        signatureAgentFormat: format,
+        privateKey: keys.privateKey,
+        created: FIXED_NOW - 5,
+      });
+      expect(await verifier.verify(toIncoming(poisoned))).toMatchObject({
+        trusted: false,
+        reason: 'unknown_signature_agent',
+      });
+    }
+    expect(calls).toHaveLength(0);
+
+    // The host's genuine bare-origin traffic is untouched and verifies.
+    const genuine = signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: ORIGIN,
+      privateKey: keys.privateKey,
+      created: FIXED_NOW - 5,
+    });
+    const result = await verifier.verify(toIncoming(genuine));
+    if (!result.trusted) throw new Error(`expected trusted, got ${JSON.stringify(result)}`);
+    expect(calls).toEqual([WELL_KNOWN]);
+  });
+
+  it('StaticSignatureAgentKeys compares request identifiers verbatim too', async () => {
+    const resolver = new StaticSignatureAgentKeys();
+    resolver.add(ORIGIN, JSON.parse(directoryBody));
+    expect(await resolver.resolve(`${ORIGIN}/`)).toEqual({ status: 'not_allowed' });
+
+    const verifier = new WebBotAuthVerifier({ resolver, now: () => FIXED_NOW });
+    const poisoned = signWithWebBotAuth({
+      method: 'GET',
+      url: MERCHANT_URL,
+      signatureAgent: `${ORIGIN}/?x`,
+      privateKey: keys.privateKey,
+      created: FIXED_NOW - 5,
+    });
+    expect(await verifier.verify(toIncoming(poisoned))).toMatchObject({
+      trusted: false,
+      reason: 'unknown_signature_agent',
+    });
+  });
+
+  it('a query on the well-known URL itself cannot displace the canonical entry: the query is never sent', async () => {
+    // The displacement under fetch-as-sent: a host that answers ?x
+    // differently (a 500, or a 200 with an empty key set, which §6.10 treats
+    // as evidence) would have its canonical entry evicted by one request
+    // spelling the member value with ?x. The resolver never sends the query,
+    // so whatever ?x would have answered stays unreachable and the canonical
+    // spelling keeps resolving the same keys.
+    for (const queryAnswer of [
+      () => new Response('boom', { status: 500 }),
+      () => new Response(JSON.stringify({ keys: [] }), DIRECTORY_TYPE),
+    ]) {
+      const { impl, calls } = fakeFetch((u) =>
+        u.includes('?') ? queryAnswer() : new Response(directoryBody, DIRECTORY_TYPE),
+      );
+      const resolver = new FetchingKeyDirectoryResolver({ allowedOrigins: [ORIGIN], fetchImpl: impl });
+      const verifier = new WebBotAuthVerifier({ resolver, now: () => FIXED_NOW });
+
+      for (const spelling of [`${WELL_KNOWN}?x`, WELL_KNOWN]) {
+        const signed = signWithWebBotAuth({
+          method: 'GET',
+          url: MERCHANT_URL,
+          signatureAgent: spelling,
+          privateKey: keys.privateKey,
+          created: FIXED_NOW - 5,
+        });
+        const result = await verifier.verify(toIncoming(signed));
+        if (!result.trusted) {
+          throw new Error(`expected trusted for ${spelling}, got ${JSON.stringify(result)}`);
+        }
+        expect(result.agent?.id).toBe(ORIGIN);
+      }
+      // One fetch for both spellings, and it carries no query.
+      expect(calls).toEqual([WELL_KNOWN]);
+    }
   });
 
   it('accepts application/jwk-set+json off the well-known URL and refuses it on it', async () => {
@@ -1267,6 +1393,7 @@ describe('FetchingKeyDirectoryResolver under -01 (identifier keying, media types
 
 describe('WebBotAuthVerifier Appendix B proof-of-possession (real crypto)', () => {
   const ORIGIN = 'https://agent.example';
+  const WELL_KNOWN = `${ORIGIN}/.well-known/http-message-signatures-directory`;
   const HOST = 'agent.example';
   let keys: AgentKeyPair;
 
@@ -1316,12 +1443,12 @@ describe('WebBotAuthVerifier Appendix B proof-of-possession (real crypto)', () =
   }
 
   it('classifies proof status at the resolver: valid when it verifies, invalid otherwise', async () => {
-    const good = await fetchingResolver(signedDirectoryFetch(HOST)).resolve(ORIGIN);
+    const good = await fetchingResolver(signedDirectoryFetch(HOST)).resolve(WELL_KNOWN);
     if (good.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(good)}`);
     expect(good.keys[0]?.proof).toBe('valid');
 
     // Proof signed for the wrong authority does not bind to the serving host.
-    const bad = await fetchingResolver(signedDirectoryFetch('wrong.example')).resolve(ORIGIN);
+    const bad = await fetchingResolver(signedDirectoryFetch('wrong.example')).resolve(WELL_KNOWN);
     if (bad.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(bad)}`);
     expect(bad.keys[0]?.proof).toBe('invalid');
   });
@@ -1332,7 +1459,7 @@ describe('WebBotAuthVerifier Appendix B proof-of-possession (real crypto)', () =
         JSON.stringify({ keys: [keys.publicKey.export({ format: 'jwk' })] }),
         DIRECTORY_TYPE,
       )) as unknown as typeof fetch;
-    const res = await fetchingResolver(plain).resolve(ORIGIN);
+    const res = await fetchingResolver(plain).resolve(WELL_KNOWN);
     if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.keys[0]?.proof).toBe('absent');
   });
@@ -1870,6 +1997,7 @@ function rawToDer(raw: Buffer): Buffer {
 
 describe('FetchingKeyDirectoryResolver cache freshness (Cache-Control / Age)', () => {
   const ORIGIN = 'https://agent.example';
+  const WELL_KNOWN = `${ORIGIN}/.well-known/http-message-signatures-directory`;
   let directoryBody: string;
 
   beforeEach(() => {
@@ -1898,13 +2026,13 @@ describe('FetchingKeyDirectoryResolver cache freshness (Cache-Control / Age)', (
       fetchImpl: impl,
       nowMs: () => nowMs,
     });
-    await resolver.resolve(ORIGIN);
+    await resolver.resolve(WELL_KNOWN);
     expect(calls).toHaveLength(1);
     nowMs += 9_000; // still inside the 10 s the edge's copy has left
-    await resolver.resolve(ORIGIN);
+    await resolver.resolve(WELL_KNOWN);
     expect(calls).toHaveLength(1);
     nowMs += 2_000; // 11 s after our fetch: the copy has expired everywhere
-    await resolver.resolve(ORIGIN);
+    await resolver.resolve(WELL_KNOWN);
     expect(calls).toHaveLength(2);
   });
 
@@ -1919,12 +2047,12 @@ describe('FetchingKeyDirectoryResolver cache freshness (Cache-Control / Age)', (
         nowMs: () => nowMs,
         cacheTtlMs: 60_000,
       });
-      await resolver.resolve(ORIGIN);
+      await resolver.resolve(WELL_KNOWN);
       nowMs += 59_000;
-      await resolver.resolve(ORIGIN);
+      await resolver.resolve(WELL_KNOWN);
       expect(calls).toHaveLength(1);
       nowMs += 2_000;
-      await resolver.resolve(ORIGIN);
+      await resolver.resolve(WELL_KNOWN);
       expect(calls).toHaveLength(2);
     }
   });
@@ -1964,7 +2092,7 @@ describe('the frozen ES256 Web Bot Auth fixture', () => {
   });
 
   it('classifies the EC Appendix B proof valid at the resolver', async () => {
-    const res = await fixtureResolver().resolve(fixture.origin);
+    const res = await fixtureResolver().resolve(`${fixture.origin}/.well-known/http-message-signatures-directory`);
     if (res.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.keys.map((k) => [k.thumbprint, k.proof])).toEqual([[fixture.thumbprint, 'valid']]);
   });

@@ -318,7 +318,9 @@ describe('key directory media-type gate', () => {
 
   it('a real JWK Set served as text/html does not verify and does not read as unknown_key', async () => {
     const resolver = resolverFor('text/html; charset=utf-8');
-    expect(await resolver.resolve(AGENT_ORIGIN)).toMatchObject({ status: 'unsupported_media_type' });
+    expect(
+      await resolver.resolve(`${AGENT_ORIGIN}/.well-known/http-message-signatures-directory`),
+    ).toMatchObject({ status: 'unsupported_media_type' });
 
     const verifier = new WebBotAuthVerifier({ resolver: resolverFor('text/html'), now: () => FIXED_NOW });
     const result = await verifier.verify(signedRequest());

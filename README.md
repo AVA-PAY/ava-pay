@@ -124,7 +124,11 @@ value is an https URL to a JWK Set, identified by its normalized form with
 the query dropped. An allowlist entry that is an origin admits EXACTLY that
 origin's `/.well-known/http-message-signatures-directory` URL, never other
 paths on the origin; an entry that is a full https URL admits exactly that
-identifier (verified with `url-only` binding).
+identifier (verified with `url-only` binding). The verifier fetches the
+identifier itself, never a caller-chosen query (a deliberate deviation from
+Section 5.5's fetch-as-sent: query spellings share one cache entry, so a
+spelling the host answers differently could displace the key set every
+other spelling shares).
 
 Legacy bare-origin tolerance, on by default: a Signature-Agent value that is
 a bare origin (what chatgpt.com, agent.bot.goog and shopify.com all still

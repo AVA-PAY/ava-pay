@@ -62,7 +62,9 @@ const byId = (id: string) => vectors.find((v) => v.id === id);
 class OneOrigin implements SignatureAgentKeyResolver {
   constructor(private readonly entry: string) {}
   async resolve(identifier: string): Promise<KeyDirectoryResolution> {
-    if (signatureAgentIdentifier(identifier) !== signatureAgentIdentifier(this.entry)) {
+    // Entry normalized (config rule); request identifier compared VERBATIM
+    // per the resolver contract (never expand a "/" path).
+    if (identifier !== signatureAgentIdentifier(this.entry)) {
       return { status: 'not_allowed' };
     }
     return {

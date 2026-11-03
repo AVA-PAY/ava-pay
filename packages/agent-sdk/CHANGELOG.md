@@ -11,9 +11,12 @@ breaking on each entry.
 **Upgrade note.** Web Bot Auth moves to
 draft-ietf-webbotauth-httpsig-protocol-01 (published 2026-10-29), which
 redefined what a Signature-Agent value is: an https URL to a JWK Set,
-fetched as sent and identified by its normalized form with the query dropped
-(Section 5.5). The well-known URL is the special case that also names a
-domain (Section 4.5). Deployed bare origins (chatgpt.com, agent.bot.goog,
+identified by its normalized form with the query dropped (Section 5.5). The
+well-known URL is the special case that also names a domain (Section 4.5).
+Section 5.5 says to fetch the member value as sent; this package's docs and
+the AVA Pay verifier instead fetch the identifier, because under
+fetch-as-sent one query spelling the host answers differently could displace
+the cache entry every spelling shares (see `SignatureAgentValue.fetchUrl`). Deployed bare origins (chatgpt.com, agent.bot.goog,
 shopify.com, measured 2026-10-31) keep resolving at the well-known path
 through an on-by-default legacy tolerance.
 

@@ -79,7 +79,10 @@ class VectorDirectoryResolver implements SignatureAgentKeyResolver {
     const dir = this.vector.directory;
     if (!dir) return { status: 'not_allowed' };
     const allowed = signatureAgentIdentifier(this.forceIdentifier ?? dir.url);
-    if (signatureAgentIdentifier(identifier) !== allowed) return { status: 'not_allowed' };
+    // Entry side normalized above (config rule); the request identifier is
+    // compared VERBATIM, matching the resolver contract: re-normalizing it
+    // would expand a "/" path onto the well-known entry.
+    if (identifier !== allowed) return { status: 'not_allowed' };
     if (dir.status !== 200) return { status: 'unavailable' };
     let keys;
     try {

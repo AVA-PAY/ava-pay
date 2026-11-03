@@ -59,7 +59,8 @@ import { InMemoryReplayGuard, type ReplayGuard } from './replay.js';
  *      lookup per §5.4, replay namespace) keys on it.
  *   5. Covered components must include @authority or @target-uri (binds the
  *      signature to this merchant; spec MUST).
- *   6. Resolve the identifier's JWK Set (allowlist → fetch as sent → parse),
+ *   6. Resolve the identifier's JWK Set (allowlist → fetch the identifier,
+ *      never a caller-chosen query → parse),
  *      find the key whose RFC 7638 thumbprint equals keyid, falling back to
  *      the advertised kid with a warning (the label is a selector, never the
  *      identity), and check its nbf/exp.
@@ -112,13 +113,19 @@ export type KeyDirectoryResolution =
  * publishes.
  *
  * `identifier` is the normalized Signature-Agent identifier (a full https
- * URL, query dropped; -01 §5.5). A bare https origin is accepted too and
- * means exactly that origin's well-known directory URL. `fetchUrl`, when
- * given, is what to GET on a cache miss: the member value as sent, so a
- * query survives on the request while the cache stays keyed by identifier.
+ * URL, query dropped; -01 §5.5): what parseSignatureAgent().identifier
+ * produces, or signatureAgentIdentifier() applied to a configuration entry.
+ * Implementations compare it against their trust set VERBATIM. They must
+ * never re-apply the configuration-entry rule that expands a "/" path to the
+ * well-known URL: the identifier of the member value "https://host/?x" is
+ * "https://host/", and expanding it would alias that caller-chosen value
+ * onto the host's genuine directory entry, letting one request poison the
+ * cache entry every real request shares. Implementations fetch exactly the
+ * identifier, never a caller-supplied variant of it (a deliberate deviation
+ * from -01 §5.5's fetch-as-sent; see FetchingKeyDirectoryResolver).
  */
 export interface SignatureAgentKeyResolver {
-  resolve(identifier: string, fetchUrl?: string): Promise<KeyDirectoryResolution>;
+  resolve(identifier: string): Promise<KeyDirectoryResolution>;
 }
 
 export interface WebBotAuthVerifierOptions {
@@ -382,7 +389,6 @@ export class WebBotAuthVerifier implements AgentVerifier {
 
     let origin: string;
     let identifier: string;
-    let fetchUrl: string;
     // Binding strength (D3) reflects the URL's shape (-01 §4.5): the
     // well-known directory URL names a domain; any other path names only
     // itself, which is what a merchant prices.
@@ -398,7 +404,6 @@ export class WebBotAuthVerifier implements AgentVerifier {
           : parseSignatureAgent(sigAgentHeader, parsedInput.label);
       origin = parsedAgent.origin;
       identifier = parsedAgent.identifier;
-      fetchUrl = parsedAgent.fetchUrl;
       binding = parsedAgent.binding;
     } catch (err) {
       return err instanceof WebBotAuthParseError
@@ -433,7 +438,7 @@ export class WebBotAuthVerifier implements AgentVerifier {
     // ── 6. Key directory resolution ───────────────────────────────────────
     let resolution: KeyDirectoryResolution;
     try {
-      resolution = await this.resolver.resolve(identifier, fetchUrl);
+      resolution = await this.resolver.resolve(identifier);
     } catch {
       resolution = { status: 'unavailable' };
     }
@@ -730,9 +735,12 @@ export class StaticSignatureAgentKeys implements SignatureAgentKeyResolver {
   }
 
   async resolve(identifier: string): Promise<KeyDirectoryResolution> {
-    const id = signatureAgentIdentifier(identifier);
-    if (this.unavailable.has(id)) return { status: 'unavailable' };
-    const keys = this.byIdentifier.get(id);
+    // Entries were normalized at add(); the request identifier is compared
+    // VERBATIM. Re-normalizing here with the entry rule would expand the "/"
+    // path, aliasing the identifier of "https://host/?x" onto the host's
+    // well-known entry (the resolver-interface contract).
+    if (this.unavailable.has(identifier)) return { status: 'unavailable' };
+    const keys = this.byIdentifier.get(identifier);
     if (!keys) return { status: 'not_allowed' };
     // A static key list carries no wire response, hence no proof-of-possession:
     // proof is honestly 'absent' (tolerated under grace, dropped without it).
@@ -789,10 +797,18 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
  * Fetches a Signature-Agent identifier's JWK Set URL, bounded and cached.
  *
  * Keying is by identifier (-01 §5.4: key lookup MUST be keyed on the
- * (URL, key) pair): the allowlist, the cache and the stale-on-error state
- * all use the normalized identifier, while the network request uses the
- * member value as sent, query included (§5.5), so query spellings share one
- * cache entry and cannot mint fetches.
+ * (URL, key) pair): the allowlist, the cache, the stale-on-error state AND
+ * the network request all use the normalized identifier. Fetching the
+ * identifier rather than the member value as sent is a deliberate deviation
+ * from -01 §5.5. Under fetch-as-sent, every query spelling shares the one
+ * cache entry its identifier names, so any spelling that makes the directory
+ * host answer differently (an error, a WAF page, or a 200 with a different
+ * key set, which §6.10 treats as evidence) would displace the entry every
+ * other spelling shares: one request carrying a chosen query could evict the
+ * canonical key set for the whole failure window. §5.5's own rationale is
+ * that the query is not identity, and §6.7 says to constrain what is
+ * dereferenced, so a member value's query is accepted, dropped from the
+ * identifier, and never sent.
  *
  * Fetch discipline: the response MUST be 200 (OK) and redirects are never
  * followed, both required by -01 Section 5.5; https only; 5s timeout; 64 KiB
@@ -871,15 +887,23 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
     this.onWarning = opts.onWarning ?? ((message) => console.warn(message));
   }
 
-  async resolve(identifier: string, fetchUrl?: string): Promise<KeyDirectoryResolution> {
-    const id = signatureAgentIdentifier(identifier);
+  async resolve(identifier: string): Promise<KeyDirectoryResolution> {
+    // Allowlist entries were normalized at construction; the request
+    // identifier is compared VERBATIM. Re-normalizing here with the entry
+    // rule would expand a "/" path to the well-known URL, so the identifier
+    // of "https://host/?x" (which is "https://host/") would pass the
+    // allowlist of an allowlisted host, the caller-chosen query would be
+    // fetched, and its answer cached under the host's genuine identifier
+    // (the resolver-interface contract; office finding 2026-11-03).
+    const id = identifier;
     if (!this.allowed.has(id)) return { status: 'not_allowed' };
 
     const cached = this.cache.get(id);
     const now = this.nowMs();
     if (cached && cached.until > now) return cached.value;
 
-    const { value, freshForMs, resolved } = await this.fetchDirectory(id, fetchUrl ?? id);
+    // Fetch exactly the identifier (the §5.5 deviation in the class doc).
+    const { value, freshForMs, resolved } = await this.fetchDirectory(id);
     if (value.status === 'ok') {
       this.lastGood.set(id, { value, fetchedAtMs: now, staleWarned: false });
       const ttl = Math.min(this.cacheTtlMs, freshForMs ?? Number.POSITIVE_INFINITY);
@@ -916,13 +940,12 @@ export class FetchingKeyDirectoryResolver implements SignatureAgentKeyResolver {
   }
 
   private async fetchDirectory(
-    identifier: string,
     url: string,
   ): Promise<{ value: KeyDirectoryResolution; freshForMs?: number; resolved: boolean }> {
     // -01 §5.5.1: the registered directory media type is a MUST at the
     // well-known URL; elsewhere a JWK Set may serve other consumers under its
     // own media type.
-    const wellKnown = isWellKnownDirectoryUrl(identifier);
+    const wellKnown = isWellKnownDirectoryUrl(url);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {

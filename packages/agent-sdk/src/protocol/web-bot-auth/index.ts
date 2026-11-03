@@ -100,9 +100,16 @@ export interface SignatureAgentValue {
   /** The decoded member value exactly as sent, e.g. "https://chatgpt.com". */
   target: string;
   /**
-   * The URL a verifier GETs for this member: -01 §5.5 "The verifier fetches
-   * the member value as sent", so a query survives here (and only here). For
-   * a legacy bare origin this is the origin's well-known directory URL.
+   * The URL -01 §5.5 tells a verifier to GET for this member ("The verifier
+   * fetches the member value as sent"), so a query survives here (and only
+   * here). For a legacy bare origin this is the origin's well-known
+   * directory URL. NOTE: this repo's resolvers deliberately fetch the
+   * `identifier` instead of this URL. Under fetch-as-sent, every query
+   * spelling shares the one cache entry its identifier names, so a
+   * caller-chosen query whose answer differs (an error, or a 200 with a
+   * different key set, which §6.10 treats as evidence) would displace the
+   * entry every other spelling shares. The field reports what the header
+   * said, for consumers that make a different trade-off.
    */
   fetchUrl: string;
   /**
@@ -313,6 +320,13 @@ export function parseSignatureAgent(
  * because a JWK Set at an arbitrary path does not name the host's operator
  * ("TLS authenticates the host but not the path", -01 §5.5). A full https URL
  * means exactly that identifier, query and fragment dropped.
+ *
+ * CONFIGURATION ENTRIES ONLY. Never apply this to a request-derived
+ * identifier: parseSignatureAgent gives the member value "https://host/?x"
+ * the identifier "https://host/", and expanding that "/" path here would
+ * alias it onto the host's well-known directory entry, which is how a
+ * caller-chosen query could poison an allowlisted host's cache entry.
+ * Resolvers compare request identifiers verbatim.
  */
 export function signatureAgentIdentifier(entry: string): string {
   const url = new URL(entry);
