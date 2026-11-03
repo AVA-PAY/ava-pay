@@ -57,7 +57,7 @@ class AVA_Pay_Rest {
 
 	public static function handle_ping() {
 		$problems = AVA_Pay_Verify_Flow::signed_url_problems( self::signed_url() );
-		return new WP_REST_Response(
+		$response = new WP_REST_Response(
 			array(
 				'ok'       => true,
 				'service'  => 'ava-pay-woocommerce',
@@ -68,6 +68,11 @@ class AVA_Pay_Rest {
 			),
 			200
 		);
+		// -01 Section 5.3: an origin that expects a signature SHOULD request
+		// one. The ping is where an integrator first looks, so the request for
+		// a signed call rides on it.
+		$response->header( AVA_Pay_Accept_Signature::HEADER, AVA_Pay_Accept_Signature::VALUE );
+		return $response;
 	}
 
 	/** Canonical URL agents must sign against (see file docblock). */
@@ -173,7 +178,18 @@ class AVA_Pay_Rest {
 
 		AVA_Pay_Events::record_verification( $event );
 
-		return self::json( $response, 200 );
+		$rest_response = self::json( $response, 200 );
+		// -01 Section 5.3: include Accept-Signature on refusals so an unsigned
+		// or unverified caller learns what a signed request must look like.
+		// Gated on the VERIFICATION outcome, not on `allow`: a trusted agent
+		// that policy blocked already signs the way we need.
+		$trusted = ! empty( $call['ok'] )
+			&& isset( $call['result']['trusted'] ) && true === $call['result']['trusted'];
+		$accept = AVA_Pay_Accept_Signature::for_outcome( $trusted );
+		if ( null !== $accept ) {
+			$rest_response->header( AVA_Pay_Accept_Signature::HEADER, $accept );
+		}
+		return $rest_response;
 	}
 
 	/**

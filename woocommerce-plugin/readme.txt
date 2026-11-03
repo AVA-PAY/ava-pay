@@ -4,7 +4,7 @@ Tags: ai agents, agentic commerce, bot verification, coupons, security
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.1
+Stable tag: 0.4.2
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -98,6 +98,9 @@ Privacy policy: https://avalayer.com/privacy
 
 == Changelog ==
 
+= 0.4.2 =
+* The verify endpoint now tells unsigned and unverified callers how to send a signed request: its answers carry an Accept-Signature header (RFC 9421 Section 5) describing the signature this site accepts. Responses to requests that verified do not carry it. Nothing else changes: no request is blocked or treated differently because of this header.
+
 = 0.4.1 =
 * Security hardening: verdicts from AVA Pay's public demo agent (the credential behind the landing-page demo, whose signing key is published on purpose) never create a coupon, whatever your discount settings, per-platform rules or identity-only percentage say. The verification API already refuses such verdicts a buyer mandate; this release adds the plugin's own check on top. Demo verify requests are recorded as test visits, and demo page visits are marked `demo_agent` on the Agent visits screen. The verify endpoint's answer to a demo request now includes `"demo": true`.
 * New: while WooCommerce's Coming soon mode hides your store, the AVA Pay settings page and the Agent visits screen say so, say which pages agents cannot see, and link to WooCommerce's Site visibility settings. The plugin only tells you; it never changes your store's visibility. Nothing is shown on other admin screens.
@@ -123,6 +126,9 @@ Privacy policy: https://avalayer.com/privacy
 * Initial release: verify endpoint, merchant policy engine (per-platform rules), single-use coupon minting, verification + commerce event recording.
 
 == Upgrade Notice ==
+
+= 0.4.2 =
+The verify endpoint now tells AI agents how to send a signed request (Accept-Signature header). No behaviour change for shoppers or for verified agents.
 
 = 0.4.1 =
 Demo agent visits never create a coupon, and the plugin now tells you when Coming soon mode hides your store from AI agents.

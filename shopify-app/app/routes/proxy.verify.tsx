@@ -12,6 +12,7 @@ import {
   type ProxyResponseBody,
 } from '../lib/verify-flow.js';
 import { resolveVisitSource } from '../lib/storefront-visit.js';
+import { acceptSignatureHeaders } from '../lib/accept-signature.js';
 
 /**
  * App Proxy endpoint:  https://{shop}.myshopify.com/apps/ava-pay/verify
@@ -39,13 +40,24 @@ import { resolveVisitSource } from '../lib/storefront-visit.js';
  */
 
 /** Resource route: always emit a real JSON Response (no UI data serialization). */
-function proxyJson(body: ProxyResponseBody, status = 200): Response {
-  return Response.json(body, { status });
+function proxyJson(
+  body: ProxyResponseBody,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
+  return Response.json(body, { status, headers });
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await authenticate.public.appProxy(request);
-  return Response.json({ ok: true, service: 'ava-pay-proxy' });
+  // -01 Section 5.3: an origin that expects a signature SHOULD request one.
+  // The ping is where an integrator first looks, so the request for a signed
+  // call rides on it. NOTE: Shopify's app proxy may strip response headers;
+  // what reaches the agent through the live proxy needs a production probe.
+  return Response.json(
+    { ok: true, service: 'ava-pay-proxy' },
+    { headers: acceptSignatureHeaders(false) },
+  );
 }
 
 /**
@@ -139,8 +151,17 @@ async function handleVerify({ request }: ActionFunctionArgs) {
     data: { shop, ...recorded, source },
   });
 
-  return proxyJson({
-    ...response,
-    ...(discount ? { discount: { code: discount.code, percentage: discount.percentage } } : {}),
-  });
+  // -01 Section 5.3: include Accept-Signature on refusals so an unsigned or
+  // unverified caller learns what a signed request must look like. Gated on
+  // the VERIFICATION outcome, not on `allow`: a trusted agent that policy
+  // blocked already signs the way we need.
+  const trusted = verifyCall.ok && verifyCall.result.trusted === true;
+  return proxyJson(
+    {
+      ...response,
+      ...(discount ? { discount: { code: discount.code, percentage: discount.percentage } } : {}),
+    },
+    200,
+    acceptSignatureHeaders(trusted),
+  );
 }
